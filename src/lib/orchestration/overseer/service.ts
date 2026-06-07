@@ -821,6 +821,25 @@ export function appendOverseerMessage(input: {
   return listOverseerMessages(session.id, db).messages.find((message) => message.id === id)!;
 }
 
+export function updateOverseerMessageMetadata(input: {
+  sessionId: string;
+  messageId: string;
+  metadata: Record<string, unknown>;
+  db?: Database.Database;
+}): OverseerMessage {
+  const db = input.db ?? getOrchestrationDb();
+  const session = getOverseerSession(input.sessionId, db);
+  const row = db
+    .prepare("SELECT * FROM overseer_session_messages WHERE id = ? AND session_id = ? LIMIT 1")
+    .get(input.messageId, session.id) as MessageRow | undefined;
+  if (!row) throw new OrchestrationApiError(404, "overseer_message_not_found", "Overseer message not found");
+  const now = new Date().toISOString();
+  db.prepare("UPDATE overseer_session_messages SET metadata_json = ? WHERE id = ? AND session_id = ?")
+    .run(JSON.stringify(input.metadata), input.messageId, session.id);
+  db.prepare("UPDATE overseer_sessions SET updated_at = ? WHERE id = ?").run(now, session.id);
+  return listOverseerMessages(session.id, db).messages.find((message) => message.id === input.messageId)!;
+}
+
 export function listOverseerMessages(sessionId: string, db = getOrchestrationDb()): { messages: OverseerMessage[] } {
   const rows = db
     .prepare(
@@ -1400,6 +1419,8 @@ type WatchSample = {
   }>;
 };
 
+type OverseerMonitoringIntent = "start_watch" | "stop_watch" | "check_watch" | "snapshot";
+
 function sampleOverseerWatchState(db: Database.Database, session: OverseerSession): WatchSample {
   const filter = buildWatchTaskFilter(session);
   const taskCountRows = db.prepare(
@@ -1505,7 +1526,7 @@ function watchDigest(sample: WatchSample): string {
   return createHash("sha256").update(JSON.stringify(sample)).digest("hex").slice(0, 32);
 }
 
-function watchSummary(sample: WatchSample, started: boolean): string {
+function watchSummary(sample: WatchSample, started: boolean, headline?: string): string {
   const active = sample.taskCounts.in_progress ?? 0;
   const review = sample.taskCounts.review ?? 0;
   const waiting = (sample.taskCounts.backlog ?? 0) + (sample.taskCounts.on_deck ?? 0) + (sample.taskCounts["to-do"] ?? 0);
@@ -1524,7 +1545,7 @@ function watchSummary(sample: WatchSample, started: boolean): string {
     return `${task} ${runner} -> ${run.status}`;
   });
   return [
-    started ? `Watching started for this ${sample.scopeLabel} scope.` : `Watch update for this ${sample.scopeLabel} scope.`,
+    headline ?? (started ? `Watching started for this ${sample.scopeLabel} scope.` : `Watch update for this ${sample.scopeLabel} scope.`),
     `Board: active ${active}, review ${review}, waiting ${waiting}, blocked ${blocked}, done ${done}.`,
     `Runs: running ${runningRuns}, pending ${pendingRuns}, failed ${failedRuns}.`,
     recentTasks.length > 0 ? `Recent tasks: ${recentTasks.join("; ")}.` : "Recent tasks: none.",
@@ -1608,6 +1629,179 @@ function scheduleOverseerWatchLoop(sessionId: string, intervalMs: number): void 
 
 export function getOverseerWatchState(session: OverseerSession): OverseerWatchState | null {
   return normalizeOverseerWatchState(session.scope.watch);
+}
+
+function normalizedMonitoringText(content: string): string {
+  return content
+    .toLowerCase()
+    .replace(/[^a-z0-9\s']/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function classifyOverseerMonitoringIntent(content: string, session: OverseerSession): OverseerMonitoringIntent | null {
+  const text = normalizedMonitoringText(content);
+  if (!text || text.length > 500) return null;
+
+  const activeWatch = normalizeOverseerWatchState(session.scope.watch)?.status === "watching";
+  const boardTerm = /\b(sprint|board|task|tasks|run|runs|lane|goal|goals|backlog|review|blocked|queue|workstream)\b/.test(text);
+  const mutatingTerm = /\b(mark|move|set|change|create|edit|assign|reassign|approve|reject|merge|deploy|implement|delete|archive)\b/.test(text)
+    || /\bupdate\b.{0,32}\b(to|as)\b/.test(text);
+  if (mutatingTerm) return null;
+
+  const stopWatch = /\b(stop|disable|turn off|end|pause|cancel)\b.{0,32}\b(watch|watching|monitor|monitoring|tracking)\b/.test(text)
+    || /\b(stop watching|stop monitoring)\b/.test(text);
+  if (stopWatch) return "stop_watch";
+
+  const hasWatchScope = boardTerm || activeWatch || Boolean(session.projectId);
+  const persistentWatch = /\b(continuous|continuously|persistent|persistently|ongoing|periodic|live|open|keep)\b.{0,50}\b(watch|watching|monitor|monitoring|updates?)\b/.test(text)
+    || /\b(watch|watching|monitor|monitoring)\b.{0,50}\b(continuous|continuously|persistent|persistently|ongoing|periodic|live|open)\b/.test(text)
+    || /\b(give|send|post)\b.{0,30}\b(updates|status updates|progress updates)\b/.test(text);
+  if (persistentWatch && hasWatchScope) return "start_watch";
+
+  const startWatch = /\b(start|begin|enable|turn on|watch|monitor|track)\b.{0,40}\b(watch|watching|monitor|monitoring|tracking|sprint|board|tasks?|runs?|goals?|lane)\b/.test(text)
+    || /\bkeep an eye on\b/.test(text);
+  if (startWatch && boardTerm) return "start_watch";
+
+  const statusRequest = /\b(status|progress|snapshot|check|latest|update|updates|changed|stale|blocked)\b/.test(text)
+    || /\bwhat'?s happening\b/.test(text)
+    || /\bwhat'?s (running|active|blocked)\b/.test(text)
+    || /\bwhere do we stand\b/.test(text)
+    || /\bhow(?:'s| is)\b.{0,40}\b(going|progress)\b/.test(text)
+    || /\banything (new|changed|stale|blocked)\b/.test(text);
+  if (activeWatch && statusRequest) return "check_watch";
+  if (boardTerm && statusRequest) return "snapshot";
+
+  return null;
+}
+
+function latestAssistantMessage(db: Database.Database, sessionId: string): OverseerMessage | null {
+  const row = db
+    .prepare(
+      `SELECT *
+       FROM overseer_session_messages
+       WHERE session_id = ? AND role = 'assistant'
+       ORDER BY sequence DESC, created_at DESC
+       LIMIT 1`,
+    )
+    .get(sessionId) as MessageRow | undefined;
+  return row ? messageFromRow(row) : null;
+}
+
+function runOverseerWatchSnapshot(input: {
+  sessionId: string;
+  db?: Database.Database;
+}): { session: OverseerSession; summary: string; digest: string; messageId: string } {
+  const db = input.db ?? getOrchestrationDb();
+  const session = getOverseerSession(input.sessionId, db);
+  const now = new Date().toISOString();
+  const sample = sampleOverseerWatchState(db, session);
+  const digest = watchDigest(sample);
+  const summary = watchSummary(sample, false, `Monitoring snapshot for this ${sample.scopeLabel} scope.`);
+  const message = appendOverseerMessage({
+    sessionId: session.id,
+    role: "assistant",
+    content: summary,
+    metadata: {
+      kind: "overseer_watch_snapshot",
+      digest,
+      scopeLabel: sample.scopeLabel,
+    },
+    db,
+  });
+  recordOverseerEvent({
+    sessionId: session.id,
+    eventType: "overseer.watch.snapshot",
+    event: {
+      digest,
+      scopeLabel: sample.scopeLabel,
+      taskCounts: sample.taskCounts,
+      runCounts: sample.runCounts,
+      messageId: message.id,
+    },
+    occurredAt: now,
+    db,
+  });
+  return {
+    session: getOverseerSession(session.id, db),
+    summary,
+    digest,
+    messageId: message.id,
+  };
+}
+
+export function handleOverseerMonitoringFastPath(input: {
+  sessionId: string;
+  content: string;
+  metadata?: Record<string, unknown>;
+  db?: Database.Database;
+}): {
+  session: OverseerSession;
+  turnId: null;
+  assistantMessageId: string | null;
+  approvalIds: [];
+  ok: true;
+  fastPath: true;
+  action: OverseerMonitoringIntent;
+} | null {
+  const db = input.db ?? getOrchestrationDb();
+  const session = getOverseerSession(input.sessionId, db);
+  const action = classifyOverseerMonitoringIntent(input.content, session);
+  if (!action) return null;
+
+  const userMessage = appendOverseerMessage({
+    sessionId: session.id,
+    role: "user",
+    content: input.content,
+    metadata: {
+      ...(input.metadata ?? {}),
+      fastPath: "monitoring",
+    },
+    db,
+  });
+
+  let nextSession: OverseerSession;
+  let assistantMessageId: string | null = null;
+
+  if (action === "start_watch") {
+    const result = startOverseerWatch({ sessionId: session.id, db });
+    nextSession = result.session;
+    assistantMessageId = latestAssistantMessage(db, session.id)?.id ?? null;
+  } else if (action === "stop_watch") {
+    const result = stopOverseerWatch({ sessionId: session.id, reason: "operator_message", db });
+    nextSession = result.session;
+    assistantMessageId = latestAssistantMessage(db, session.id)?.id ?? null;
+  } else if (action === "check_watch") {
+    const result = runOverseerWatchCheck({ sessionId: session.id, forceMessage: true, db });
+    nextSession = result.session;
+    assistantMessageId = latestAssistantMessage(db, session.id)?.id ?? null;
+  } else {
+    const result = runOverseerWatchSnapshot({ sessionId: session.id, db });
+    nextSession = result.session;
+    assistantMessageId = result.messageId;
+  }
+
+  recordOverseerEvent({
+    sessionId: session.id,
+    eventType: "overseer.monitoring.fast_path",
+    event: {
+      action,
+      userMessageId: userMessage.id,
+      assistantMessageId,
+      reason: "deterministic_monitoring_request",
+    },
+    db,
+  });
+
+  return {
+    session: nextSession,
+    turnId: null,
+    assistantMessageId,
+    approvalIds: [],
+    ok: true,
+    fastPath: true,
+    action,
+  };
 }
 
 export function runOverseerWatchCheck(input: {

@@ -434,6 +434,9 @@ export function listTasks(filters: {
         t.eligible_assignee_ids,
         t.source_review_id,
         t.source_takeaway_id,
+        t.source_template_version_id,
+        t.template_intake_answer_id,
+        t.template_generation_provenance_json,
         t.task_key,
         t.due_date,
         t.created_at,
@@ -1229,6 +1232,9 @@ export function createTask(input: {
   columnOrder?: number;
   sourceReviewId?: string;
   sourceTakeawayId?: string;
+  sourceTemplateVersionId?: string | null;
+  templateIntakeAnswerId?: string | null;
+  templateGenerationProvenance?: Record<string, unknown> | null;
 }): { task: OrchestrationTask } {
   const db = getOrchestrationDb();
 
@@ -1327,9 +1333,9 @@ export function createTask(input: {
         (id, company_id, project_id, sprint_id, parent_task_id, title, description, priority, type, status, column_order,
         assignee_agent_id, assigned_at, created_by, labels_json, eligible_assignee_ids, blocked_reason, execution_engine, execution_runtime_provider, execution_runtime_label,
          execution_model_routing, execution_model_routing_label, model_lane, source_review_id, source_takeaway_id, started_at, completed_at,
-         due_date, task_number, task_key, created_at, updated_at)
+         due_date, task_number, task_key, source_template_version_id, template_intake_answer_id, template_generation_provenance_json, created_at, updated_at)
        VALUES
-        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       taskId,
       resolved.id,
@@ -1361,6 +1367,9 @@ export function createTask(input: {
       input.dueDate ?? null,
       taskNumber,
       taskKey,
+      input.sourceTemplateVersionId?.trim() || null,
+      input.templateIntakeAnswerId?.trim() || null,
+      JSON.stringify(input.templateGenerationProvenance ?? {}),
       now,
       now
     );
@@ -1390,6 +1399,8 @@ export function createTask(input: {
         executionModelRoutingInheritedFromParent: input.executionModelRouting === undefined && Boolean(parentDefaults?.execution_model_routing),
         modelLane,
         modelLaneInheritedFromParent: input.modelLane === undefined && Boolean(parentDefaults?.model_lane),
+        sourceTemplateVersionId: input.sourceTemplateVersionId?.trim() || null,
+        templateIntakeAnswerId: input.templateIntakeAnswerId?.trim() || null,
       }),
       now
     );

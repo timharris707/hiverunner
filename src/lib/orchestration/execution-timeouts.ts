@@ -1,6 +1,10 @@
 export const DEFAULT_CLAUDE_TIMEOUT_MS = 60 * 60 * 1000;
 export const DEFAULT_CODEX_TIMEOUT_MS = 60 * 60 * 1000;
 export const DEFAULT_HEARTBEAT_RUN_TIMEOUT_MS = 90 * 60 * 1000;
+export const DEFAULT_SYMPHONY_TIMEOUT_MS = 20 * 60 * 1000;
+export const DEFAULT_SYMPHONY_NO_OUTPUT_TIMEOUT_MS = 10 * 60 * 1000;
+export const DEFAULT_SYMPHONY_PROGRESS_INTERVAL_MS = 60 * 1000;
+export const DEFAULT_SYMPHONY_TERMINATION_GRACE_MS = 5 * 1000;
 
 export function numberFromEnvWithDefault(name: string, fallback: number): number {
   const raw = process.env[name];

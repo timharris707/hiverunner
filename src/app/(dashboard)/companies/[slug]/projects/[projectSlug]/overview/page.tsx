@@ -1,8 +1,9 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
-import { listProjects } from "@/lib/orchestration/client";
-import type { OrchestrationProject } from "@/lib/orchestration/types";
+import { TemplateLaunchDialog } from "@/components/templates/TemplateLaunchDialog";
+import { listCompanies, listProjects } from "@/lib/orchestration/client";
+import type { OrchestrationCompany, OrchestrationProject } from "@/lib/orchestration/types";
 import { ProjectTabBar } from "../ProjectTabBar";
 import { LaunchVoiceLink } from "@/components/voice/LaunchVoiceLink";
 import { PageHeader } from "@/lib/ui/primitives";
@@ -14,6 +15,7 @@ export default function ProjectOverviewPage({
   params: Promise<{ slug: string; projectSlug: string }>;
 }) {
   const { slug, projectSlug } = use(params);
+  const [company, setCompany] = useState<OrchestrationCompany | null>(null);
   const [project, setProject] = useState<OrchestrationProject | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -24,8 +26,13 @@ export default function ProjectOverviewPage({
       try {
         setLoading(true);
         setError(null);
-        const projects = await listProjects({ company: slug });
+        const [companies, projects] = await Promise.all([
+          listCompanies(),
+          listProjects({ company: slug }),
+        ]);
         if (cancelled) return;
+        const slugKey = slug.toLowerCase();
+        setCompany(companies.find((item) => item.slug.toLowerCase() === slugKey || item.code.toLowerCase() === slugKey) ?? null);
         setProject(projects.find((p) => p.slug === projectSlug || p.id === projectSlug) ?? null);
       } catch (err) {
         if (cancelled) return;
@@ -52,6 +59,8 @@ export default function ProjectOverviewPage({
     archived: { color: P.muted, bg: "rgba(87,83,78,0.12)" },
   };
   const st = STATUS_STYLE[project.status] ?? { color: P.textSec, bg: "rgba(168,162,158,0.12)" };
+  const companyCode = company?.code ?? slug;
+  const activeCompanySlug = company?.slug ?? slug;
 
   return (
     <div style={{ minHeight: "100%", padding: `${space.md}px ${space.xl}px`, color: P.text, fontFamily: font.body }}>
@@ -59,14 +68,25 @@ export default function ProjectOverviewPage({
         icon={<span style={{ display: "inline-block", width: 14, height: 14, borderRadius: radius.full, background: project.color ?? P.accent }} />}
         title={project.name}
         actions={(
-          <LaunchVoiceLink
-            label="Talk to Project"
-            companySlug={slug}
-            projectId={project.id}
-            projectSlug={project.slug}
-            mode="discuss"
-            source="project-overview"
-          />
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+            <TemplateLaunchDialog
+              companySlug={activeCompanySlug}
+              companyCode={companyCode}
+              launchSource="project-detail"
+              triggerLabel="Template"
+              dialogTitle="Add template sprint to project"
+              projectId={project.id}
+              projectName={project.name}
+            />
+            <LaunchVoiceLink
+              label="Talk to Project"
+              companySlug={slug}
+              projectId={project.id}
+              projectSlug={project.slug}
+              mode="discuss"
+              source="project-overview"
+            />
+          </div>
         )}
       />
 

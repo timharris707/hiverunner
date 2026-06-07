@@ -152,6 +152,10 @@ if (process.env.FAKE_SYMPHONY_MODE === "self-sigterm") {
   process.kill(process.pid, "SIGTERM");
   return;
 }
+if (process.env.FAKE_SYMPHONY_MODE === "silent-sleep") {
+  setTimeout(() => process.stdout.write(JSON.stringify({ sessionId: "late-silent-session", resultText: "too late" })), 60_000);
+  return;
+}
 if (process.env.FAKE_SYMPHONY_MODE === "sleep") {
   process.stderr.write("fixture runner sleeping past adapter timeout\\n");
   setTimeout(() => process.stdout.write(JSON.stringify({ sessionId: "late-session", resultText: "too late" })), 60_000);
@@ -1302,7 +1306,7 @@ async function run() {
     await test("adapter timeout diagnostics are distinct from externally signalled runner exits", async () => {
       setActiveHiveDefaultRoute({ runtimeId: "codex", runtimeLabel: "Codex" });
 
-      async function runDiagnosticFixture(mode: "sleep" | "self-sigterm", title: string) {
+      async function runDiagnosticFixture(mode: "sleep" | "silent-sleep" | "self-sigterm", title: string) {
         const diagnosticAgent = createSymphonyAgentFixture({
           name: `Runner Diagnostic ${mode}`,
           emoji: "D",
@@ -1328,7 +1332,16 @@ async function run() {
 
         process.env.FAKE_SYMPHONY_MODE = mode;
         const previousTimeout = process.env.SYMPHONY_EXEC_TIMEOUT_MS;
+        const previousNoOutputTimeout = process.env.SYMPHONY_EXEC_NO_OUTPUT_TIMEOUT_MS;
+        const previousProgressInterval = process.env.SYMPHONY_EXEC_PROGRESS_INTERVAL_MS;
+        const previousTerminationGrace = process.env.SYMPHONY_EXEC_TERMINATION_GRACE_MS;
         if (mode === "sleep") process.env.SYMPHONY_EXEC_TIMEOUT_MS = "100";
+        if (mode === "silent-sleep") {
+          process.env.SYMPHONY_EXEC_TIMEOUT_MS = "2000";
+          process.env.SYMPHONY_EXEC_NO_OUTPUT_TIMEOUT_MS = "250";
+          process.env.SYMPHONY_EXEC_PROGRESS_INTERVAL_MS = "50";
+          process.env.SYMPHONY_EXEC_TERMINATION_GRACE_MS = "50";
+        }
         try {
           const queued = await triggerTaskExecution({
             taskId: diagnosticTask.id,
@@ -1356,6 +1369,12 @@ async function run() {
           delete process.env.FAKE_SYMPHONY_MODE;
           if (previousTimeout === undefined) delete process.env.SYMPHONY_EXEC_TIMEOUT_MS;
           else process.env.SYMPHONY_EXEC_TIMEOUT_MS = previousTimeout;
+          if (previousNoOutputTimeout === undefined) delete process.env.SYMPHONY_EXEC_NO_OUTPUT_TIMEOUT_MS;
+          else process.env.SYMPHONY_EXEC_NO_OUTPUT_TIMEOUT_MS = previousNoOutputTimeout;
+          if (previousProgressInterval === undefined) delete process.env.SYMPHONY_EXEC_PROGRESS_INTERVAL_MS;
+          else process.env.SYMPHONY_EXEC_PROGRESS_INTERVAL_MS = previousProgressInterval;
+          if (previousTerminationGrace === undefined) delete process.env.SYMPHONY_EXEC_TERMINATION_GRACE_MS;
+          else process.env.SYMPHONY_EXEC_TERMINATION_GRACE_MS = previousTerminationGrace;
         }
       }
 
@@ -1376,6 +1395,23 @@ async function run() {
       const timeoutUsage = JSON.parse(timeoutRun.token_usage_json ?? "{}") as Record<string, unknown>;
       assert.strictEqual(timeoutUsage.timedOut, true);
       assert.strictEqual(timeoutUsage.terminationReason, "adapter_timeout");
+
+      const silentRun = await runDiagnosticFixture("silent-sleep", "Run silent runner diagnostic fixture");
+      assert.strictEqual(silentRun.status, "failed");
+      assert.strictEqual(silentRun.process_pid, null);
+      assert.strictEqual(silentRun.failure_class, "silent_timeout");
+      assert.match(silentRun.error_message ?? "", /no stdout\/stderr/i);
+      const silentMetadata = JSON.parse(silentRun.metadata_json ?? "{}") as Record<string, unknown>;
+      const silentRunner = silentMetadata.externalRunner as Record<string, unknown>;
+      assert.ok(Number(silentRunner.pid) > 0, "silent-timeout metadata should retain the child pid");
+      assert.strictEqual(silentRunner.silentTimedOut, true);
+      assert.strictEqual(silentRunner.timedOut, false);
+      assert.strictEqual(silentRunner.terminationReason, "silent_timeout");
+      assert.strictEqual(silentRunner.noOutputTimeoutMs, 250);
+      assert.ok(Number(silentRunner.progressUpdateCount) >= 1, "silent runner should update progress before timeout");
+      const silentUsage = JSON.parse(silentRun.token_usage_json ?? "{}") as Record<string, unknown>;
+      assert.strictEqual(silentUsage.silentTimedOut, true);
+      assert.strictEqual(silentUsage.terminationReason, "silent_timeout");
 
       const signalRun = await runDiagnosticFixture("self-sigterm", "Run external signal diagnostic fixture");
       assert.strictEqual(signalRun.status, "failed");

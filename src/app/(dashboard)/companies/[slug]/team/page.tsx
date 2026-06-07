@@ -8,12 +8,15 @@ import { Activity, ArchiveRestore, BriefcaseBusiness, Search, Trash2, UserPlus, 
 import { CompanyErrorState, CompanyShell, StatCard } from "@/components/company/company-ui";
 import { AvatarGlyph } from "@/components/orchestration/AvatarGlyph";
 import { formatAge } from "@/components/orchestration/ui";
+import { agentRosterState } from "@/components/team/ScopedActiveCrewPanel";
+import { TeamRosterStateTabs, type TeamRosterFilterState } from "@/components/team/TeamRosterStateTabs";
 import { DIVISIONS, getAgentByAnyId } from "@/config/agents";
 import { deleteCompanyAgent, listCompanies, listCompanyAgents, listProjects, restoreCompanyAgent } from "@/lib/orchestration/client";
 import { buildCanonicalAgentPath, buildCanonicalNewAgentPath, buildCanonicalOrgPath } from "@/lib/orchestration/route-paths";
 import type { OrchestrationAgent, OrchestrationCompany, OrchestrationProject } from "@/lib/orchestration/types";
 
 type TeamAgent = OrchestrationAgent & {
+  rosterState: TeamRosterFilterState;
   projectName: string;
   department: string;
   departmentLabel: string;
@@ -35,8 +38,7 @@ export default function CompanyTeamPage() {
   const [agents, setAgents] = useState<TeamAgent[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | OrchestrationAgent["status"]>("all");
-  const [showArchived, setShowArchived] = useState(false);
+  const [rosterState, setRosterState] = useState<TeamRosterFilterState>("active");
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
@@ -56,7 +58,7 @@ export default function CompanyTeamPage() {
         }
 
         const projectNameById = new Map(projectRows.map((project) => [project.id, project.name]));
-        const companyAgents = await listCompanyAgents(current.slug, { includeArchived: showArchived });
+        const companyAgents = await listCompanyAgents(current.slug, { rosterState: "all" });
 
         if (!cancelled) {
           setProjects(projectRows);
@@ -76,16 +78,16 @@ export default function CompanyTeamPage() {
     return () => {
       cancelled = true;
     };
-  }, [slug, showArchived, refreshKey]);
+  }, [slug, refreshKey]);
 
   const filteredAgents = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return agents.filter((agent) => {
-      if (statusFilter !== "all" && agent.status !== statusFilter) return false;
+      if (agentRosterState(agent) !== rosterState) return false;
       if (!needle) return true;
       return `${agent.name} ${agent.role} ${agent.departmentLabel} ${agent.projectName} ${agent.reportsToName}`.toLowerCase().includes(needle);
     });
-  }, [agents, query, statusFilter]);
+  }, [agents, query, rosterState]);
 
   const departmentGroups = useMemo(() => {
     const grouped = new Map<string, { label: string; color: string; agents: TeamAgent[] }>();
@@ -111,11 +113,10 @@ export default function CompanyTeamPage() {
 
   const stats = useMemo(
     () => ({
-      total: agents.filter((agent) => !agent.archivedAt).length,
-      working: agents.filter((agent) => agent.status === "working").length,
-      online: agents.filter((agent) => agent.status === "working" || agent.status === "idle").length,
-      departments: new Set(agents.map((agent) => agent.departmentLabel)).size,
-      archived: agents.filter((agent) => agent.archivedAt).length,
+      active: agents.filter((agent) => agentRosterState(agent) === "active").length,
+      bench: agents.filter((agent) => agentRosterState(agent) === "bench").length,
+      paused: agents.filter((agent) => agentRosterState(agent) === "paused").length,
+      archived: agents.filter((agent) => agentRosterState(agent) === "archived").length,
     }),
     [agents]
   );
@@ -145,10 +146,10 @@ export default function CompanyTeamPage() {
       accentColor="var(--accent)"
     >
       <section className="grid gap-3 md:grid-cols-4">
-        <StatCard label="Agents" value={stats.total} accentColor="var(--accent)" />
-        <StatCard label="Working Now" value={stats.working} accentColor="var(--positive)" />
-        <StatCard label="Online" value={stats.online} accentColor="var(--accent)" />
-        <StatCard label="Role Groups" value={stats.departments} accentColor="var(--accent)" />
+        <StatCard label="Active Crew" value={stats.active} accentColor="var(--positive)" />
+        <StatCard label="Bench" value={stats.bench} accentColor="var(--accent)" />
+        <StatCard label="Paused" value={stats.paused} accentColor="var(--warning)" />
+        <StatCard label="Archived" value={stats.archived} accentColor="var(--text-muted)" />
       </section>
 
       <section className="p-0" style={{ marginTop: 16 }}>
@@ -163,30 +164,10 @@ export default function CompanyTeamPage() {
               onChange={(event) => setQuery(event.target.value)}
             />
           </div>
-          <select
-            className="rounded-lg border bg-transparent px-3 py-2.5 text-sm outline-none"
-            style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
-            value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value as "all" | OrchestrationAgent["status"])}
-          >
-            <option value="all">All statuses</option>
-            <option value="working">Working</option>
-            <option value="idle">Idle</option>
-            <option value="paused">Paused</option>
-            <option value="offline">Offline</option>
-            <option value="error">Error</option>
-          </select>
+          <TeamRosterStateTabs value={rosterState} counts={stats} onChange={setRosterState} />
           <div className="rounded-lg border bg-transparent px-3 py-2 text-xs" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>
             {projects.length} projects in company
           </div>
-          <button
-            type="button"
-            onClick={() => setShowArchived((value) => !value)}
-            className="rounded-lg border bg-transparent px-3 py-2 text-xs transition"
-            style={{ borderColor: "var(--border)", color: showArchived ? "var(--accent)" : "var(--text-primary)" }}
-          >
-            {showArchived ? "Hide archived" : `Show archived${stats.archived ? ` (${stats.archived})` : ""}`}
-          </button>
           <Link
             href={buildCanonicalNewAgentPath(companyCode)}
             className="inline-flex items-center gap-2 rounded-lg border bg-transparent px-3 py-2 text-xs transition"
@@ -204,27 +185,27 @@ export default function CompanyTeamPage() {
           </Link>
         </div>
 
-	        <div className="grid gap-4 xl:grid-cols-2">
-	          {departmentGroups.map((group) => (
-	            <section
-	              key={group.key}
-	              className="rounded-xl border bg-transparent p-4"
-	              style={{
-	                borderColor: "var(--border)",
-	                boxShadow: `inset 3px 0 0 ${group.color}`,
-	              }}
-	            >
-	              <div className="mb-4 flex items-center justify-between gap-3">
-	                <div>
-	                  <p className="text-xs uppercase tracking-[0.22em]" style={{ color: group.color }}>
-	                    Role Group
-	                  </p>
-	                  <h2 className="mt-1 text-lg font-semibold" style={{ color: "var(--text-primary)" }}>{group.label}</h2>
-	                </div>
-	                <div className="rounded-full px-3 py-1 text-xs" style={{ background: "var(--surface-hover)", color: "var(--text-secondary)" }}>{group.agents.length} agents</div>
-	              </div>
-	              <div className="space-y-3">
-	                {group.agents.map((agent) => (
+        <div className="grid gap-4 xl:grid-cols-2">
+          {departmentGroups.map((group) => (
+            <section
+              key={group.key}
+              className="rounded-lg border bg-transparent p-4"
+              style={{
+                borderColor: "var(--border)",
+                boxShadow: `inset 3px 0 0 ${group.color}`,
+              }}
+            >
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase" style={{ color: group.color, letterSpacing: 0 }}>
+                    Role Group
+                  </p>
+                  <h2 className="mt-1 text-lg font-semibold" style={{ color: "var(--text-primary)" }}>{group.label}</h2>
+                </div>
+                <div className="rounded-full px-3 py-1 text-xs" style={{ background: "var(--surface-hover)", color: "var(--text-secondary)" }}>{group.agents.length} agents</div>
+              </div>
+              <div className="space-y-3">
+                {group.agents.map((agent) => (
                     <AgentTeamCard
                       key={agent.id}
                       agent={agent}
@@ -238,10 +219,10 @@ export default function CompanyTeamPage() {
           ))}
         </div>
 
-	        {!loading && filteredAgents.length === 0 ? (
-	          <div className="rounded-lg border border-dashed bg-transparent p-8 text-center text-sm" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>
-	            No company agents matched this filter.
-	          </div>
+        {!loading && filteredAgents.length === 0 ? (
+          <div className="rounded-lg border border-dashed bg-transparent p-8 text-center text-sm" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>
+            No company agents matched this roster filter.
+          </div>
         ) : null}
       </section>
     </CompanyShell>
@@ -258,6 +239,7 @@ function enrichAgent(
 
   return {
     ...agent,
+    rosterState: agentRosterState(agent),
     projectName: (agent.projectId && projectNameById.get(agent.projectId)) || "Unassigned",
     department: division,
     departmentLabel: divisionMeta.label,

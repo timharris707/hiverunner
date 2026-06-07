@@ -90,7 +90,7 @@ export function CreateAgentModal({ open, onClose, companySlug, companyCode, onCr
     let cancelled = false;
     const loadRoster = async () => {
       try {
-        const res = await fetch(`/api/orchestration/companies/${encodeURIComponent(companySlug)}/agents?syncOpenClaw=false`, { cache: "no-store" });
+        const res = await fetch(`/api/orchestration/companies/${encodeURIComponent(companySlug)}/agents?syncOpenClaw=false&rosterState=active`, { cache: "no-store" });
         const json = (await res.json().catch(() => ({}))) as { agents?: Array<{ id?: string; name?: string; avatar?: string; emoji?: string; openclawAgentId?: string }> };
         if (!res.ok || cancelled) return;
         setRosterOptions(

@@ -257,6 +257,177 @@ async function run() {
     assert.ok(!existsSync(path.join(homeDir, ".openclaw", "agents", "mira")), "non-OpenClaw CEO must not create an OpenClaw agent scaffold");
   });
 
+  await test("create-full template launch creates a reviewable draft without a kickoff board task", async () => {
+    const req = {
+      async json() {
+        return {
+          company: {
+            name: "Template First Run Co",
+            slug: "template-first-run-co",
+            description: "Fixture company for template-led first-run onboarding.",
+          },
+          owner: {
+            displayName: "Test Owner",
+            email: "owner@example.test",
+          },
+          project: null,
+          ceo: {
+            name: "Tessa",
+            model: "",
+            guidance: "",
+          },
+          firstWorkMode: "template",
+          templateLaunch: {
+            templateId: "build-something",
+            goalName: "Build the first template draft",
+            answers: {
+              buildType: "dashboard-widget",
+              vibeOrConstraint: "operator launch cockpit",
+              ambitionLevel: "single-screen",
+            },
+          },
+        };
+      },
+    };
+
+    const res = await createFullRoute(req as never);
+    if (res.status !== 201) {
+      const errorPayload = (await res.json()) as { error?: string };
+      throw new Error(`Expected 201, got ${res.status}: ${errorPayload.error ?? "missing error payload"}`);
+    }
+
+    const payload = (await res.json()) as {
+      company: { id: string; code: string };
+      project: { id: string };
+      goal: { sprint: { id: string; name: string } };
+      goalHref: string;
+      task?: unknown;
+      taskKey?: unknown;
+      initialExecution: { status: string; reason?: string };
+      templateLaunch: {
+        createsBoardTasksImmediately: boolean;
+        draftPlan: {
+          createsBoardTasksImmediately: boolean;
+          template: { templateVersionId: string };
+          intakeAnswer: { id: string };
+          draft: { id: string; status: string; sourceTemplateVersionId?: string | null; intakeAnswerId?: string | null };
+        };
+      };
+    };
+
+    assert.strictEqual(payload.templateLaunch.createsBoardTasksImmediately, false);
+    assert.strictEqual(payload.templateLaunch.draftPlan.createsBoardTasksImmediately, false);
+    assert.strictEqual(payload.templateLaunch.draftPlan.template.templateVersionId, "build-something@1.0.0");
+    assert.strictEqual(payload.templateLaunch.draftPlan.draft.status, "pending");
+    assert.strictEqual(payload.templateLaunch.draftPlan.draft.sourceTemplateVersionId, "build-something@1.0.0");
+    assert.strictEqual(payload.templateLaunch.draftPlan.draft.intakeAnswerId, payload.templateLaunch.draftPlan.intakeAnswer.id);
+    assert.strictEqual(payload.initialExecution.status, "skipped");
+    assert.strictEqual(payload.initialExecution.reason, "template_draft_review_required");
+    assert.strictEqual(payload.task, undefined);
+    assert.strictEqual(payload.taskKey, undefined);
+    assert.ok(payload.goalHref.startsWith(`/${payload.company.code}/goals/`), "template launch should route to the draft goal review page");
+
+    const db = getOrchestrationDb();
+    const taskCount = db
+      .prepare(
+        `SELECT COUNT(*) AS count
+         FROM tasks t
+         INNER JOIN projects p ON p.id = t.project_id
+         WHERE p.company_id = ?`,
+      )
+      .get(payload.company.id) as { count: number };
+    assert.strictEqual(taskCount.count, 0, "template first-run launch must not create board tasks before approval");
+
+    const generated = db
+      .prepare(
+        `SELECT generated_type, source_draft_id, generated_id
+         FROM template_generated_work
+         WHERE template_version_id = ? AND intake_answer_id = ?`,
+      )
+      .all("build-something@1.0.0", payload.templateLaunch.draftPlan.intakeAnswer.id) as Array<{
+        generated_type: string;
+        source_draft_id: string | null;
+        generated_id: string;
+      }>;
+    assert.deepStrictEqual(generated.map((row) => row.generated_type), ["sprint_plan_draft"]);
+    assert.strictEqual(generated[0]?.source_draft_id, payload.templateLaunch.draftPlan.draft.id);
+    assert.strictEqual(generated[0]?.generated_id, payload.templateLaunch.draftPlan.draft.id);
+  });
+
+  await test("create-full accepts wizard-shaped firstWork template payloads", async () => {
+    const req = {
+      async json() {
+        return {
+          company: {
+            name: "Template First Run Nested Co",
+            slug: "template-first-run-nested-co",
+            description: "Fixture company for nested firstWork template launch.",
+          },
+          owner: {
+            displayName: "Test Owner",
+            email: "owner@example.test",
+          },
+          project: null,
+          ceo: {
+            name: "Nessa",
+            model: "",
+            guidance: "",
+          },
+          firstWork: {
+            mode: "template",
+            templateId: "bug-triage",
+            goalName: "Triage the first onboarding issue",
+            answers: {
+              symptom: "The first-run wizard should launch a draft plan.",
+              expectedBehavior: "No kickoff task is created before review.",
+              urgency: "normal",
+              knownContext: "first-run onboarding",
+            },
+          },
+        };
+      },
+    };
+
+    const res = await createFullRoute(req as never);
+    if (res.status !== 201) {
+      const errorPayload = (await res.json()) as { error?: string };
+      throw new Error(`Expected 201, got ${res.status}: ${errorPayload.error ?? "missing error payload"}`);
+    }
+
+    const payload = (await res.json()) as {
+      company: { id: string };
+      task?: unknown;
+      taskKey?: unknown;
+      initialExecution: { status: string; reason?: string };
+      templateLaunch: {
+        draftPlan: {
+          template: { templateVersionId: string };
+          intakeAnswer: { id: string };
+          draft: { status: string; sourceTemplateVersionId?: string | null; intakeAnswerId?: string | null };
+        };
+      };
+    };
+
+    assert.strictEqual(payload.templateLaunch.draftPlan.template.templateVersionId, "bug-triage@1.0.0");
+    assert.strictEqual(payload.templateLaunch.draftPlan.draft.status, "pending");
+    assert.strictEqual(payload.templateLaunch.draftPlan.draft.sourceTemplateVersionId, "bug-triage@1.0.0");
+    assert.strictEqual(payload.templateLaunch.draftPlan.draft.intakeAnswerId, payload.templateLaunch.draftPlan.intakeAnswer.id);
+    assert.strictEqual(payload.initialExecution.reason, "template_draft_review_required");
+    assert.strictEqual(payload.task, undefined);
+    assert.strictEqual(payload.taskKey, undefined);
+
+    const db = getOrchestrationDb();
+    const taskCount = db
+      .prepare(
+        `SELECT COUNT(*) AS count
+         FROM tasks t
+         INNER JOIN projects p ON p.id = t.project_id
+         WHERE p.company_id = ?`,
+      )
+      .get(payload.company.id) as { count: number };
+    assert.strictEqual(taskCount.count, 0, "nested firstWork template launch must not create board tasks before approval");
+  });
+
   await test("create-full binds browser-created local workspaces to the local owner", async () => {
     process.env.MC_AUTH_MODE = "local-single-user";
     process.env.MC_LOCAL_OWNER_EMAIL = "owner@localhost.local";

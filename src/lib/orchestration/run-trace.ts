@@ -146,6 +146,11 @@ export interface RunTraceEvidenceInput {
   providerExecution?: RunTraceProviderExecutionEvidence | null;
   workspaceRunVisibility?: unknown;
   memoryEvidence?: unknown;
+  template?: {
+    sourceTemplateVersionId?: string | null;
+    templateIntakeAnswerId?: string | null;
+    provenance?: Record<string, unknown> | null;
+  } | null;
   skillEffectiveness?: { events?: unknown[] | null } | null;
   rawPayload?: unknown;
   provenance?: {
@@ -271,6 +276,7 @@ export interface RunTraceRedactedExport {
   providerExecution: RunTraceProviderExecutionEvidence | null;
   workspaceRunVisibility: unknown;
   memoryEvidence: unknown;
+  template?: Record<string, unknown> | null;
   annotations: RunTraceAnnotationSnapshot;
   rawPayload?: unknown;
   evidenceGaps: RunTraceEvidenceGap[];
@@ -410,6 +416,7 @@ export function buildRedactedRunTraceExport(input: RunTraceEvidenceInput): RunTr
     providerExecution: input.providerExecution ?? null,
     workspaceRunVisibility: input.workspaceRunVisibility ?? null,
     memoryEvidence: input.memoryEvidence ?? null,
+    template: input.template ?? null,
     annotations: trace.annotations,
     ...(input.rawPayload !== undefined ? { rawPayload: input.rawPayload } : {}),
     evidenceGaps: trace.evidenceGaps,
@@ -430,6 +437,7 @@ export function buildRedactedRunTraceExport(input: RunTraceEvidenceInput): RunTr
     providerExecution: redactedBody.providerExecution,
     workspaceRunVisibility: redactedBody.workspaceRunVisibility,
     memoryEvidence: redactedBody.memoryEvidence,
+    template: redactedBody.template,
     annotations: redactedBody.annotations,
     ...(redactedBody.rawPayload !== undefined ? { rawPayload: redactedBody.rawPayload } : {}),
     evidenceGaps: redactedBody.evidenceGaps,

@@ -28,6 +28,8 @@ async function run() {
     DEFAULT_CLAUDE_TIMEOUT_MS,
     DEFAULT_CODEX_TIMEOUT_MS,
     DEFAULT_HEARTBEAT_RUN_TIMEOUT_MS,
+    DEFAULT_SYMPHONY_NO_OUTPUT_TIMEOUT_MS,
+    DEFAULT_SYMPHONY_TIMEOUT_MS,
     getHeartbeatRunTimeoutMs,
   } = await import("@/lib/orchestration/execution-timeouts");
 
@@ -50,7 +52,10 @@ async function run() {
     delete process.env.MC_HEARTBEAT_RUN_TIMEOUT_MS;
     assert.equal(DEFAULT_CLAUDE_TIMEOUT_MS, 60 * 60 * 1000);
     assert.equal(DEFAULT_CODEX_TIMEOUT_MS, 60 * 60 * 1000);
-    assert.ok(getHeartbeatRunTimeoutMs() > Math.max(DEFAULT_CLAUDE_TIMEOUT_MS, DEFAULT_CODEX_TIMEOUT_MS));
+    assert.equal(DEFAULT_SYMPHONY_TIMEOUT_MS, 20 * 60 * 1000);
+    assert.equal(DEFAULT_SYMPHONY_NO_OUTPUT_TIMEOUT_MS, 10 * 60 * 1000);
+    assert.ok(DEFAULT_SYMPHONY_NO_OUTPUT_TIMEOUT_MS < DEFAULT_SYMPHONY_TIMEOUT_MS);
+    assert.ok(getHeartbeatRunTimeoutMs() > Math.max(DEFAULT_CLAUDE_TIMEOUT_MS, DEFAULT_CODEX_TIMEOUT_MS, DEFAULT_SYMPHONY_TIMEOUT_MS));
   });
 
   if (previous === undefined) {

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { Plus } from "lucide-react";
+import { TemplateLaunchDialog } from "@/components/templates/TemplateLaunchDialog";
 import { listCompanies, listProjects } from "@/lib/orchestration/client";
 import { buildCanonicalProjectTasksPath } from "@/lib/orchestration/route-paths";
 import type { OrchestrationCompany, OrchestrationProject } from "@/lib/orchestration/types";
@@ -73,17 +74,32 @@ export default function CompanyProjectsPage() {
         }}>
           Projects
         </h1>
-        <Link
-          href={`/companies/${encodeURIComponent(slug)}?createProject=1`}
-          style={{
-            display: "inline-flex", alignItems: "center", gap: 6,
-            padding: "7px 14px", borderRadius: 6, fontSize: 12, fontWeight: 500,
-            background: "transparent", border: `1px solid ${P.cardBorder}`,
-            color: P.text, textDecoration: "none", cursor: "pointer",
-          }}
-        >
-          <Plus size={14} /> Add Project
-        </Link>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+          {company ? (
+            <TemplateLaunchDialog
+              companySlug={company.slug}
+              companyCode={cc}
+              launchSource="projects"
+              triggerLabel="Template"
+              dialogTitle="Create project from template"
+              newProject={{ companyId: company.id }}
+              onCreated={() => {
+                void listProjects({ company: slug }).then((rows) => setProjects(rows.sort((a, b) => a.name.localeCompare(b.name))));
+              }}
+            />
+          ) : null}
+          <Link
+            href={`/companies/${encodeURIComponent(slug)}?createProject=1`}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "7px 14px", borderRadius: 6, fontSize: 12, fontWeight: 500,
+              background: "transparent", border: `1px solid ${P.cardBorder}`,
+              color: P.text, textDecoration: "none", cursor: "pointer",
+            }}
+          >
+            <Plus size={14} /> Add Project
+          </Link>
+        </div>
       </div>
 
       {/* Project list */}

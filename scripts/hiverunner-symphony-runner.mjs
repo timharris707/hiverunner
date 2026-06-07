@@ -6,6 +6,9 @@ import { numberFrom, numberFromEnv, readStdin, runBufferedCommand, splitCommandL
 
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
 const DEFAULT_MAX_BUFFER_BYTES = 20 * 1024 * 1024;
+const DEFAULT_CODEX_NO_OUTPUT_TIMEOUT_MS = 5 * 60 * 1000;
+const DEFAULT_CODEX_PROGRESS_INTERVAL_MS = 60 * 1000;
+const DEFAULT_CODEX_TERMINATION_GRACE_MS = 5 * 1000;
 const RUNNER_VERSION = "hiverunner-symphony-runner 0.1.0";
 
 if (process.argv.includes("--version") || process.argv.includes("-v")) {
@@ -37,6 +40,19 @@ function mergeUsage(base, next) {
     totalCostUsd: mergeUsageValue(base.totalCostUsd, next.totalCostUsd),
     totalCostCents: mergeUsageValue(base.totalCostCents, next.totalCostCents),
   };
+}
+
+function numberFromEnvNames(names, fallback) {
+  for (const name of names) {
+    const parsed = Number.parseInt(process.env[name] ?? "", 10);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return fallback;
+}
+
+function formatDuration(durationMs) {
+  if (durationMs < 1000) return `${durationMs}ms`;
+  return `${(durationMs / 1000).toFixed(1)}s`;
 }
 
 function normalizeCodexCliModel(value) {
@@ -313,6 +329,36 @@ function buildCodexInvocation(cwd, lastMessageFile, additionalWritableDirs = [],
 function runCodex({ command, args, cwd, prompt }) {
   const timeoutMs = numberFromEnv("HIVERUNNER_SYMPHONY_TIMEOUT_MS", DEFAULT_TIMEOUT_MS);
   const maxBufferBytes = numberFromEnv("HIVERUNNER_SYMPHONY_MAX_BUFFER", DEFAULT_MAX_BUFFER_BYTES);
+  const noOutputTimeoutMs = Math.min(
+    numberFromEnvNames(
+      [
+        "HIVERUNNER_SYMPHONY_CODEX_NO_OUTPUT_TIMEOUT_MS",
+        "HIVERUNNER_SYMPHONY_CODEX_SILENT_TIMEOUT_MS",
+        "HIVERUNNER_SYMPHONY_NO_OUTPUT_TIMEOUT_MS",
+        "HIVERUNNER_SYMPHONY_SILENT_TIMEOUT_MS",
+        "SYMPHONY_EXEC_NO_OUTPUT_TIMEOUT_MS",
+        "SYMPHONY_EXEC_SILENT_TIMEOUT_MS",
+      ],
+      DEFAULT_CODEX_NO_OUTPUT_TIMEOUT_MS,
+    ),
+    timeoutMs,
+  );
+  const progressIntervalMs = numberFromEnvNames(
+    [
+      "HIVERUNNER_SYMPHONY_CODEX_PROGRESS_INTERVAL_MS",
+      "HIVERUNNER_SYMPHONY_PROGRESS_INTERVAL_MS",
+      "SYMPHONY_EXEC_PROGRESS_INTERVAL_MS",
+    ],
+    DEFAULT_CODEX_PROGRESS_INTERVAL_MS,
+  );
+  const terminationGraceMs = numberFromEnvNames(
+    [
+      "HIVERUNNER_SYMPHONY_CODEX_TERMINATION_GRACE_MS",
+      "HIVERUNNER_SYMPHONY_TERMINATION_GRACE_MS",
+      "SYMPHONY_EXEC_TERMINATION_GRACE_MS",
+    ],
+    DEFAULT_CODEX_TERMINATION_GRACE_MS,
+  );
 
   return runBufferedCommand({
     command,
@@ -326,9 +372,21 @@ function runCodex({ command, args, cwd, prompt }) {
     stdin: prompt,
     timeoutMs,
     maxBufferBytes,
+    noOutputTimeoutMs,
+    progressIntervalMs,
+    terminationGraceMs,
+    terminateProcessTree: true,
     describeTimeout: () => `Codex command timed out after ${timeoutMs}ms`,
+    describeNoOutputTimeout: () => `Codex command produced no stdout/stderr for ${noOutputTimeoutMs}ms`,
     describeBufferLimit: () => `Codex command exceeded ${maxBufferBytes} bytes of stdout`,
     describeExit: ({ exitCode, signal }) => `Codex command exited with code ${exitCode}${signal ? ` (${signal})` : ""}`,
+    onProgress: ({ durationMs, silentForMs, stdoutBytes, stderrBytes }) => {
+      process.stderr.write(
+        `[hiverunner-symphony-runner] Codex still active after ${formatDuration(durationMs)}; ` +
+        `${formatDuration(silentForMs)} since last stdout/stderr ` +
+        `(${stdoutBytes} stdout bytes, ${stderrBytes} stderr bytes).\n`,
+      );
+    },
   });
 }
 
@@ -389,7 +447,7 @@ async function main() {
       .map(parseJsonLine)
       .filter(Boolean);
     const usage = collectUsage(records);
-    const assistantSummary = finalMessage || result.stdout.trim() || result.stderr.trim();
+    const assistantSummary = finalMessage || result.stdout.trim() || result.stderr.trim() || stringFrom(result.error);
     process.stdout.write(JSON.stringify({
       sessionId: stringFrom(records.find((record) => stringFrom(record.session_id) || stringFrom(record.sessionId))?.session_id) ||
         stringFrom(records.find((record) => stringFrom(record.sessionId))?.sessionId) ||
@@ -407,11 +465,23 @@ async function main() {
       totalCostUsd: usage.totalCostUsd,
       totalCostCents: usage.totalCostCents,
       durationMs: result.durationMs,
+      timedOut: result.timedOut,
+      noOutputTimedOut: result.noOutputTimedOut,
+      killedForBuffer: result.killedForBuffer,
+      forcedKilled: result.forcedKilled,
+      terminationReason: result.terminationReason,
+      terminationSignalMethod: result.terminationSignalMethod,
       usage: {
         ...usage,
         runnerProvider: "codex",
         runnerModel: runnerModel || null,
         model: runnerModel || null,
+        timedOut: result.timedOut,
+        noOutputTimedOut: result.noOutputTimedOut,
+        killedForBuffer: result.killedForBuffer,
+        forcedKilled: result.forcedKilled,
+        terminationReason: result.terminationReason,
+        terminationSignalMethod: result.terminationSignalMethod,
       },
       transcriptEvents: collectTranscriptEvents(records, assistantSummary),
     }) + "\n");

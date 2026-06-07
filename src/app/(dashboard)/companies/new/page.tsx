@@ -34,6 +34,19 @@ import {
   type StarterTeamSelectedRoleCard,
   type StarterTeamWorkType,
 } from "@/lib/orchestration/starter-team-templates";
+import {
+  listBuiltInStarterSprintTemplates,
+  type BuiltInStarterSprintTemplate,
+  type StarterSprintIntakeQuestion,
+} from "@/lib/orchestration/starter-sprint-templates";
+
+type FirstWorkMode = "template" | "task";
+type FirstWorkTemplateData = {
+  mode: FirstWorkMode;
+  templateId: string;
+  goalName: string;
+  answers: Record<string, string | string[]>;
+};
 
 interface WizardData {
   company: { name: string; description: string; slug: string };
@@ -41,6 +54,7 @@ interface WizardData {
   project: { name: string; description: string; sourceWorkspaceRoot?: string } | null;
   starterTeam: { workType: StarterTeamWorkType; agents: StarterTeamSelectedRoleCard[] };
   ceo: { name: string; model: string; guidance: string };
+  firstWork: FirstWorkTemplateData;
   task: { title: string; description: string; priority: string };
 }
 
@@ -49,7 +63,7 @@ const STEPS = [
   { num: 2, label: "Project", icon: FolderGit2 },
   { num: 3, label: "Team", icon: Users },
   { num: 4, label: "CEO", icon: Crown },
-  { num: 5, label: "First Task", icon: ClipboardList },
+  { num: 5, label: "First Work", icon: ClipboardList },
   { num: 6, label: "Launch", icon: Rocket },
 ];
 
@@ -86,6 +100,56 @@ const inputClass =
   "w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] transition-colors focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-soft)]";
 const selectClass =
   "w-full appearance-none rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm text-[var(--text-primary)] transition-colors focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-soft)]";
+
+const STARTER_SPRINT_TEMPLATES = [...listBuiltInStarterSprintTemplates()];
+
+function defaultTemplateAnswer(question: StarterSprintIntakeQuestion): string | string[] {
+  if (question.type === "multi_select") {
+    return Array.isArray(question.defaultValue) ? [...question.defaultValue] : [];
+  }
+  return typeof question.defaultValue === "string" ? question.defaultValue : "";
+}
+
+function defaultTemplateAnswers(template: BuiltInStarterSprintTemplate): Record<string, string | string[]> {
+  return Object.fromEntries(template.intake.questions.map((question) => [question.id, defaultTemplateAnswer(question)]));
+}
+
+function templateQuestionAnswered(question: StarterSprintIntakeQuestion, value: string | string[] | undefined): boolean {
+  if (!question.required) return true;
+  if (question.type === "multi_select") return Array.isArray(value) && value.length > 0;
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function defaultTemplateGoalName(template: BuiltInStarterSprintTemplate): string {
+  return `${template.draftOutputs.goal.title}: ${template.shortName}`.slice(0, 150);
+}
+
+function createInitialFirstWork(): FirstWorkTemplateData {
+  const template = STARTER_SPRINT_TEMPLATES[0]!;
+  return {
+    mode: "template",
+    templateId: template.id,
+    goalName: defaultTemplateGoalName(template),
+    answers: defaultTemplateAnswers(template),
+  };
+}
+
+function firstWorkValidationMessage(firstWork: FirstWorkTemplateData): string | null {
+  if (firstWork.mode === "task") return null;
+  const template = STARTER_SPRINT_TEMPLATES.find((item) => item.id === firstWork.templateId) ?? STARTER_SPRINT_TEMPLATES[0]!;
+  if (!firstWork.goalName.trim()) return "Name the first template goal.";
+  const missing = template.intake.questions.find((question) => !templateQuestionAnswered(question, firstWork.answers[question.id]));
+  return missing ? `${missing.label} is required.` : null;
+}
+
+function templateAnswerPayload(answers: Record<string, string | string[]>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(answers).map(([key, value]) => [
+      key,
+      Array.isArray(value) ? value.filter(Boolean) : value.trim(),
+    ]),
+  );
+}
 
 function StepIndicator({ current, completed }: { current: number; completed: Set<number> }) {
   return (
@@ -641,21 +705,228 @@ function StepCEO({
   );
 }
 
-function StepTask({ data, onChange }: { data: WizardData["task"]; onChange: (d: WizardData["task"]) => void }) {
-  const setField = (k: keyof WizardData["task"], v: string) => onChange({ ...data, [k]: v });
+function StepFirstWork({
+  firstWork,
+  task,
+  onFirstWorkChange,
+  onTaskChange,
+}: {
+  firstWork: WizardData["firstWork"];
+  task: WizardData["task"];
+  onFirstWorkChange: (d: WizardData["firstWork"]) => void;
+  onTaskChange: (d: WizardData["task"]) => void;
+}) {
+  const selectedTemplate = STARTER_SPRINT_TEMPLATES.find((item) => item.id === firstWork.templateId) ?? STARTER_SPRINT_TEMPLATES[0]!;
+  const validationMessage = firstWorkValidationMessage(firstWork);
+  const setTaskField = (k: keyof WizardData["task"], v: string) => onTaskChange({ ...task, [k]: v });
+  const setTemplateId = (templateId: string) => {
+    const template = STARTER_SPRINT_TEMPLATES.find((item) => item.id === templateId) ?? STARTER_SPRINT_TEMPLATES[0]!;
+    onFirstWorkChange({
+      mode: "template",
+      templateId: template.id,
+      goalName: defaultTemplateGoalName(template),
+      answers: defaultTemplateAnswers(template),
+    });
+  };
+  const setTemplateAnswer = (questionId: string, value: string | string[]) => {
+    onFirstWorkChange({
+      ...firstWork,
+      mode: "template",
+      answers: { ...firstWork.answers, [questionId]: value },
+    });
+  };
+
   return (
     <div className="space-y-5">
       <div>
         <h2 className="flex items-center gap-2 text-lg font-semibold text-[var(--text-primary)]">
-          <ClipboardList size={20} className="text-[var(--accent)]" /> First Task
+          <ClipboardList size={20} className="text-[var(--accent)]" /> First Work
         </h2>
-        <p className="mt-1 text-sm text-[var(--text-secondary)]">Give your CEO their first assignment.</p>
+        <p className="mt-1 text-sm text-[var(--text-secondary)]">Choose the first work path for this company.</p>
       </div>
-      <Field label="Task Title" required>
-        <input className={inputClass} value={data.title} onChange={(e) => setField("title", e.target.value)} />
-      </Field>
-      <Field label="Description (Optional)">
-        <textarea className={inputClass} rows={4} value={data.description} onChange={(e) => setField("description", e.target.value)} />
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        <button
+          type="button"
+          onClick={() => onFirstWorkChange(firstWork.mode === "template" ? firstWork : createInitialFirstWork())}
+          data-testid="first-work-template-mode"
+          className={`rounded-lg border p-4 text-left transition-colors ${
+            firstWork.mode === "template"
+              ? "border-[var(--accent)] bg-[var(--accent-soft)] ring-1 ring-[var(--accent)]"
+              : "border-[var(--border)] bg-[var(--surface)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)]"
+          }`}
+        >
+          <span className="flex items-center justify-between gap-2 text-sm font-semibold text-[var(--text-primary)]">
+            Template draft
+            {firstWork.mode === "template" ? <Check size={15} className="text-[var(--accent)]" /> : null}
+          </span>
+          <span className="mt-2 block text-xs leading-relaxed text-[var(--text-secondary)]">
+            Create an operator-reviewable sprint plan before board tasks exist.
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => onFirstWorkChange({ ...firstWork, mode: "task" })}
+          data-testid="first-work-task-mode"
+          className={`rounded-lg border p-4 text-left transition-colors ${
+            firstWork.mode === "task"
+              ? "border-[var(--accent)] bg-[var(--accent-soft)] ring-1 ring-[var(--accent)]"
+              : "border-[var(--border)] bg-[var(--surface)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)]"
+          }`}
+        >
+          <span className="flex items-center justify-between gap-2 text-sm font-semibold text-[var(--text-primary)]">
+            Kickoff task
+            {firstWork.mode === "task" ? <Check size={15} className="text-[var(--accent)]" /> : null}
+          </span>
+          <span className="mt-2 block text-xs leading-relaxed text-[var(--text-secondary)]">
+            Start with a single task assigned to the CEO.
+          </span>
+        </button>
+      </div>
+
+      {firstWork.mode === "template" ? (
+        <div className="space-y-4" data-testid="first-work-template-picker">
+          <Field label="Template" required>
+            <select
+              className={selectClass}
+              value={selectedTemplate.id}
+              onChange={(event) => setTemplateId(event.target.value)}
+            >
+              {STARTER_SPRINT_TEMPLATES.map((template) => (
+                <option key={template.id} value={template.id}>{template.name}</option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-[var(--text-muted)]">{selectedTemplate.summary}</p>
+          </Field>
+          <Field label="Goal Name" required>
+            <input
+              className={inputClass}
+              value={firstWork.goalName}
+              onChange={(event) => onFirstWorkChange({ ...firstWork, goalName: event.target.value })}
+            />
+          </Field>
+          <div className="grid gap-4">
+            {selectedTemplate.intake.questions.map((question) => (
+              <TemplateQuestionInput
+                key={question.id}
+                question={question}
+                value={firstWork.answers[question.id]}
+                onChange={(value) => setTemplateAnswer(question.id, value)}
+              />
+            ))}
+          </div>
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-sm text-[var(--text-secondary)]">
+            Draft plan only. The generated sprint and board tasks wait for operator approval or valid Delegated Signoff.
+          </div>
+          {validationMessage ? (
+            <div className="flex items-start gap-2 rounded-lg border border-[var(--negative)] bg-[var(--negative-soft)] p-3 text-sm text-[var(--negative)]">
+              <AlertCircle size={16} className="mt-0.5 shrink-0" />
+              {validationMessage}
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <div className="space-y-5" data-testid="first-work-task-fields">
+          <Field label="Task Title" required>
+            <input className={inputClass} value={task.title} onChange={(e) => setTaskField("title", e.target.value)} />
+          </Field>
+          <Field label="Description (Optional)">
+            <textarea className={inputClass} rows={4} value={task.description} onChange={(e) => setTaskField("description", e.target.value)} />
+          </Field>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TemplateQuestionInput({
+  question,
+  value,
+  onChange,
+}: {
+  question: StarterSprintIntakeQuestion;
+  value: string | string[] | undefined;
+  onChange: (value: string | string[]) => void;
+}) {
+  if (question.type === "single_select") {
+    return (
+      <div data-template-question-id={question.id}>
+        <Field label={question.label} required={question.required}>
+        <select
+          className={selectClass}
+          value={typeof value === "string" ? value : ""}
+          onChange={(event) => onChange(event.target.value)}
+        >
+          {(question.options ?? []).map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+        <p className="mt-1 text-xs text-[var(--text-muted)]">{question.helpText}</p>
+        </Field>
+      </div>
+    );
+  }
+
+  if (question.type === "multi_select") {
+    const values = new Set(Array.isArray(value) ? value : []);
+    return (
+      <fieldset data-template-question-id={question.id} className="space-y-2">
+        <legend className="text-[11px] uppercase tracking-[0.16em] text-[var(--text-muted)]">
+          {question.label}
+          {question.required ? <span className="ml-1 text-[var(--accent)]">*</span> : null}
+        </legend>
+        <p className="text-xs text-[var(--text-muted)]">{question.helpText}</p>
+        <div className="flex flex-wrap gap-2">
+          {(question.options ?? []).map((option) => {
+            const checked = values.has(option.value);
+            return (
+              <label
+                key={option.value}
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs ${
+                  checked
+                    ? "border-[var(--border-strong)] bg-[var(--surface-hover)] text-[var(--text-primary)]"
+                    : "border-[var(--border)] bg-[var(--surface)] text-[var(--text-secondary)]"
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(event) => {
+                    const next = new Set(values);
+                    if (event.target.checked) next.add(option.value);
+                    else next.delete(option.value);
+                    onChange([...next]);
+                  }}
+                  className="h-3.5 w-3.5 accent-[var(--accent)]"
+                />
+                {option.label}
+              </label>
+            );
+          })}
+        </div>
+      </fieldset>
+    );
+  }
+
+  const multiline = question.type === "long_text";
+  return (
+    <div data-template-question-id={question.id}>
+      <Field label={question.label} required={question.required}>
+      {multiline ? (
+        <textarea
+          className={inputClass}
+          rows={4}
+          value={typeof value === "string" ? value : ""}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      ) : (
+        <input
+          className={inputClass}
+          value={typeof value === "string" ? value : ""}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      )}
+      <p className="mt-1 text-xs text-[var(--text-muted)]">{question.helpText}</p>
       </Field>
     </div>
   );
@@ -707,13 +978,24 @@ function StepReview({ data, modelOptions }: { data: WizardData; modelOptions: Ar
           <p><strong className="text-[var(--text-primary)]">{data.ceo.name}</strong> <span className="text-[var(--text-muted)]">({modelOptions.find((m) => m.value === data.ceo.model)?.label})</span></p>
           <p className="flex items-center gap-1 text-[var(--accent)]"><Sparkles size={11} /> AI-generated identity files</p>
         </SummaryCard>
-        <SummaryCard icon={ClipboardList} title="First Task">
-          <p><strong className="text-[var(--text-primary)]">{data.task.title}</strong></p>
-          <p className="line-clamp-3">{data.task.description || "No additional task description provided."}</p>
+        <SummaryCard icon={ClipboardList} title="First Work">
+          {data.firstWork.mode === "template" ? (
+            <>
+              <p><strong className="text-[var(--text-primary)]">{data.firstWork.goalName}</strong></p>
+              <p className="line-clamp-3">
+                {STARTER_SPRINT_TEMPLATES.find((template) => template.id === data.firstWork.templateId)?.name ?? "Template draft"} creates a draft plan for review.
+              </p>
+            </>
+          ) : (
+            <>
+              <p><strong className="text-[var(--text-primary)]">{data.task.title}</strong></p>
+              <p className="line-clamp-3">{data.task.description || "No additional task description provided."}</p>
+            </>
+          )}
         </SummaryCard>
       </div>
       <div className="rounded-lg border border-[var(--border)] bg-[var(--accent-soft)] p-4 text-sm text-[var(--text-secondary)]">
-        Launch will create the company, preserve the CEO or lead, pass the selected starter roles forward, start the first task, and open the task board with live company activity.
+        Launch will create the company, preserve the CEO or lead, pass the selected starter roles forward, and open the first work surface.
       </div>
     </div>
   );
@@ -756,7 +1038,10 @@ export default function CompanyOnboardingWizard() {
     };
   }, []);
 
-  const [data, setData] = useState<WizardData>(() => createInitialCompanyWizardData());
+  const [data, setData] = useState<WizardData>(() => ({
+    ...createInitialCompanyWizardData(),
+    firstWork: createInitialFirstWork(),
+  }));
 
   const completed = useMemo(() => {
     const s = new Set<number>();
@@ -765,7 +1050,7 @@ export default function CompanyOnboardingWizard() {
     if (highestStepVisited > 2 && (data.project === null || data.project.name.trim())) s.add(2);
     if (highestStepVisited > 3 && !starterTeamValidationMessage(data.starterTeam)) s.add(3);
     if (highestStepVisited > 4 && data.ceo.name.trim()) s.add(4);
-    if (highestStepVisited > 5 && data.task.title.trim()) s.add(5);
+    if (highestStepVisited > 5 && (data.firstWork.mode === "template" ? !firstWorkValidationMessage(data.firstWork) : data.task.title.trim())) s.add(5);
     return s;
   }, [data, highestStepVisited]);
 
@@ -774,7 +1059,7 @@ export default function CompanyOnboardingWizard() {
     if (step === 2) return data.project === null || !!data.project.name.trim();
     if (step === 3) return !starterTeamValidationMessage(data.starterTeam);
     if (step === 4) return !!data.ceo.name.trim() && (!modelsLoading || modelOptions.length > 0);
-    if (step === 5) return !!data.task.title.trim();
+    if (step === 5) return data.firstWork.mode === "template" ? !firstWorkValidationMessage(data.firstWork) : !!data.task.title.trim();
     return true;
   }, [step, data, modelOptions.length, modelsLoading]);
 
@@ -785,6 +1070,7 @@ export default function CompanyOnboardingWizard() {
       setHighestStepVisited((prev) => Math.max(prev, nextStep));
     }
   }, [step]);
+  console.log(JSON.stringify({ step, data, modelsLoading, canAdvance }));
   const back = useCallback(() => {
     if (step > 1) setStep((s) => s - 1);
   }, [step]);
@@ -808,6 +1094,16 @@ export default function CompanyOnboardingWizard() {
           ...data.starterTeam,
           agents: data.starterTeam.agents.filter((agent) => agent.selected),
         },
+        firstWorkMode: data.firstWork.mode,
+        ...(data.firstWork.mode === "template"
+          ? {
+              templateLaunch: {
+                templateId: data.firstWork.templateId,
+                goalName: data.firstWork.goalName.trim(),
+                answers: templateAnswerPayload(data.firstWork.answers),
+              },
+            }
+          : {}),
       };
       const res = await fetch("/api/orchestration/companies/create-full", {
         method: "POST",
@@ -884,7 +1180,14 @@ export default function CompanyOnboardingWizard() {
               loadingModels={modelsLoading}
             />
           )}
-          {step === 5 && <StepTask data={data.task} onChange={(t) => setData((d) => ({ ...d, task: t }))} />}
+          {step === 5 && (
+            <StepFirstWork
+              firstWork={data.firstWork}
+              task={data.task}
+              onFirstWorkChange={(firstWork) => setData((d) => ({ ...d, firstWork }))}
+              onTaskChange={(task) => setData((d) => ({ ...d, task }))}
+            />
+          )}
           {step === 6 && <StepReview data={data} modelOptions={modelOptions} />}
           {error && <div className="mt-4 flex items-start gap-2 rounded-lg border border-[var(--negative)] bg-[var(--negative-soft)] p-3 text-sm text-[var(--negative)]"><AlertCircle size={16} className="mt-0.5 shrink-0" />{error}</div>}
           <div className="mt-8 flex items-center justify-between gap-4 border-t border-[var(--border)] pt-5">

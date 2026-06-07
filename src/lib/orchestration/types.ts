@@ -150,6 +150,9 @@ export interface OrchestrationTask {
   dueDate?: string;
   sourceReviewId?: string;
   sourceTakeawayId?: string;
+  sourceTemplateVersionId?: string | null;
+  templateIntakeAnswerId?: string | null;
+  templateGenerationProvenance?: Record<string, unknown>;
   created: string;
   updated: string;
   completedAt?: string;
@@ -319,6 +322,8 @@ export interface OrchestrationEvalCase {
     key: string | null;
   };
   templateContext: Record<string, unknown>;
+  sourceTemplateVersionId?: string | null;
+  templateIntakeAnswerId?: string | null;
   review: {
     outcome: OrchestrationEvalReviewOutcome;
     rationale: string;
@@ -359,6 +364,8 @@ export interface OrchestrationEvalLibraryFilters {
   projectId?: string;
   taskType?: string;
   template?: string;
+  sourceTemplateVersionId?: string;
+  templateIntakeAnswerId?: string;
   agent?: string;
   runner?: string;
   model?: string;
@@ -417,6 +424,9 @@ export interface OrchestrationSprint {
   progressSummary?: string;
   defaultExecutionEngine?: TaskExecutionEngine | null;
   defaultModelLane?: TaskModelLane | null;
+  sourceTemplateVersionId?: string | null;
+  templateIntakeAnswerId?: string | null;
+  templateGenerationProvenance?: Record<string, unknown>;
   contractItems?: OrchestrationGoalContractItem[];
   validationSummary?: OrchestrationGoalValidationSummary;
 }
@@ -561,6 +571,8 @@ export interface OrchestrationCompanyGoal {
   planPendingSprintCount?: number;
 }
 
+export type AgentRosterState = "active" | "bench" | "paused" | "archived" | "all";
+
 export interface OrchestrationAgent {
   id: string;
   companyId?: string;
@@ -570,6 +582,7 @@ export interface OrchestrationAgent {
   role: string;
   avatar?: string;
   status: "idle" | "working" | "paused" | "offline" | "error";
+  rosterState?: Exclude<AgentRosterState, "all">;
   projectId?: string;
   currentTask?: string;
   personality?: string;
@@ -867,6 +880,9 @@ export interface OrchestrationSprintPlanDraftTask {
   modelLane?: TaskModelLane | null;
   dependsOn?: string[];
   validation?: string;
+  sourceTemplateVersionId?: string | null;
+  templateIntakeAnswerId?: string | null;
+  templateGenerationProvenance?: Record<string, unknown>;
 }
 
 export interface OrchestrationSprintPlanDraftSprint {
@@ -882,6 +898,9 @@ export interface OrchestrationSprintPlanDraftSprint {
   successCriteria?: string[];
   validationChecks?: string[];
   outOfScope?: string[];
+  sourceTemplateVersionId?: string | null;
+  templateIntakeAnswerId?: string | null;
+  templateGenerationProvenance?: Record<string, unknown>;
 }
 
 export interface OrchestrationSprintPlanDraft {
@@ -894,11 +913,86 @@ export interface OrchestrationSprintPlanDraft {
   status: SprintPlanDraftStatus;
   sprint: OrchestrationSprintPlanDraftSprint;
   tasks: OrchestrationSprintPlanDraftTask[];
+  sourceTemplateVersionId?: string | null;
+  intakeAnswerId?: string | null;
+  generationProvenance?: Record<string, unknown>;
   rejectReason?: string | null;
   createdAt: string;
   updatedAt: string;
   approvedAt?: string | null;
   rejectedAt?: string | null;
+}
+
+export interface OrchestrationTemplateDraftPlanCapabilitySlot {
+  id: string;
+  lane: "required" | "useful" | "later";
+  label: string;
+  description: string;
+  suggestedRole: string;
+  coverageStatus:
+    | "covered_by_active"
+    | "covered_by_bench"
+    | "pending_approval"
+    | "proposed_new_agent"
+    | "auto_approved_new_agent";
+  matchedAgent?: {
+    id: string;
+    name: string;
+    role: string;
+    status: OrchestrationAgent["status"];
+    rosterState: Exclude<AgentRosterState, "all">;
+    hireApprovalId?: string;
+    hireApprovalStatus?: ApprovalStatus;
+  };
+  proposedAgent?: {
+    name: string;
+    role: string;
+    capabilities: string;
+    reason: string;
+    materialized: boolean;
+    agentId?: string;
+    approvalId?: string;
+    status?: OrchestrationAgent["status"];
+    approvalRequired?: boolean;
+  };
+}
+
+export interface OrchestrationTemplateDraftPlan {
+  created: boolean;
+  createsBoardTasksImmediately: false;
+  template: {
+    id: string;
+    templateVersionId: string;
+    version: string;
+    name: string;
+    summary: string;
+  };
+  intakeAnswer: {
+    id: string;
+    answers: Record<string, unknown>;
+    normalizedAnswers: Record<string, unknown>;
+  };
+  draftGoal: {
+    title: string;
+    objective: string;
+  };
+  draft: OrchestrationSprintPlanDraft;
+  validationChecklist: string[];
+  reviewCriteria: {
+    title: string;
+    description: string;
+    evidence: string[];
+    blockedIf: string[];
+  };
+  crewRecommendation: {
+    summary: string;
+    autoApproveNewHires: boolean;
+    materializedNewAgentCount: number;
+    approvalRequiredNewAgentCount: number;
+    required: OrchestrationTemplateDraftPlanCapabilitySlot[];
+    useful: OrchestrationTemplateDraftPlanCapabilitySlot[];
+    later: OrchestrationTemplateDraftPlanCapabilitySlot[];
+  };
 }
 
 export interface OrchestrationPendingSprintPlanDraftSummary {
@@ -937,6 +1031,12 @@ export interface OrchestrationActivityEvent {
     | "task.eval_case_saved"
     | "task.comment_added"
     | "task.read_marked"
+    | "template.draft_created"
+    | "template.crew_recommended"
+    | "template.board_created"
+    | "overseer.draft.signoff_delegated"
+    | "overseer.draft.signoff_applied"
+    | "overseer.draft.signoff_blocked"
     | "sprint.created"
     | "sprint.updated"
     | "sprint.completed";

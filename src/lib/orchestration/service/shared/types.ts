@@ -117,6 +117,9 @@ export type TaskRow = {
   eligible_assignee_ids?: string | null;
   source_review_id: string | null;
   source_takeaway_id: string | null;
+  source_template_version_id: string | null;
+  template_intake_answer_id: string | null;
+  template_generation_provenance_json: string | null;
   task_key: string | null;
   due_date: string | null;
   created_at: string;
@@ -137,6 +140,9 @@ export type SprintRow = {
   end_date: string | null;
   created_at: string;
   updated_at: string;
+  source_template_version_id?: string | null;
+  template_intake_answer_id?: string | null;
+  template_generation_provenance_json?: string | null;
   task_count: number;
   in_progress_count: number;
   review_count: number;
@@ -220,6 +226,9 @@ export type TaskWithProjectRow = {
   eligible_assignee_ids?: string | null;
   source_review_id: string | null;
   source_takeaway_id: string | null;
+  source_template_version_id: string | null;
+  template_intake_answer_id: string | null;
+  template_generation_provenance_json: string | null;
   review_notes: string | null;
   started_at: string | null;
   completed_at: string | null;
@@ -245,6 +254,12 @@ export type ActivityEventRow = {
     | "task.assigned"
     | "task.unassigned"
     | "task.eval_case_saved"
+    | "template.draft_created"
+    | "template.crew_recommended"
+    | "template.board_created"
+    | "overseer.draft.signoff_delegated"
+    | "overseer.draft.signoff_applied"
+    | "overseer.draft.signoff_blocked"
     | "sprint.created"
     | "sprint.updated"
     | "sprint.completed";
@@ -258,6 +273,7 @@ export type ActivityEventRow = {
   project_name: string;
   company_id: string | null;
   company_slug: string | null;
+  company_code?: string | null;
   company_name: string | null;
   from_status: DbTaskStatus | null;
   to_status: DbTaskStatus | null;

@@ -73,6 +73,9 @@ type EvalCaseSourceRunRow = {
   sprint_key: string | null;
   company_goal_id: string | null;
   company_goal_key: string | null;
+  source_template_version_id: string | null;
+  template_intake_answer_id: string | null;
+  template_generation_provenance_json: string | null;
 };
 
 type EvalCaseSaveResponse = {
@@ -119,6 +122,52 @@ function parseJsonRecord(raw: string | null | undefined): Record<string, unknown
   } catch {
     return {};
   }
+}
+
+function compactTemplateContext(input: {
+  row: EvalCaseSourceRunRow;
+  requestContext: Record<string, unknown> | null;
+  sourceTemplateVersionId: string | null;
+  templateIntakeAnswerId: string | null;
+}): Record<string, unknown> | null {
+  const provenance = parseJsonRecord(input.row.template_generation_provenance_json);
+  const requestContext = input.requestContext ?? {};
+  const context: Record<string, unknown> = {};
+  const copyString = (target: string, ...values: unknown[]) => {
+    const value = values
+      .map((candidate) => (typeof candidate === "string" ? candidate.trim() : ""))
+      .find(Boolean);
+    if (value) context[target] = value;
+  };
+  const copyArray = (target: string, value: unknown) => {
+    if (!Array.isArray(value)) return;
+    const strings = value.map((item) => String(item).trim()).filter(Boolean).slice(0, 12);
+    if (strings.length > 0) context[target] = strings;
+  };
+
+  copyString("source", requestContext.source, provenance.source);
+  copyString("templateId", requestContext.templateId, provenance.templateId);
+  copyString("templateKey", requestContext.templateKey, provenance.templateKey);
+  copyString("templateName", requestContext.templateName, provenance.templateName);
+  copyString("templateLabel", requestContext.templateLabel, provenance.templateLabel);
+  copyString("draftId", requestContext.draftId, provenance.draftId);
+  copyString("proposalGroupId", requestContext.proposalGroupId, provenance.proposalGroupId);
+  copyString("companyGoalId", requestContext.companyGoalId, provenance.companyGoalId);
+  copyString("sprintId", requestContext.sprintId, provenance.sprintId);
+  copyString("taskId", requestContext.taskId, provenance.taskId);
+  copyString("templateTaskId", requestContext.templateTaskId, provenance.templateTaskId);
+  copyArray("capabilitySlotIds", requestContext.capabilitySlotIds ?? provenance.capabilitySlotIds);
+
+  if (input.sourceTemplateVersionId) {
+    context.sourceTemplateVersionId = input.sourceTemplateVersionId;
+    context.templateVersionId = input.sourceTemplateVersionId;
+  }
+  if (input.templateIntakeAnswerId) {
+    context.templateIntakeAnswerId = input.templateIntakeAnswerId;
+    context.intakeAnswerId = input.templateIntakeAnswerId;
+  }
+
+  return Object.keys(context).length > 0 ? context : null;
 }
 
 function normalizeRunStatus(status: string): string {
@@ -183,7 +232,15 @@ function fetchSourceRun(runId: string): EvalCaseSourceRunRow | null {
          c.id AS company_id, c.slug AS company_slug, c.company_code,
          a.name AS agent_name, a.slug AS agent_slug, a.emoji AS agent_emoji,
          s.sprint_key AS sprint_key,
-         parent_s.id AS company_goal_id, parent_s.goal_key AS company_goal_key
+         parent_s.id AS company_goal_id, parent_s.goal_key AS company_goal_key,
+         COALESCE(r.source_template_version_id, t.source_template_version_id, s.source_template_version_id, parent_s.source_template_version_id) AS source_template_version_id,
+         COALESCE(r.template_intake_answer_id, t.template_intake_answer_id, s.template_intake_answer_id, parent_s.template_intake_answer_id) AS template_intake_answer_id,
+         CASE
+           WHEN r.template_generation_provenance_json IS NOT NULL AND r.template_generation_provenance_json <> '{}' THEN r.template_generation_provenance_json
+           WHEN t.template_generation_provenance_json IS NOT NULL AND t.template_generation_provenance_json <> '{}' THEN t.template_generation_provenance_json
+           WHEN s.template_generation_provenance_json IS NOT NULL AND s.template_generation_provenance_json <> '{}' THEN s.template_generation_provenance_json
+           ELSE parent_s.template_generation_provenance_json
+         END AS template_generation_provenance_json
        FROM execution_runs r
        LEFT JOIN tasks t ON t.id = r.task_id
        LEFT JOIN projects p ON p.id = t.project_id
@@ -259,6 +316,39 @@ function resolveReviewer(input: {
     reviewerAgentId: reviewer.id,
     reviewerName: input.reviewerName ?? reviewer.name,
   };
+}
+
+function compactEvalActivityTemplate(evalCase: EvalCaseRecord): Record<string, unknown> | null {
+  const context = evalCase.templateContext;
+  const compact: Record<string, unknown> = {};
+  const copy = (key: string) => {
+    const value = context[key];
+    if (typeof value === "string" && value.trim()) compact[key] = value.trim();
+  };
+  const copyArray = (key: string) => {
+    const value = context[key];
+    if (!Array.isArray(value)) return;
+    const strings = value.map((item) => String(item).trim()).filter(Boolean).slice(0, 12);
+    if (strings.length > 0) compact[key] = strings;
+  };
+
+  copy("source");
+  copy("templateId");
+  copy("templateKey");
+  copy("templateName");
+  copy("templateLabel");
+  copy("draftId");
+  copy("proposalGroupId");
+  copy("companyGoalId");
+  copy("sprintId");
+  copy("taskId");
+  copy("templateTaskId");
+  copyArray("capabilitySlotIds");
+
+  if (evalCase.sourceTemplateVersionId) compact.sourceTemplateVersionId = evalCase.sourceTemplateVersionId;
+  if (evalCase.templateIntakeAnswerId) compact.templateIntakeAnswerId = evalCase.templateIntakeAnswerId;
+
+  return Object.keys(compact).length > 0 ? compact : null;
 }
 
 function hasReturnedReviewEvent(row: EvalCaseSourceRunRow): boolean {
@@ -543,6 +633,17 @@ function buildTraceInput(row: EvalCaseSourceRunRow): RunTraceEvidenceInput {
     providerExecution: buildTraceProviderExecution(usage, transcriptEvents),
     workspaceRunVisibility: workspaceRunVisibilityFromUsage(usage),
     memoryEvidence: usage.memoryEvidence ?? metadata.memoryEvidence ?? null,
+    template: row.source_template_version_id || row.template_intake_answer_id
+      ? {
+          sourceTemplateVersionId: row.source_template_version_id,
+          templateIntakeAnswerId: row.template_intake_answer_id,
+          provenance: {
+            source: "execution_run_context",
+            runId: row.id,
+            taskId: row.task_id,
+          },
+        }
+      : null,
     skillEffectiveness: Array.isArray(usage.skillEffectivenessEvents)
       ? { events: usage.skillEffectivenessEvents }
       : { events: [] },
@@ -614,6 +715,10 @@ function recordEvalCaseActivity(input: {
   const goalRoute = evalCase.sourceGoal.key || evalCase.sourceGoal.id
     ? buildCanonicalGoalPath(input.companyCode, evalCase.sourceGoal.key ?? evalCase.sourceGoal.id ?? "")
     : null;
+  const template = compactEvalActivityTemplate(evalCase);
+  const templateFilter = evalCase.sourceTemplateVersionId
+    ?? (typeof template?.templateId === "string" ? template.templateId : null)
+    ?? (typeof template?.templateName === "string" ? template.templateName : null);
   const metadata = {
     schema: "hiverunner.eval_case_activity.v1",
     evalCaseId: evalCase.id,
@@ -653,6 +758,18 @@ function recordEvalCaseActivity(input: {
       createdByAgentId: evalCase.createdByAgentId,
       createdByUserId: evalCase.createdByUserId,
     },
+    template: template
+      ? {
+          ...template,
+          sourceLinks: {
+            ...(templateFilter ? { evals: `${input.links.evalsLibrary}?template=${encodeURIComponent(templateFilter)}` } : {}),
+            ...(evalCase.templateIntakeAnswerId
+              ? { intake: `${input.links.evalsLibrary}?templateIntakeAnswerId=${encodeURIComponent(evalCase.templateIntakeAnswerId)}` }
+              : {}),
+            ...(goalRoute ? { goal: goalRoute } : {}),
+          },
+        }
+      : null,
     sourceArtifact: sourceArtifact(input.row),
     snapshotEvidence: {
       schema: evalCase.redactedSnapshot.schema,
@@ -733,6 +850,14 @@ export async function POST(
       runId: row.id,
     });
     const usageForSourceRun = parseJsonRecord(row.token_usage_json);
+    const sourceTemplateVersionId = textValue(requestField(body, "sourceTemplateVersionId")) ?? row.source_template_version_id;
+    const templateIntakeAnswerId = textValue(requestField(body, "templateIntakeAnswerId")) ?? row.template_intake_answer_id;
+    const templateContext = compactTemplateContext({
+      row,
+      requestContext: asRecord(requestField(body, "templateContext")),
+      sourceTemplateVersionId,
+      templateIntakeAnswerId,
+    });
     const evalCase = createEvalCase({
       companyId: context.companyId,
       projectId: context.projectId,
@@ -760,7 +885,9 @@ export async function POST(
         id: row.company_goal_id,
         key: row.company_goal_key,
       },
-      templateContext: asRecord(requestField(body, "templateContext")) ?? null,
+      templateContext,
+      sourceTemplateVersionId,
+      templateIntakeAnswerId,
       review: {
         outcome,
         rationale,

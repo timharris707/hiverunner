@@ -74,7 +74,7 @@ const SECTION_FOR_PAGE: Record<string, string> = {
   tasks: "Operations", dashboard: "Operations",
   inbox: "Operations", approvals: "Operations", routines: "Operations", goals: "Operations",
   // Company
-  org: "Company", "manage-projects": "Company", overseer: "Company", skills: "Company", hives: "Company", runtimes: "Company", "runtime-inventory": "Company",
+  team: "Company", org: "Company", "manage-projects": "Company", overseer: "Company", skills: "Company", hives: "Company", runtimes: "Company", "runtime-inventory": "Company",
   costs: "Company", activity: "Company", files: "Company", settings: "Company",
   // Systems
   terminal: "Systems", sessions: "Systems", logs: "Systems",

@@ -35,6 +35,7 @@ export const taskModelRoutingSchema = z.string().trim().min(1).max(80);
 
 export const projectStatusSchema = z.enum(["active", "paused", "archived"]);
 export const companyStatusSchema = z.enum(["active", "paused", "archived"]);
+export const agentRosterStateSchema = z.enum(["active", "bench", "paused", "archived", "all"]);
 export const sprintStatusSchema = z.enum(["planned", "active", "blocked", "paused", "done"]);
 export const commentTypeSchema = z.enum(["comment", "status_update", "code_link", "review", "blocker"]);
 export const agentStatusSchema = z.enum(["idle", "working", "paused", "offline", "error"]);
@@ -185,6 +186,7 @@ export const saveCompanyModelSourceCredentialSchema = z
 export const listCompanyAgentsQuerySchema = z.object({
   includeNonProduction: queryBooleanSchema.optional().default(false),
   includeArchived: queryBooleanSchema.optional().default(false),
+  rosterState: agentRosterStateSchema.optional(),
 });
 
 export const updateDevExecutionTestModeSchema = z.object({
@@ -611,6 +613,9 @@ const sprintPlanDraftTaskSchema = z.object({
   modelLane: taskModelLaneSchema.nullable().optional(),
   dependsOn: z.array(z.string().trim().min(1).max(120)).optional().default([]),
   validation: z.string().trim().max(2000).optional(),
+  sourceTemplateVersionId: z.string().trim().min(1).max(160).nullable().optional(),
+  templateIntakeAnswerId: z.string().trim().min(1).max(160).nullable().optional(),
+  templateGenerationProvenance: z.record(z.string(), z.unknown()).optional(),
 });
 
 const sprintPlanDraftSprintSchema = z.object({
@@ -624,6 +629,9 @@ const sprintPlanDraftSprintSchema = z.object({
   successCriteria: z.array(z.string().trim().min(1).max(2000)).optional().default([]),
   validationChecks: z.array(z.string().trim().min(1).max(2000)).optional().default([]),
   outOfScope: z.array(z.string().trim().min(1).max(2000)).optional().default([]),
+  sourceTemplateVersionId: z.string().trim().min(1).max(160).nullable().optional(),
+  templateIntakeAnswerId: z.string().trim().min(1).max(160).nullable().optional(),
+  templateGenerationProvenance: z.record(z.string(), z.unknown()).optional(),
 });
 
 const sprintPlanDraftSprintWithSequenceSchema = sprintPlanDraftSprintSchema.extend({
@@ -637,6 +645,9 @@ export const proposeSprintPlanSchema = z.object({
   sprint: sprintPlanDraftSprintSchema.optional(),
   tasks: z.array(sprintPlanDraftTaskSchema).min(1).max(50).optional(),
   sprints: z.array(sprintPlanDraftSprintWithSequenceSchema).min(1).max(25).optional(),
+  sourceTemplateVersionId: z.string().trim().min(1).max(160).nullable().optional(),
+  intakeAnswerId: z.string().trim().min(1).max(160).nullable().optional(),
+  generationProvenance: z.record(z.string(), z.unknown()).optional(),
 }).superRefine((value, ctx) => {
   if (value.sprints?.length) return;
   if (!value.sprint) {
@@ -653,6 +664,26 @@ export const proposeSprintPlanSchema = z.object({
       path: ["tasks"],
     });
   }
+});
+
+export const generateTemplateDraftPlanSchema = z.object({
+  templateId: z.string().trim().min(1).max(120).optional(),
+  templateVersionId: z.string().trim().min(1).max(160).optional(),
+  answers: z.record(z.string(), z.unknown()).optional().default({}),
+  idempotencyKey: z.string().trim().min(1).max(240).optional(),
+  submittedByAgentId: z.string().trim().min(1).optional(),
+  submittedByUserId: z.string().trim().min(1).max(100).optional(),
+  defaultExecutionEngine: taskExecutionEngineSchema.optional(),
+  defaultModelLane: taskModelLaneSchema.optional(),
+  materializeCrewRecommendations: z.boolean().optional().default(false),
+  materializeCrewRecommendationLanes: z.array(z.enum(["required", "useful", "later"])).optional(),
+}).superRefine((value, ctx) => {
+  if (value.templateId || value.templateVersionId) return;
+  ctx.addIssue({
+    code: z.ZodIssueCode.custom,
+    message: "A templateId or templateVersionId is required",
+    path: ["templateId"],
+  });
 });
 
 export const createSprintPlanningTaskSchema = z.object({

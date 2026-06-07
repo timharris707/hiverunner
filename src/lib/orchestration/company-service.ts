@@ -1,4 +1,4 @@
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { execFile } from "child_process";
 import fs from "fs";
 import path from "path";
@@ -21,6 +21,7 @@ import type {
   OrchestrationSprintPlanDraft,
   OrchestrationSprintPlanDraftSprint,
   OrchestrationSprintPlanDraftTask,
+  OrchestrationTemplateDraftPlan,
   TaskExecutionEngine,
   TaskModelLane,
   TaskPriority,
@@ -52,6 +53,19 @@ import { isNonProductionCompany } from "@/lib/orchestration/service/shared";
 import { refreshEdgeRouteMapCache } from "@/lib/orchestration/edge-route-map-service";
 import { recordPlanningRetrospectiveMemory } from "@/lib/orchestration/planning-retrospectives";
 import { isExecutableAgentRuntime } from "@/lib/orchestration/runtime-readiness";
+import {
+  createTemplateIntakeAnswer,
+  getTemplateIntakeAnswerForCompany,
+  getTemplateVersionForCompany,
+  recordTemplateGeneratedWork,
+} from "@/lib/orchestration/template-persistence";
+import {
+  BUILT_IN_STARTER_SPRINT_TEMPLATES,
+  type BuiltInStarterSprintTemplate,
+  type StarterSprintDraftTask,
+  type StarterSprintIntakeQuestion,
+} from "@/lib/orchestration/starter-sprint-templates";
+import { buildTemplateCrewRecommendation } from "@/lib/orchestration/template-crew-recommendation";
 import {
   ensureCompanyWorkspaceScaffold,
   resolveCanonicalCompanyWorkspaceRoot,
@@ -141,6 +155,9 @@ type CompanyGoalRow = {
   sprint_progress_summary: string | null;
   sprint_default_execution_engine: TaskExecutionEngine | null;
   sprint_default_model_lane: TaskModelLane | null;
+  sprint_source_template_version_id: string | null;
+  sprint_template_intake_answer_id: string | null;
+  sprint_template_generation_provenance_json: string | null;
   project_id: string;
   project_slug: string;
   project_name: string;
@@ -184,6 +201,9 @@ type CompanyScopedSprintRow = {
   progress_summary: string | null;
   default_execution_engine: TaskExecutionEngine | null;
   default_model_lane: TaskModelLane | null;
+  source_template_version_id: string | null;
+  template_intake_answer_id: string | null;
+  template_generation_provenance_json: string | null;
 };
 
 type SprintApprovalRootTaskWakeRow = {
@@ -306,6 +326,9 @@ type SprintPlanDraftRow = {
   proposal_group_id: string | null;
   sprint_json: string;
   tasks_json: string;
+  source_template_version_id: string | null;
+  intake_answer_id: string | null;
+  generation_provenance_json: string | null;
   reject_reason: string | null;
   approved_at: string | null;
   rejected_at: string | null;
@@ -1162,7 +1185,10 @@ function getCompanyScopedSprintRow(
 	        s.stop_condition,
 	        s.progress_summary,
 	        s.default_execution_engine,
-	        s.default_model_lane
+	        s.default_model_lane,
+	        s.source_template_version_id,
+	        s.template_intake_answer_id,
+	        s.template_generation_provenance_json
 	       FROM sprints s
        INNER JOIN projects p ON p.id = s.project_id
        WHERE s.id = ?
@@ -1546,6 +1572,9 @@ function mapCompanyGoalRow(
       progressSummary: row.sprint_progress_summary ?? "",
       defaultExecutionEngine: row.sprint_default_execution_engine,
       defaultModelLane: row.sprint_default_model_lane,
+      sourceTemplateVersionId: row.sprint_source_template_version_id,
+      templateIntakeAnswerId: row.sprint_template_intake_answer_id,
+      templateGenerationProvenance: parseJsonObject(row.sprint_template_generation_provenance_json ?? "{}"),
       contractItems,
       validationSummary: summarizeGoalValidation(contractItems),
     },
@@ -1666,6 +1695,9 @@ function parseDraftSprint(value: string): OrchestrationSprintPlanDraftSprint {
       successCriteria: Array.isArray(parsed.successCriteria) ? parsed.successCriteria.map(String).filter(Boolean) : [],
       validationChecks: Array.isArray(parsed.validationChecks) ? parsed.validationChecks.map(String).filter(Boolean) : [],
       outOfScope: Array.isArray(parsed.outOfScope) ? parsed.outOfScope.map(String).filter(Boolean) : [],
+      sourceTemplateVersionId: typeof parsed.sourceTemplateVersionId === "string" ? parsed.sourceTemplateVersionId : null,
+      templateIntakeAnswerId: typeof parsed.templateIntakeAnswerId === "string" ? parsed.templateIntakeAnswerId : null,
+      templateGenerationProvenance: parseJsonObject(JSON.stringify((parsed as Record<string, unknown>).templateGenerationProvenance ?? {})),
     };
   } catch {
     return { name: "Untitled sprint", objective: "", successCriteria: [], validationChecks: [], outOfScope: [] };
@@ -1690,6 +1722,9 @@ function parseDraftTasks(value: string): OrchestrationSprintPlanDraftTask[] {
         eligibleAssignees: Array.isArray(candidate.eligibleAssignees) ? candidate.eligibleAssignees.map(String).filter(Boolean) : [],
         dependsOn: Array.isArray(candidate.dependsOn) ? candidate.dependsOn.map(String).filter(Boolean) : [],
         validation: candidate.validation ? String(candidate.validation) : "",
+        sourceTemplateVersionId: typeof candidate.sourceTemplateVersionId === "string" ? candidate.sourceTemplateVersionId : null,
+        templateIntakeAnswerId: typeof candidate.templateIntakeAnswerId === "string" ? candidate.templateIntakeAnswerId : null,
+        templateGenerationProvenance: parseJsonObject(JSON.stringify((candidate as Record<string, unknown>).templateGenerationProvenance ?? {})),
       };
     });
   } catch {
@@ -1708,6 +1743,9 @@ function sprintPlanDraftFromRow(row: SprintPlanDraftRow): OrchestrationSprintPla
     status: row.status,
     sprint: parseDraftSprint(row.sprint_json),
     tasks: parseDraftTasks(row.tasks_json),
+    sourceTemplateVersionId: row.source_template_version_id,
+    intakeAnswerId: row.intake_answer_id,
+    generationProvenance: parseJsonObject(row.generation_provenance_json ?? "{}"),
     rejectReason: row.reject_reason,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -1716,10 +1754,495 @@ function sprintPlanDraftFromRow(row: SprintPlanDraftRow): OrchestrationSprintPla
   };
 }
 
+function compactTemplateId(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function jsonObject(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
+}
+
+function resolveTemplateDraftSource(input: {
+  companyId: string;
+  sourceTemplateVersionId?: string | null;
+  intakeAnswerId?: string | null;
+}): { sourceTemplateVersionId: string | null; intakeAnswerId: string | null } {
+  let sourceTemplateVersionId = compactTemplateId(input.sourceTemplateVersionId);
+  const intakeAnswerId = compactTemplateId(input.intakeAnswerId);
+
+  if (sourceTemplateVersionId && !getTemplateVersionForCompany(input.companyId, sourceTemplateVersionId)) {
+    throw new OrchestrationApiError(400, "template_version_not_found", "Template version is not available to this company");
+  }
+
+  if (intakeAnswerId) {
+    const intake = getTemplateIntakeAnswerForCompany(input.companyId, intakeAnswerId);
+    if (!intake) throw new OrchestrationApiError(400, "template_intake_not_found", "Template intake answer is not available to this company");
+    if (sourceTemplateVersionId && intake.templateVersionId !== sourceTemplateVersionId) {
+      throw new OrchestrationApiError(400, "template_intake_mismatch", "Template intake answer belongs to a different template version");
+    }
+    sourceTemplateVersionId = sourceTemplateVersionId ?? intake.templateVersionId;
+  }
+
+  return { sourceTemplateVersionId, intakeAnswerId };
+}
+
+type TemplateDraftPlanInput = {
+  companyIdOrSlug: string;
+  companyGoalId: string;
+  templateId?: string;
+  templateVersionId?: string;
+  answers?: Record<string, unknown>;
+  idempotencyKey?: string | null;
+  submittedByAgentId?: string | null;
+  submittedByUserId?: string | null;
+  defaultExecutionEngine?: TaskExecutionEngine;
+  defaultModelLane?: TaskModelLane;
+};
+
+type NormalizedTemplateIntake = {
+  answers: Record<string, unknown>;
+  summaryLines: string[];
+  primaryLabel: string;
+};
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (!value || typeof value !== "object") return JSON.stringify(value ?? null);
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
+    .join(",")}}`;
+}
+
+function templateDraftPlanHash(input: {
+  companyId: string;
+  companyGoalId: string;
+  templateVersionId: string;
+  normalizedAnswers: Record<string, unknown>;
+}): string {
+  const payload = stableJson(input);
+  return createHash("sha256").update(payload).digest("hex").slice(0, 32);
+}
+
+function resolveBuiltInTemplate(input: {
+  templateId?: string;
+  templateVersionId?: string;
+}): BuiltInStarterSprintTemplate {
+  const templateId = input.templateId?.trim();
+  const templateVersionId = input.templateVersionId?.trim();
+  const template = BUILT_IN_STARTER_SPRINT_TEMPLATES.find((candidate) => (
+    (templateId ? candidate.id === templateId || candidate.templateVersionId === templateId : false) ||
+    (templateVersionId ? candidate.templateVersionId === templateVersionId || candidate.id === templateVersionId : false)
+  ));
+  if (!template) {
+    throw new OrchestrationApiError(404, "starter_template_not_found", "Starter sprint template not found");
+  }
+  if (templateId && templateVersionId) {
+    const templateIdMatches = template.id === templateId || template.templateVersionId === templateId;
+    const versionMatches = template.templateVersionId === templateVersionId || template.id === templateVersionId;
+    if (!templateIdMatches || !versionMatches) {
+      throw new OrchestrationApiError(400, "starter_template_mismatch", "Template id and template version id refer to different templates");
+    }
+  }
+  return template;
+}
+
+function optionLabel(question: StarterSprintIntakeQuestion, value: string): string {
+  return question.options?.find((option) => option.value === value)?.label ?? value;
+}
+
+function normalizeSingleAnswer(question: StarterSprintIntakeQuestion, rawValue: unknown): string {
+  const candidate = rawValue === undefined || rawValue === null || rawValue === ""
+    ? question.defaultValue
+    : rawValue;
+  if (candidate === undefined || candidate === null) {
+    if (question.required) {
+      throw new OrchestrationApiError(400, "missing_template_intake_answer", `${question.label} is required`);
+    }
+    return "";
+  }
+  if (typeof candidate !== "string") {
+    throw new OrchestrationApiError(400, "invalid_template_intake", `${question.label} must be a string`);
+  }
+  const value = candidate.trim();
+  if (question.required && !value) {
+    throw new OrchestrationApiError(400, "missing_template_intake_answer", `${question.label} is required`);
+  }
+  const allowed = question.options?.map((option) => option.value);
+  if (value && allowed?.length && !allowed.includes(value)) {
+    throw new OrchestrationApiError(400, "invalid_template_intake", `${question.label} is not a supported option`);
+  }
+  return value;
+}
+
+function normalizeMultiAnswer(question: StarterSprintIntakeQuestion, rawValue: unknown): string[] {
+  const candidate = rawValue === undefined || rawValue === null
+    ? question.defaultValue
+    : rawValue;
+  if (!Array.isArray(candidate)) {
+    throw new OrchestrationApiError(400, "invalid_template_intake", `${question.label} must be an array`);
+  }
+  const values = candidate.map((value) => String(value).trim()).filter(Boolean);
+  if (question.required && values.length === 0) {
+    throw new OrchestrationApiError(400, "missing_template_intake_answer", `${question.label} is required`);
+  }
+  const allowed = question.options?.map((option) => option.value);
+  if (allowed?.length) {
+    const invalid = values.find((value) => !allowed.includes(value));
+    if (invalid) {
+      throw new OrchestrationApiError(400, "invalid_template_intake", `${question.label} includes an unsupported option`);
+    }
+  }
+  return [...new Set(values)];
+}
+
+function normalizeTemplateIntakeAnswers(
+  template: BuiltInStarterSprintTemplate,
+  answers: Record<string, unknown>,
+): NormalizedTemplateIntake {
+  const normalized: Record<string, unknown> = {};
+  const summaryLines: string[] = [];
+  for (const question of template.intake.questions) {
+    if (question.type === "multi_select") {
+      const values = normalizeMultiAnswer(question, answers[question.id]);
+      normalized[question.id] = values;
+      if (values.length > 0) {
+        summaryLines.push(`${question.label}: ${values.map((value) => optionLabel(question, value)).join(", ")}`);
+      }
+      continue;
+    }
+
+    const value = normalizeSingleAnswer(question, answers[question.id]);
+    normalized[question.id] = value;
+    if (value) {
+      summaryLines.push(`${question.label}: ${question.options ? optionLabel(question, value) : value}`);
+    }
+  }
+
+  return {
+    answers: normalized,
+    summaryLines,
+    primaryLabel: summaryLines[0]?.split(": ").slice(1).join(": ") || template.shortName,
+  };
+}
+
+function truncateDraftText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, Math.max(0, maxLength - 3)).trim()}...`;
+}
+
+function templateTaskPriority(priority: StarterSprintDraftTask["priority"]): TaskPriority {
+  if (priority === "critical") return "P0";
+  if (priority === "high") return "P1";
+  return "P2";
+}
+
+function templateTaskType(type: StarterSprintDraftTask["type"]): TaskType {
+  if (type === "validation") return "qa";
+  return type;
+}
+
+function templateDraftPlanReview(input: {
+  template: BuiltInStarterSprintTemplate;
+  normalized: NormalizedTemplateIntake;
+}) {
+  return {
+    title: input.template.draftOutputs.reviewGate.title,
+    description: `${input.template.draftOutputs.reviewGate.description}\n\n${input.normalized.summaryLines.join("\n")}`,
+    evidence: [...input.template.validationCriteria.evidence],
+    blockedIf: [...input.template.validationCriteria.blockedIf],
+  };
+}
+
+function templateDraftPlanCrewRecommendation(input: {
+  db: ReturnType<typeof getOrchestrationDb>;
+  companyId: string;
+  template: BuiltInStarterSprintTemplate;
+}): OrchestrationTemplateDraftPlan["crewRecommendation"] {
+  return buildTemplateCrewRecommendation(input);
+}
+
+function templateDraftPlanGoal(input: {
+  template: BuiltInStarterSprintTemplate;
+  normalized: NormalizedTemplateIntake;
+}): OrchestrationTemplateDraftPlan["draftGoal"] {
+  return {
+    title: truncateDraftText(`${input.template.draftOutputs.goal.title}: ${input.normalized.primaryLabel}`, 160),
+    objective: [
+      input.template.draftOutputs.goal.objective,
+      input.normalized.summaryLines.length ? "Intake answers:" : "",
+      ...input.normalized.summaryLines.map((line) => `- ${line}`),
+    ].filter(Boolean).join("\n"),
+  };
+}
+
+function templateDraftTaskValidation(input: {
+  template: BuiltInStarterSprintTemplate;
+  task: StarterSprintDraftTask;
+}): string {
+  return truncateDraftText([
+    input.task.description,
+    "Validation checklist:",
+    ...input.template.validationCriteria.checklist.map((item) => `- ${item}`),
+  ].join("\n"), 2000);
+}
+
+function buildTemplateDraftPlanPayload(input: {
+  template: BuiltInStarterSprintTemplate;
+  normalized: NormalizedTemplateIntake;
+  intakeAnswerId: string;
+  draftGoal: OrchestrationTemplateDraftPlan["draftGoal"];
+  reviewCriteria: OrchestrationTemplateDraftPlan["reviewCriteria"];
+  crewRecommendation: OrchestrationTemplateDraftPlan["crewRecommendation"];
+  defaultExecutionEngine: TaskExecutionEngine;
+  defaultModelLane: TaskModelLane;
+}): {
+  sprint: OrchestrationSprintPlanDraftSprint;
+  tasks: OrchestrationSprintPlanDraftTask[];
+  provenance: Record<string, unknown>;
+} {
+  const provenance = {
+    schema: "hiverunner.template_draft_plan.v1",
+    source: "template_draft_plan_service",
+    templateId: input.template.id,
+    templateVersionId: input.template.templateVersionId,
+    templateName: input.template.name,
+    templateVersion: input.template.version,
+    createsBoardTasksImmediately: false,
+    intakeAnswers: input.normalized.answers,
+    intakeAnswerSummary: input.normalized.summaryLines,
+    draftGoal: input.draftGoal,
+    validationChecklist: [...input.template.validationCriteria.checklist],
+    reviewCriteria: input.reviewCriteria,
+    crewRecommendation: input.crewRecommendation,
+  };
+
+  return {
+    sprint: {
+      name: truncateDraftText(`${input.template.draftOutputs.sprint.name}: ${input.normalized.primaryLabel}`, 160),
+      objective: [
+        input.template.draftOutputs.sprint.objective,
+        input.normalized.summaryLines.length ? "Intake answers:" : "",
+        ...input.normalized.summaryLines.map((line) => `- ${line}`),
+      ].filter(Boolean).join("\n"),
+      defaultExecutionEngine: input.defaultExecutionEngine,
+      defaultModelLane: input.defaultModelLane,
+      successCriteria: [...input.template.validationCriteria.checklist],
+      validationChecks: [...input.template.validationCriteria.checklist],
+      outOfScope: [
+        "Creating board tasks before the draft is approved",
+        ...input.template.validationCriteria.blockedIf,
+      ],
+      sourceTemplateVersionId: input.template.templateVersionId,
+      templateIntakeAnswerId: input.intakeAnswerId,
+      templateGenerationProvenance: provenance,
+    },
+    tasks: input.template.draftOutputs.taskPlan.map((task) => ({
+      id: task.id,
+      title: task.title,
+      description: [
+        task.description,
+        input.normalized.summaryLines.length ? "Template intake:" : "",
+        ...input.normalized.summaryLines.map((line) => `- ${line}`),
+      ].filter(Boolean).join("\n"),
+      priority: templateTaskPriority(task.priority),
+      type: templateTaskType(task.type),
+      executionEngine: input.defaultExecutionEngine,
+      modelLane: input.defaultModelLane,
+      dependsOn: [...(task.dependsOn ?? [])],
+      validation: templateDraftTaskValidation({ template: input.template, task }),
+      sourceTemplateVersionId: input.template.templateVersionId,
+      templateIntakeAnswerId: input.intakeAnswerId,
+      templateGenerationProvenance: {
+        ...provenance,
+        templateTaskId: task.id,
+        capabilitySlotIds: [...task.suggestedCapabilitySlotIds],
+      },
+    })),
+    provenance,
+  };
+}
+
+function buildTemplateDraftPlanResponse(input: {
+  created: boolean;
+  template: BuiltInStarterSprintTemplate;
+  intakeAnswerId: string;
+  answers: Record<string, unknown>;
+  normalizedAnswers: Record<string, unknown>;
+  draftGoal: OrchestrationTemplateDraftPlan["draftGoal"];
+  draft: OrchestrationSprintPlanDraft;
+  reviewCriteria: OrchestrationTemplateDraftPlan["reviewCriteria"];
+  crewRecommendation: OrchestrationTemplateDraftPlan["crewRecommendation"];
+}): OrchestrationTemplateDraftPlan {
+  return {
+    created: input.created,
+    createsBoardTasksImmediately: false,
+    template: {
+      id: input.template.id,
+      templateVersionId: input.template.templateVersionId,
+      version: input.template.version,
+      name: input.template.name,
+      summary: input.template.summary,
+    },
+    intakeAnswer: {
+      id: input.intakeAnswerId,
+      answers: input.answers,
+      normalizedAnswers: input.normalizedAnswers,
+    },
+    draftGoal: input.draftGoal,
+    draft: input.draft,
+    validationChecklist: [...input.template.validationCriteria.checklist],
+    reviewCriteria: input.reviewCriteria,
+    crewRecommendation: input.crewRecommendation,
+  };
+}
+
 function getSprintPlanDraftRow(id: string): SprintPlanDraftRow | undefined {
   return getOrchestrationDb()
     .prepare("SELECT * FROM goal_sprint_plan_drafts WHERE id = ? LIMIT 1")
     .get(id) as SprintPlanDraftRow | undefined;
+}
+
+export function generateTemplateDraftPlan(input: TemplateDraftPlanInput): OrchestrationTemplateDraftPlan {
+  const db = getOrchestrationDb();
+  const companyRow = getCompanyRowByIdOrSlug(input.companyIdOrSlug);
+  if (!companyRow) throw new OrchestrationApiError(404, "company_not_found", "Company not found");
+  const goal = getCompanyScopedSprintRow(companyRow.id, input.companyGoalId);
+  if (!goal) throw new OrchestrationApiError(404, "company_goal_not_found", "Company goal not found");
+  const goalKind = goal.goal_kind ?? (goal.parent_id ? "sprint" : "company");
+  if (goalKind !== "company") {
+    throw new OrchestrationApiError(400, "company_goal_required", "Template draft plans must target a company goal");
+  }
+
+  const template = resolveBuiltInTemplate({
+    templateId: input.templateId,
+    templateVersionId: input.templateVersionId,
+  });
+  const storedTemplate = getTemplateVersionForCompany(companyRow.id, template.templateVersionId);
+  if (!storedTemplate) {
+    throw new OrchestrationApiError(500, "starter_template_version_missing", "Starter sprint template version is not seeded");
+  }
+
+  const rawAnswers = input.answers ?? {};
+  const normalized = normalizeTemplateIntakeAnswers(template, rawAnswers);
+  const idempotencyKey = compactTemplateId(input.idempotencyKey ?? null)
+    ?? `template-draft-plan:${templateDraftPlanHash({
+      companyId: companyRow.id,
+      companyGoalId: goal.id,
+      templateVersionId: template.templateVersionId,
+      normalizedAnswers: normalized.answers,
+    })}`;
+  const intakeAnswer = (() => {
+    try {
+      return createTemplateIntakeAnswer({
+        companyId: companyRow.id,
+        templateVersionId: template.templateVersionId,
+        companyGoalId: goal.id,
+        planningTaskId: null,
+        submittedByAgentId: input.submittedByAgentId ?? null,
+        submittedByUserId: input.submittedByUserId ?? null,
+        answers: rawAnswers,
+        normalizedAnswers: normalized.answers,
+        idempotencyKey,
+      });
+    } catch (error) {
+      if (error instanceof Error && /idempotency key/i.test(error.message)) {
+        throw new OrchestrationApiError(
+          409,
+          "template_intake_idempotency_conflict",
+          "Template draft idempotency key was already used with different answers",
+        );
+      }
+      throw error;
+    }
+  })();
+
+  const draftGoal = templateDraftPlanGoal({ template, normalized });
+  const reviewCriteria = templateDraftPlanReview({ template, normalized });
+  const crewRecommendation = templateDraftPlanCrewRecommendation({
+    db,
+    companyId: companyRow.id,
+    template,
+  });
+  const existingDraftRow = db
+    .prepare(
+      `SELECT *
+       FROM goal_sprint_plan_drafts
+       WHERE company_id = ?
+         AND company_goal_id = ?
+         AND source_template_version_id = ?
+         AND intake_answer_id = ?
+         AND status = 'pending'
+       ORDER BY datetime(created_at) DESC, id DESC
+       LIMIT 1`,
+    )
+    .get(companyRow.id, goal.id, template.templateVersionId, intakeAnswer.id) as SprintPlanDraftRow | undefined;
+  if (existingDraftRow) {
+    return buildTemplateDraftPlanResponse({
+      created: false,
+      template,
+      intakeAnswerId: intakeAnswer.id,
+      answers: intakeAnswer.answers,
+      normalizedAnswers: intakeAnswer.normalizedAnswers,
+      draftGoal,
+      draft: sprintPlanDraftFromRow(existingDraftRow),
+      reviewCriteria,
+      crewRecommendation,
+    });
+  }
+
+  const approvedMax = db
+    .prepare(
+      `SELECT COALESCE(MAX(sequence_number), 0) AS sequence_number
+       FROM goal_sprint_plan_drafts
+       WHERE company_id = ?
+         AND company_goal_id = ?
+         AND status = 'approved'`,
+    )
+    .get(companyRow.id, goal.id) as { sequence_number: number } | undefined;
+  const defaultExecutionEngine = input.defaultExecutionEngine ?? "symphony";
+  const defaultModelLane = input.defaultModelLane ?? "default";
+  const payload = buildTemplateDraftPlanPayload({
+    template,
+    normalized,
+    intakeAnswerId: intakeAnswer.id,
+    draftGoal,
+    reviewCriteria,
+    crewRecommendation,
+    defaultExecutionEngine,
+    defaultModelLane,
+  });
+  const result = createSprintPlanDrafts({
+    companyIdOrSlug: companyRow.id,
+    companyGoalId: goal.id,
+    planningTaskId: null,
+    proposedByAgentId: input.submittedByAgentId ?? null,
+    sourceTemplateVersionId: template.templateVersionId,
+    intakeAnswerId: intakeAnswer.id,
+    generationProvenance: payload.provenance,
+    drafts: [{
+      sequenceNumber: Number(approvedMax?.sequence_number ?? 0) + 1,
+      sprint: payload.sprint,
+      tasks: payload.tasks,
+    }],
+  });
+  const draft = result.drafts[0];
+  if (!draft) throw new OrchestrationApiError(500, "template_draft_plan_create_failed", "Template draft created but could not be loaded");
+
+  return buildTemplateDraftPlanResponse({
+    created: true,
+    template,
+    intakeAnswerId: intakeAnswer.id,
+    answers: intakeAnswer.answers,
+    normalizedAnswers: intakeAnswer.normalizedAnswers,
+    draftGoal,
+    draft,
+    reviewCriteria,
+    crewRecommendation,
+  });
 }
 
 function normalizeDraftAssigneeLookup(value: string): string {
@@ -2069,8 +2592,42 @@ export function updateSprintPlanDraft(input: {
   }
   if (row.status !== "pending") throw new OrchestrationApiError(400, "draft_not_pending", "Only pending drafts can be updated");
 
-  const nextSprint = input.sprint ?? parseDraftSprint(row.sprint_json);
-  const nextTasks = input.tasks ?? parseDraftTasks(row.tasks_json);
+  const rowTemplateSource = resolveTemplateDraftSource({
+    companyId: companyRow.id,
+    sourceTemplateVersionId: row.source_template_version_id,
+    intakeAnswerId: row.intake_answer_id,
+  });
+  const parsedNextSprint = input.sprint ?? parseDraftSprint(row.sprint_json);
+  const nextTemplateSource = resolveTemplateDraftSource({
+    companyId: companyRow.id,
+    sourceTemplateVersionId: parsedNextSprint.sourceTemplateVersionId ?? rowTemplateSource.sourceTemplateVersionId,
+    intakeAnswerId: parsedNextSprint.templateIntakeAnswerId ?? rowTemplateSource.intakeAnswerId,
+  });
+  const nextSprint: OrchestrationSprintPlanDraftSprint = {
+    ...parsedNextSprint,
+    sourceTemplateVersionId: nextTemplateSource.sourceTemplateVersionId,
+    templateIntakeAnswerId: nextTemplateSource.intakeAnswerId,
+    templateGenerationProvenance: {
+      ...parseJsonObject(row.generation_provenance_json ?? "{}"),
+      ...jsonObject(parsedNextSprint.templateGenerationProvenance),
+    },
+  };
+  const nextTasks = (input.tasks ?? parseDraftTasks(row.tasks_json)).map((task) => {
+    const taskTemplateSource = resolveTemplateDraftSource({
+      companyId: companyRow.id,
+      sourceTemplateVersionId: task.sourceTemplateVersionId ?? nextSprint.sourceTemplateVersionId,
+      intakeAnswerId: task.templateIntakeAnswerId ?? nextSprint.templateIntakeAnswerId,
+    });
+    return {
+      ...task,
+      sourceTemplateVersionId: taskTemplateSource.sourceTemplateVersionId,
+      templateIntakeAnswerId: taskTemplateSource.intakeAnswerId,
+      templateGenerationProvenance: {
+        ...jsonObject(nextSprint.templateGenerationProvenance),
+        ...jsonObject(task.templateGenerationProvenance),
+      },
+    };
+  });
   const previousSprint = parseDraftSprint(row.sprint_json);
   const previousTasks = parseDraftTasks(row.tasks_json);
   const parent = getCompanyScopedSprintRow(companyRow.id, row.company_goal_id);
@@ -2080,9 +2637,20 @@ export function updateSprintPlanDraft(input: {
     `UPDATE goal_sprint_plan_drafts
      SET sprint_json = ?,
          tasks_json = ?,
+         source_template_version_id = ?,
+         intake_answer_id = ?,
+         generation_provenance_json = ?,
          updated_at = ?
      WHERE id = ?`
-  ).run(JSON.stringify(nextSprint), JSON.stringify(nextTasks), now, row.id);
+  ).run(
+    JSON.stringify(nextSprint),
+    JSON.stringify(nextTasks),
+    nextSprint.sourceTemplateVersionId ?? null,
+    nextSprint.templateIntakeAnswerId ?? null,
+    JSON.stringify(nextSprint.templateGenerationProvenance ?? {}),
+    now,
+    row.id,
+  );
   if (parent) {
     recordSprintPlanReviewRetrospective({
       db,
@@ -2134,6 +2702,9 @@ function getCompanyGoalBySprintId(
         s.progress_summary AS sprint_progress_summary,
         s.default_execution_engine AS sprint_default_execution_engine,
         s.default_model_lane AS sprint_default_model_lane,
+        s.source_template_version_id AS sprint_source_template_version_id,
+        s.template_intake_answer_id AS sprint_template_intake_answer_id,
+        s.template_generation_provenance_json AS sprint_template_generation_provenance_json,
         p.id AS project_id,
         p.slug AS project_slug,
         p.name AS project_name,
@@ -3355,6 +3926,9 @@ export function listCompanyGoals(input: {
 	        s.progress_summary AS sprint_progress_summary,
 	        s.default_execution_engine AS sprint_default_execution_engine,
 	        s.default_model_lane AS sprint_default_model_lane,
+	        s.source_template_version_id AS sprint_source_template_version_id,
+	        s.template_intake_answer_id AS sprint_template_intake_answer_id,
+	        s.template_generation_provenance_json AS sprint_template_generation_provenance_json,
 	        p.id AS project_id,
         p.slug AS project_slug,
         p.name AS project_name,
@@ -3430,6 +4004,9 @@ export function createCompanyGoal(input: {
   progressSummary?: string;
   defaultExecutionEngine?: TaskExecutionEngine | null;
   defaultModelLane?: TaskModelLane | null;
+  sourceTemplateVersionId?: string | null;
+  templateIntakeAnswerId?: string | null;
+  templateGenerationProvenance?: Record<string, unknown> | null;
   actorUserId?: string;
 }): {
   company: OrchestrationCompany;
@@ -3468,12 +4045,18 @@ export function createCompanyGoal(input: {
   const goalKey = goalKind === "company"
     ? goalKeyForCompany(db, companyRow.id, companyRow.company_code)
     : null;
+  const templateSource = resolveTemplateDraftSource({
+    companyId: companyRow.id,
+    sourceTemplateVersionId: input.sourceTemplateVersionId,
+    intakeAnswerId: input.templateIntakeAnswerId,
+  });
+  const templateGenerationProvenance = jsonObject(input.templateGenerationProvenance);
 
   db.prepare(
     `INSERT INTO sprints
-      (id, project_id, sprint_key, goal_key, name, goal, goal_kind, status, start_date, end_date, completed_at, parent_id, owner, lead_agent_id, stop_condition, progress_summary, default_execution_engine, default_model_lane, created_at, updated_at)
+      (id, project_id, sprint_key, goal_key, name, goal, goal_kind, status, start_date, end_date, completed_at, parent_id, owner, lead_agent_id, stop_condition, progress_summary, default_execution_engine, default_model_lane, source_template_version_id, template_intake_answer_id, template_generation_provenance_json, created_at, updated_at)
      VALUES
-      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     sprintId,
     projectRow.id,
@@ -3493,6 +4076,9 @@ export function createCompanyGoal(input: {
     input.progressSummary ?? "",
     input.defaultExecutionEngine ?? null,
     input.defaultModelLane ?? null,
+    templateSource.sourceTemplateVersionId,
+    templateSource.intakeAnswerId,
+    JSON.stringify(templateGenerationProvenance),
     now,
     now
   );
@@ -4906,6 +5492,9 @@ export function createSprintPlanDraft(input: {
   tasks: OrchestrationSprintPlanDraftTask[];
   sequenceNumber?: number;
   proposalGroupId?: string | null;
+  sourceTemplateVersionId?: string | null;
+  intakeAnswerId?: string | null;
+  generationProvenance?: Record<string, unknown> | null;
 }): { draft: OrchestrationSprintPlanDraft } {
   const result = createSprintPlanDrafts({
     companyIdOrSlug: input.companyIdOrSlug,
@@ -4918,6 +5507,9 @@ export function createSprintPlanDraft(input: {
       tasks: input.tasks,
     }],
     proposalGroupId: input.proposalGroupId,
+    sourceTemplateVersionId: input.sourceTemplateVersionId,
+    intakeAnswerId: input.intakeAnswerId,
+    generationProvenance: input.generationProvenance,
   });
   const draft = result.drafts[0];
   if (!draft) throw new OrchestrationApiError(500, "sprint_plan_draft_create_failed", "Draft created but could not be loaded");
@@ -4927,10 +5519,13 @@ export function createSprintPlanDraft(input: {
 export function createSprintPlanDrafts(input: {
   companyIdOrSlug: string;
   companyGoalId: string;
-  planningTaskId: string;
+  planningTaskId?: string | null;
   proposedByAgentId?: string | null;
   proposalGroupId?: string | null;
   supersedePending?: boolean;
+  sourceTemplateVersionId?: string | null;
+  intakeAnswerId?: string | null;
+  generationProvenance?: Record<string, unknown> | null;
   drafts: Array<{
     sequenceNumber?: number;
     sprint: OrchestrationSprintPlanDraftSprint;
@@ -4944,26 +5539,61 @@ export function createSprintPlanDrafts(input: {
   if (!goal) throw new OrchestrationApiError(404, "company_goal_not_found", "Company goal not found");
   const goalKind = goal.goal_kind ?? (goal.parent_id ? "sprint" : "company");
   if (goalKind !== "company") throw new OrchestrationApiError(400, "company_goal_required", "Drafts must target a company goal");
-  const planningTask = getCompanyTaskId(db, companyRow.id, input.planningTaskId);
-  if (!planningTask) throw new OrchestrationApiError(404, "planning_task_not_found", "Planning task not found");
+  const planningTaskId = compactTemplateId(input.planningTaskId ?? null);
+  const planningTask = planningTaskId ? getCompanyTaskId(db, companyRow.id, planningTaskId) : undefined;
+  if (planningTaskId && !planningTask) throw new OrchestrationApiError(404, "planning_task_not_found", "Planning task not found");
   if (input.drafts.length === 0) throw new OrchestrationApiError(400, "empty_sprint_plan", "A sprint plan must include at least one sprint");
 
   const now = new Date().toISOString();
   const proposalGroupId = input.proposalGroupId ?? randomUUID();
   const operatorSelectedExecutionEngine = goal.default_execution_engine ?? null;
+  const rootTemplateSource = resolveTemplateDraftSource({
+    companyId: companyRow.id,
+    sourceTemplateVersionId: input.sourceTemplateVersionId,
+    intakeAnswerId: input.intakeAnswerId,
+  });
+  const rootGenerationProvenance = jsonObject(input.generationProvenance);
   const normalizedDrafts = input.drafts.map((draft, index) => {
     const sprintDefaultExecutionEngine = operatorSelectedExecutionEngine ?? draft.sprint.defaultExecutionEngine ?? null;
+    const sprintTemplateSource = resolveTemplateDraftSource({
+      companyId: companyRow.id,
+      sourceTemplateVersionId: draft.sprint.sourceTemplateVersionId ?? rootTemplateSource.sourceTemplateVersionId,
+      intakeAnswerId: draft.sprint.templateIntakeAnswerId ?? rootTemplateSource.intakeAnswerId,
+    });
+    const sprintGenerationProvenance = {
+      ...rootGenerationProvenance,
+      ...jsonObject(draft.sprint.templateGenerationProvenance),
+    };
     return {
       id: randomUUID(),
       sequenceNumber: Math.max(1, Number(draft.sequenceNumber ?? index + 1)),
       sprint: {
         ...draft.sprint,
         defaultExecutionEngine: sprintDefaultExecutionEngine,
+        sourceTemplateVersionId: sprintTemplateSource.sourceTemplateVersionId,
+        templateIntakeAnswerId: sprintTemplateSource.intakeAnswerId,
+        templateGenerationProvenance: sprintGenerationProvenance,
       },
-      tasks: draft.tasks.map((task) => ({
-        ...task,
-        executionEngine: sprintDefaultExecutionEngine ?? task.executionEngine ?? null,
-      })),
+      tasks: draft.tasks.map((task) => {
+        const taskTemplateSource = resolveTemplateDraftSource({
+          companyId: companyRow.id,
+          sourceTemplateVersionId: task.sourceTemplateVersionId ?? sprintTemplateSource.sourceTemplateVersionId,
+          intakeAnswerId: task.templateIntakeAnswerId ?? sprintTemplateSource.intakeAnswerId,
+        });
+        return {
+          ...task,
+          executionEngine: sprintDefaultExecutionEngine ?? task.executionEngine ?? null,
+          sourceTemplateVersionId: taskTemplateSource.sourceTemplateVersionId,
+          templateIntakeAnswerId: taskTemplateSource.intakeAnswerId,
+          templateGenerationProvenance: {
+            ...sprintGenerationProvenance,
+            ...jsonObject(task.templateGenerationProvenance),
+          },
+        };
+      }),
+      sourceTemplateVersionId: sprintTemplateSource.sourceTemplateVersionId,
+      intakeAnswerId: sprintTemplateSource.intakeAnswerId,
+      generationProvenance: sprintGenerationProvenance,
     };
   });
   const seenSequences = new Set<number>();
@@ -4985,46 +5615,52 @@ export function createSprintPlanDrafts(input: {
     const insert = db.prepare(
       `INSERT INTO goal_sprint_plan_drafts
         (id, company_id, company_goal_id, planning_task_id, proposed_by_agent_id, status,
-         sequence_number, proposal_group_id, sprint_json, tasks_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`
+         sequence_number, proposal_group_id, sprint_json, tasks_json, source_template_version_id,
+         intake_answer_id, generation_provenance_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     for (const draft of normalizedDrafts) {
       insert.run(
         draft.id,
         companyRow.id,
         goal.id,
-        planningTask.id,
+        planningTask?.id ?? null,
         input.proposedByAgentId ?? null,
         draft.sequenceNumber,
         proposalGroupId,
         JSON.stringify(draft.sprint),
         JSON.stringify(draft.tasks),
+        draft.sourceTemplateVersionId,
+        draft.intakeAnswerId,
+        JSON.stringify(draft.generationProvenance),
         now,
         now
       );
     }
     const firstSprint = normalizedDrafts[0]?.sprint;
     const isCompletionProposal = Boolean(firstSprint?.completionProposal);
-    insertSprintPlanTaskEvent({
-      db,
-      eventType: isCompletionProposal ? "goal.completion_proposed" : "goal.sprint_plan_proposed",
-      projectId: planningTask.project_id,
-      taskId: planningTask.id,
-      agentId: input.proposedByAgentId ?? null,
-      metadata: {
-        draftId: normalizedDrafts[0]?.id,
-        proposalGroupId,
-        companyGoalId: goal.id,
-        companyGoalName: goal.name,
-        sprintName: firstSprint?.name ?? "Sprint plan",
-        completionProposal: isCompletionProposal,
-        completionReason: firstSprint?.completionReason,
-        taskCount: normalizedDrafts.reduce((sum, draft) => sum + draft.tasks.length, 0),
-        sprintCount: normalizedDrafts.length,
-        nextSequenceNumber: Math.min(...normalizedDrafts.map((draft) => draft.sequenceNumber)),
-      },
-      now,
-    });
+    if (planningTask) {
+      insertSprintPlanTaskEvent({
+        db,
+        eventType: isCompletionProposal ? "goal.completion_proposed" : "goal.sprint_plan_proposed",
+        projectId: planningTask.project_id,
+        taskId: planningTask.id,
+        agentId: input.proposedByAgentId ?? null,
+        metadata: {
+          draftId: normalizedDrafts[0]?.id,
+          proposalGroupId,
+          companyGoalId: goal.id,
+          companyGoalName: goal.name,
+          sprintName: firstSprint?.name ?? "Sprint plan",
+          completionProposal: isCompletionProposal,
+          completionReason: firstSprint?.completionReason,
+          taskCount: normalizedDrafts.reduce((sum, draft) => sum + draft.tasks.length, 0),
+          sprintCount: normalizedDrafts.length,
+          nextSequenceNumber: Math.min(...normalizedDrafts.map((draft) => draft.sequenceNumber)),
+        },
+        now,
+      });
+    }
   });
   tx();
 
@@ -5039,6 +5675,19 @@ export function createSprintPlanDrafts(input: {
     )
     .all(proposalGroupId, companyRow.id, goal.id) as SprintPlanDraftRow[];
   if (rows.length === 0) throw new OrchestrationApiError(500, "sprint_plan_draft_create_failed", "Drafts created but could not be loaded");
+  for (const row of rows) {
+    if (!row.source_template_version_id) continue;
+    recordTemplateGeneratedWork({
+      companyId: companyRow.id,
+      templateVersionId: row.source_template_version_id,
+      intakeAnswerId: row.intake_answer_id,
+      sourceDraftId: row.id,
+      generatedType: "sprint_plan_draft",
+      generatedId: row.id,
+      goalId: goal.id,
+      provenance: parseJsonObject(row.generation_provenance_json ?? "{}"),
+    });
+  }
   return { drafts: rows.map(sprintPlanDraftFromRow), proposalGroupId };
 }
 
@@ -5189,6 +5838,19 @@ export function approveSprintPlanDraft(input: {
   const sprintDraft = input.sprint ?? rowSprintDraft;
   const taskDrafts = input.tasks ?? parseDraftTasks(row.tasks_json);
   const now = new Date().toISOString();
+  const draftTemplateSource = resolveTemplateDraftSource({
+    companyId: companyRow.id,
+    sourceTemplateVersionId: sprintDraft.sourceTemplateVersionId ?? row.source_template_version_id,
+    intakeAnswerId: sprintDraft.templateIntakeAnswerId ?? row.intake_answer_id,
+  });
+  const draftGenerationProvenance = {
+    ...parseJsonObject(row.generation_provenance_json ?? "{}"),
+    ...jsonObject(sprintDraft.templateGenerationProvenance),
+    source: "sprint_plan_draft",
+    draftId: row.id,
+    proposalGroupId: row.proposal_group_id ?? undefined,
+    sequenceNumber: row.sequence_number,
+  };
 
   if (sprintDraft.completionProposal) {
     const gateFailure = completionGateFailure(db, parent);
@@ -5254,6 +5916,9 @@ export function approveSprintPlanDraft(input: {
            sprint_key = COALESCE(sprint_key, ?),
            default_execution_engine = COALESCE(default_execution_engine, ?),
            default_model_lane = COALESCE(default_model_lane, ?),
+           source_template_version_id = COALESCE(source_template_version_id, ?),
+           template_intake_answer_id = COALESCE(template_intake_answer_id, ?),
+           template_generation_provenance_json = ?,
            updated_at = ?
        WHERE id = ?`
     ).run(
@@ -5267,6 +5932,9 @@ export function approveSprintPlanDraft(input: {
       precreatedSprint.sprint_key ?? sprintKeyForCompany(db, companyRow.id, companyRow.company_code),
       sprintDraft.defaultExecutionEngine ?? parent.default_execution_engine ?? "hiverunner",
       sprintDraft.defaultModelLane ?? parent.default_model_lane ?? "default",
+      draftTemplateSource.sourceTemplateVersionId,
+      draftTemplateSource.intakeAnswerId,
+      JSON.stringify(draftGenerationProvenance),
       now,
       precreatedSprint.id,
     );
@@ -5294,6 +5962,9 @@ export function approveSprintPlanDraft(input: {
       leadAgentId: parent.lead_agent_id ?? null,
       defaultExecutionEngine: sprintDraft.defaultExecutionEngine ?? parent.default_execution_engine ?? "hiverunner",
       defaultModelLane: sprintDraft.defaultModelLane ?? parent.default_model_lane ?? "default",
+      sourceTemplateVersionId: draftTemplateSource.sourceTemplateVersionId,
+      templateIntakeAnswerId: draftTemplateSource.intakeAnswerId,
+      templateGenerationProvenance: draftGenerationProvenance,
     }).goal;
 
     mergeDraftContractItemsIntoSprint({
@@ -5301,6 +5972,20 @@ export function approveSprintPlanDraft(input: {
       sprintId: created.sprint.id,
       sprintDraft,
       actorUserId: input.actorUserId ?? "operator",
+    });
+  }
+
+  if (draftTemplateSource.sourceTemplateVersionId) {
+    recordTemplateGeneratedWork({
+      companyId: companyRow.id,
+      templateVersionId: draftTemplateSource.sourceTemplateVersionId,
+      intakeAnswerId: draftTemplateSource.intakeAnswerId,
+      sourceDraftId: row.id,
+      generatedType: "sprint",
+      generatedId: created.sprint.id,
+      goalId: parent.id,
+      sprintId: created.sprint.id,
+      provenance: draftGenerationProvenance,
     });
   }
 
@@ -5356,9 +6041,35 @@ export function approveSprintPlanDraft(input: {
       executionEngine: task.executionEngine ?? sprintDraft.defaultExecutionEngine ?? parent.default_execution_engine ?? "hiverunner",
       modelLane: task.modelLane ?? sprintDraft.defaultModelLane ?? parent.default_model_lane ?? "default",
       createdBy: input.actorUserId ?? "operator",
+      sourceTemplateVersionId: task.sourceTemplateVersionId ?? draftTemplateSource.sourceTemplateVersionId,
+      templateIntakeAnswerId: task.templateIntakeAnswerId ?? draftTemplateSource.intakeAnswerId,
+      templateGenerationProvenance: {
+        ...draftGenerationProvenance,
+        ...jsonObject(task.templateGenerationProvenance),
+        draftTaskId: task.id,
+      },
     }).task;
     taskIds.push(createdTask.id);
     draftTaskIdToMaterializedTaskId.set(task.id, createdTask.id);
+    const taskTemplateVersionId = task.sourceTemplateVersionId ?? draftTemplateSource.sourceTemplateVersionId;
+    if (taskTemplateVersionId) {
+      recordTemplateGeneratedWork({
+        companyId: companyRow.id,
+        templateVersionId: taskTemplateVersionId,
+        intakeAnswerId: task.templateIntakeAnswerId ?? draftTemplateSource.intakeAnswerId,
+        sourceDraftId: row.id,
+        generatedType: "task",
+        generatedId: createdTask.id,
+        goalId: parent.id,
+        sprintId: created.sprint.id,
+        taskId: createdTask.id,
+        provenance: {
+          ...draftGenerationProvenance,
+          ...jsonObject(task.templateGenerationProvenance),
+          draftTaskId: task.id,
+        },
+      });
+    }
   }
 
   for (const task of materializedTaskDrafts) {

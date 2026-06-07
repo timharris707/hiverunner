@@ -692,52 +692,229 @@ function updateExecutionRun(
   return getExecutionRunById(runId, db);
 }
 
-function cancelLinkedHeartbeatRun(run: ExecutionRunRecord, completedAt: string, db = getOrchestrationDb()): void {
-  const heartbeatRunId = asString(run.tokenUsage.heartbeatRunId);
-  const heartbeat = heartbeatRunId
-    ? db
+type LinkedHeartbeatRunRow = {
+  id: string;
+  wakeup_request_id: string | null;
+};
+
+function executionRunMetadata(db: Database.Database, executionRunId: string): Record<string, unknown> {
+  const row = db
+    .prepare("SELECT metadata_json FROM execution_runs WHERE id = ? LIMIT 1")
+    .get(executionRunId) as { metadata_json: string | null } | undefined;
+  return parseJsonRecord(row?.metadata_json);
+}
+
+function executionRunStatus(db: Database.Database, executionRunId: string): ExecutionRunStatus | null {
+  const row = db
+    .prepare("SELECT status FROM execution_runs WHERE id = ? LIMIT 1")
+    .get(executionRunId) as { status: ExecutionRunStatus } | undefined;
+  return row?.status ?? null;
+}
+
+function isTerminalExecutionStatus(status: ExecutionRunStatus | null | undefined): boolean {
+  return status === "completed" || status === "failed" || status === "cancelled";
+}
+
+function addLinkedHeartbeatRow(
+  rows: Map<string, LinkedHeartbeatRunRow>,
+  row: LinkedHeartbeatRunRow | undefined,
+): void {
+  if (!row?.id) return;
+  rows.set(row.id, row);
+}
+
+function collectLinkedHeartbeatRowsForExecutionRun(
+  run: ExecutionRunRecord,
+  db: Database.Database,
+): LinkedHeartbeatRunRow[] {
+  const rows = new Map<string, LinkedHeartbeatRunRow>();
+  const heartbeatRunIds = new Set<string>();
+  const usageHeartbeatRunId = asString(run.tokenUsage.heartbeatRunId);
+  if (usageHeartbeatRunId) heartbeatRunIds.add(usageHeartbeatRunId);
+
+  const metadata = executionRunMetadata(db, run.id);
+  const metadataHeartbeatRunId = asString(metadata.heartbeatRunId);
+  if (metadataHeartbeatRunId) heartbeatRunIds.add(metadataHeartbeatRunId);
+  const externalRunner = asRecord(metadata.externalRunner);
+  const externalRunnerHeartbeatRunId = asString(externalRunner?.heartbeatRunId);
+  if (externalRunnerHeartbeatRunId) heartbeatRunIds.add(externalRunnerHeartbeatRunId);
+
+  for (const heartbeatRunId of heartbeatRunIds) {
+    addLinkedHeartbeatRow(
+      rows,
+      db
         .prepare(
           `SELECT id, wakeup_request_id
            FROM heartbeat_runs
            WHERE id = ?
              AND status IN ('queued', 'running')
-           LIMIT 1`
+           LIMIT 1`,
         )
-        .get(heartbeatRunId)
-    : db
-        .prepare(
-          `SELECT id, wakeup_request_id
-           FROM heartbeat_runs
-           WHERE json_extract(context_snapshot_json, '$.executionRunId') = ?
-             AND status IN ('queued', 'running')
-           ORDER BY created_at DESC
-           LIMIT 1`
-        )
-        .get(run.id);
+        .get(heartbeatRunId) as LinkedHeartbeatRunRow | undefined,
+    );
+  }
 
-  const row = heartbeat as { id: string; wakeup_request_id: string | null } | undefined;
-  if (!row) return;
+  addLinkedHeartbeatRow(
+    rows,
+    db
+      .prepare(
+        `SELECT id, wakeup_request_id
+         FROM heartbeat_runs
+         WHERE json_valid(context_snapshot_json)
+           AND json_extract(context_snapshot_json, '$.executionRunId') = ?
+           AND status IN ('queued', 'running')
+         ORDER BY created_at DESC
+         LIMIT 1`,
+      )
+      .get(run.id) as LinkedHeartbeatRunRow | undefined,
+  );
 
-  db.prepare(
-    `UPDATE heartbeat_runs
-     SET status = 'cancelled',
-         finished_at = COALESCE(finished_at, ?),
-         error = COALESCE(error, ?),
-         updated_at = ?
-     WHERE id = ?
-       AND status IN ('queued', 'running')`
-  ).run(completedAt, "Execution run cancelled by HiveRunner.", completedAt, row.id);
+  addLinkedHeartbeatRow(
+    rows,
+    db
+      .prepare(
+        `SELECT hr.id, COALESCE(hr.wakeup_request_id, awr.id) AS wakeup_request_id
+         FROM agent_wakeup_requests awr
+         LEFT JOIN heartbeat_runs hr ON hr.id = awr.run_id
+         WHERE json_valid(awr.payload_json)
+           AND json_extract(awr.payload_json, '$.executionRunId') = ?
+           AND (
+             awr.status IN ('queued', 'claimed')
+             OR hr.status IN ('queued', 'running')
+           )
+         ORDER BY awr.created_at DESC
+         LIMIT 1`,
+      )
+      .get(run.id) as LinkedHeartbeatRunRow | undefined,
+  );
 
-  if (row.wakeup_request_id) {
-    db.prepare(
-      `UPDATE agent_wakeup_requests
-       SET status = 'failed',
+  if (run.taskId) {
+    const agentId = run.agentId ?? null;
+    const taskRows = db
+      .prepare(
+        `SELECT hr.id, COALESCE(hr.wakeup_request_id, awr.id) AS wakeup_request_id
+         FROM heartbeat_runs hr
+         LEFT JOIN agent_wakeup_requests awr ON awr.id = hr.wakeup_request_id
+         WHERE (
+             hr.status IN ('queued', 'running')
+             OR awr.status IN ('queued', 'claimed')
+           )
+           AND (? IS NULL OR hr.agent_id = ? OR awr.agent_id = ?)
+           AND (
+             (json_valid(hr.context_snapshot_json) AND json_extract(hr.context_snapshot_json, '$.taskId') = ?)
+             OR (json_valid(awr.payload_json) AND json_extract(awr.payload_json, '$.taskId') = ?)
+           )
+         ORDER BY hr.created_at DESC`,
+      )
+      .all(agentId, agentId, agentId, run.taskId, run.taskId) as LinkedHeartbeatRunRow[];
+    for (const row of taskRows) addLinkedHeartbeatRow(rows, row);
+  }
+
+  return [...rows.values()];
+}
+
+function terminalizeLinkedHeartbeatRows(
+  rows: LinkedHeartbeatRunRow[],
+  input: { completedAt: string; heartbeatStatus: "cancelled" | "failed"; error: string },
+  db: Database.Database,
+): number {
+  let changed = 0;
+  for (const row of rows) {
+    const heartbeatResult = db.prepare(
+      `UPDATE heartbeat_runs
+       SET status = ?,
            finished_at = COALESCE(finished_at, ?),
+           error = COALESCE(error, ?),
            updated_at = ?
        WHERE id = ?
-         AND status IN ('queued', 'claimed')`
-    ).run(completedAt, completedAt, row.wakeup_request_id);
+         AND status IN ('queued', 'running')`,
+    ).run(input.heartbeatStatus, input.completedAt, input.error, input.completedAt, row.id);
+    changed += heartbeatResult.changes;
+
+    if (row.wakeup_request_id) {
+      const wakeResult = db.prepare(
+        `UPDATE agent_wakeup_requests
+         SET status = 'failed',
+             idempotency_key = NULL,
+             finished_at = COALESCE(finished_at, ?),
+             updated_at = ?
+         WHERE id = ?
+           AND status IN ('queued', 'claimed')`,
+      ).run(input.completedAt, input.completedAt, row.wakeup_request_id);
+      changed += wakeResult.changes;
+    }
   }
+  return changed;
+}
+
+function cancelLinkedHeartbeatRun(run: ExecutionRunRecord, completedAt: string, db = getOrchestrationDb()): void {
+  terminalizeLinkedHeartbeatRows(
+    collectLinkedHeartbeatRowsForExecutionRun(run, db),
+    {
+      completedAt,
+      heartbeatStatus: "cancelled",
+      error: "Execution run cancelled by HiveRunner.",
+    },
+    db,
+  );
+}
+
+function releaseStaleTaskExecutionWakeups(input: {
+  taskId: string;
+  agentId: string;
+}, db = getOrchestrationDb()): number {
+  const activeExecutionRun = getLatestExecutionRunForTask(
+    input.taskId,
+    { statuses: ["pending", "running"] },
+    db,
+  );
+  if (activeExecutionRun) return 0;
+
+  const latestRun = getLatestExecutionRunForTask(input.taskId, undefined, db);
+  if (!latestRun || !isTerminalExecutionStatus(latestRun.status)) return 0;
+
+  const candidates = db
+    .prepare(
+      `SELECT
+         hr.id,
+         COALESCE(hr.wakeup_request_id, awr.id) AS wakeup_request_id,
+         hr.context_snapshot_json,
+         awr.payload_json
+       FROM heartbeat_runs hr
+       LEFT JOIN agent_wakeup_requests awr ON awr.id = hr.wakeup_request_id
+       WHERE (
+           hr.status IN ('queued', 'running')
+           OR awr.status IN ('queued', 'claimed')
+         )
+         AND (hr.agent_id = ? OR awr.agent_id = ?)
+         AND (
+           (json_valid(hr.context_snapshot_json) AND json_extract(hr.context_snapshot_json, '$.taskId') = ?)
+           OR (json_valid(awr.payload_json) AND json_extract(awr.payload_json, '$.taskId') = ?)
+         )
+       ORDER BY hr.created_at DESC`,
+    )
+    .all(input.agentId, input.agentId, input.taskId, input.taskId) as Array<LinkedHeartbeatRunRow & {
+      context_snapshot_json: string | null;
+      payload_json: string | null;
+    }>;
+
+  const staleRows = candidates.filter((row) => {
+    const context = parseJsonRecord(row.context_snapshot_json);
+    const payload = parseJsonRecord(row.payload_json);
+    const linkedExecutionRunId = asString(context.executionRunId) ?? asString(payload.executionRunId);
+    if (!linkedExecutionRunId) return true;
+    return isTerminalExecutionStatus(executionRunStatus(db, linkedExecutionRunId));
+  });
+
+  return terminalizeLinkedHeartbeatRows(
+    staleRows,
+    {
+      completedAt: new Date().toISOString(),
+      heartbeatStatus: "failed",
+      error: "Released stale execution wake after terminal execution run.",
+    },
+    db,
+  );
 }
 
 function parseJsonArray(value: string | null | undefined): string[] {
@@ -1930,6 +2107,11 @@ export async function triggerTaskExecution(
     };
   }
 
+  releaseStaleTaskExecutionWakeups({
+    taskId: task.id,
+    agentId: task.assigneeAgentId,
+  }, db);
+
   if (normalizedIdempotencyKey) {
     const existingIdempotentRun = getExecutionRunByIdempotencyKey(normalizedIdempotencyKey, db);
     if (existingIdempotentRun) {
@@ -2252,6 +2434,8 @@ export async function cancelTaskExecution(input: {
       },
       db
     );
+    db.prepare("UPDATE execution_runs SET idempotency_key = NULL, updated_at = ? WHERE id = ?")
+      .run(completedAt, run.id);
     cancelLinkedHeartbeatRun(run, completedAt, db);
 
     cleanupRunArtifacts(run.id).catch(() => {});

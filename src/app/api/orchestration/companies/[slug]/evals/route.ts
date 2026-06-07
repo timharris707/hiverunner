@@ -35,6 +35,8 @@ function libraryFilters(searchParams: URLSearchParams): EvalCaseLibraryFilters {
     projectId: textParam(searchParams, "projectId") ?? textParam(searchParams, "project"),
     taskType: textParam(searchParams, "taskType") ?? textParam(searchParams, "type"),
     template: textParam(searchParams, "template"),
+    sourceTemplateVersionId: textParam(searchParams, "sourceTemplateVersionId") ?? textParam(searchParams, "templateVersionId"),
+    templateIntakeAnswerId: textParam(searchParams, "templateIntakeAnswerId") ?? textParam(searchParams, "intakeAnswerId"),
     agent: textParam(searchParams, "agent"),
     runner: textParam(searchParams, "runner"),
     model: textParam(searchParams, "model"),

@@ -21,6 +21,8 @@ const FILTER_KEYS = [
   "projectId",
   "taskType",
   "template",
+  "sourceTemplateVersionId",
+  "templateIntakeAnswerId",
   "agent",
   "runner",
   "model",

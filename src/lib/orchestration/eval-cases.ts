@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "crypto";
 import type Database from "better-sqlite3";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
+import { recordTemplateGeneratedWork } from "@/lib/orchestration/template-persistence";
 import type {
   RunTraceAnnotationSnapshot,
   RunTraceCaptureQuality,
@@ -50,6 +51,8 @@ export type CreateEvalCaseInput = {
     key?: string | null;
   } | null;
   templateContext?: Record<string, unknown> | null;
+  sourceTemplateVersionId?: string | null;
+  templateIntakeAnswerId?: string | null;
   review: {
     outcome: EvalCaseReviewOutcome;
     rationale: string;
@@ -85,6 +88,8 @@ type EvalCaseRow = {
   source_goal_id: string | null;
   source_goal_key: string | null;
   template_context_json: string;
+  source_template_version_id: string | null;
+  template_intake_answer_id: string | null;
   review_outcome: EvalCaseReviewOutcome;
   reviewer_rationale: string;
   reviewer_notes: string | null;
@@ -149,6 +154,8 @@ export type EvalCaseRecord = {
     key: string | null;
   };
   templateContext: Record<string, unknown>;
+  sourceTemplateVersionId: string | null;
+  templateIntakeAnswerId: string | null;
   review: {
     outcome: EvalCaseReviewOutcome;
     rationale: string;
@@ -174,6 +181,8 @@ export type EvalCaseLibraryFilters = {
   projectId?: string;
   taskType?: string;
   template?: string;
+  sourceTemplateVersionId?: string;
+  templateIntakeAnswerId?: string;
   agent?: string;
   runner?: string;
   model?: string;
@@ -304,6 +313,8 @@ function mapEvalCaseRow(row: EvalCaseRow): EvalCaseRecord {
       key: row.source_goal_key,
     },
     templateContext: parseJson<Record<string, unknown>>(row.template_context_json, {}),
+    sourceTemplateVersionId: row.source_template_version_id,
+    templateIntakeAnswerId: row.template_intake_answer_id,
     review: {
       outcome: row.review_outcome,
       rationale: row.reviewer_rationale,
@@ -381,7 +392,7 @@ function buildFacets(cases: EvalCaseRecord[]): EvalCaseLibraryFacets {
     addFacet(projects, item.sourceProject.id ?? item.projectId, item.sourceProject.name ?? item.sourceProject.slug);
     addFacet(taskTypes, item.sourceTask.type);
     const template = templateLabelFromContext(item.templateContext);
-    addFacet(templates, template?.value, template?.label);
+    addFacet(templates, item.sourceTemplateVersionId ?? template?.value, template?.label);
     addFacet(agents, item.sourceRun.agentId ?? item.sourceRun.agentName, item.sourceRun.agentName);
     addFacet(runners, item.sourceRun.runnerProvider ?? item.sourceRun.providerId);
     addFacet(models, item.sourceRun.runnerModel);
@@ -457,14 +468,20 @@ export function createEvalCase(
   const evidenceGapsJson = jsonString(input.evidenceGaps);
   const annotationSnapshot = input.annotationSnapshot ?? input.redactedSnapshot.annotations;
   const annotationSnapshotJson = jsonString(annotationSnapshot);
-  const templateContextJson = jsonString(input.templateContext ?? {});
+  const templateContext = {
+    ...(input.templateContext ?? {}),
+    ...(input.sourceTemplateVersionId ? { sourceTemplateVersionId: input.sourceTemplateVersionId } : {}),
+    ...(input.templateIntakeAnswerId ? { templateIntakeAnswerId: input.templateIntakeAnswerId } : {}),
+  };
+  const templateContextJson = jsonString(templateContext);
   const redactionSummaryJson = jsonString(input.redactedSnapshot.redaction);
 
   db.prepare(
     `INSERT INTO eval_cases (
        id, company_id, project_id, source_task_id, source_task_key, source_task_title,
        source_task_type, source_run_id, trace_route, source_sprint_id, source_sprint_key,
-       source_goal_id, source_goal_key, template_context_json, review_outcome,
+       source_goal_id, source_goal_key, template_context_json, source_template_version_id,
+       template_intake_answer_id, review_outcome,
        reviewer_rationale, reviewer_notes, reviewer_agent_id, reviewer_name, reviewed_at,
        execution_engine, runner_provider, provider_id, runner_model, runner_agent_id,
        runner_agent_name, capture_quality, evidence_gaps_json, annotation_snapshot_json,
@@ -474,7 +491,7 @@ export function createEvalCase(
      )
      VALUES (
        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
      )`,
   ).run(
     id,
@@ -491,6 +508,8 @@ export function createEvalCase(
     compactText(input.sourceGoal?.id),
     compactText(input.sourceGoal?.key),
     templateContextJson,
+    compactText(input.sourceTemplateVersionId),
+    compactText(input.templateIntakeAnswerId),
     input.review.outcome,
     rationale,
     compactText(input.review.notes),
@@ -518,6 +537,32 @@ export function createEvalCase(
     compactText(input.createdByUserId),
     compactText(input.createdAt),
   );
+
+  if (input.sourceTemplateVersionId) {
+    const existingTaskId = compactText(input.sourceTask.id);
+    const existingSprintId = compactText(input.sourceSprint?.id);
+    const existingGoalId = compactText(input.sourceGoal?.id);
+    const taskId = existingTaskId && db.prepare("SELECT 1 FROM tasks WHERE id = ? LIMIT 1").get(existingTaskId) ? existingTaskId : null;
+    const sprintId = existingSprintId && db.prepare("SELECT 1 FROM sprints WHERE id = ? LIMIT 1").get(existingSprintId) ? existingSprintId : null;
+    const goalId = existingGoalId && db.prepare("SELECT 1 FROM sprints WHERE id = ? LIMIT 1").get(existingGoalId) ? existingGoalId : null;
+    recordTemplateGeneratedWork({
+      companyId: input.companyId,
+      templateVersionId: input.sourceTemplateVersionId,
+      intakeAnswerId: input.templateIntakeAnswerId,
+      generatedType: "eval_case",
+      generatedId: id,
+      evalCaseId: id,
+      taskId,
+      sprintId,
+      goalId,
+      provenance: {
+        source: "eval_case_capture",
+        sourceRunId,
+        traceRoute,
+        reviewOutcome: input.review.outcome,
+      },
+    });
+  }
 
   const created = getEvalCaseById(db, id);
   if (!created) {
@@ -554,8 +599,13 @@ function evalCaseLibraryWhere(filters: EvalCaseLibraryFilters): { whereSql: stri
 
   if (filters.template) {
     whereParts.push(`(
+      ec.source_template_version_id = ?
+      OR ec.template_intake_answer_id = ?
+      OR
       lower(COALESCE(
         CAST(json_extract(ec.template_context_json, '$.templateId') AS TEXT),
+        CAST(json_extract(ec.template_context_json, '$.sourceTemplateVersionId') AS TEXT),
+        CAST(json_extract(ec.template_context_json, '$.templateIntakeAnswerId') AS TEXT),
         CAST(json_extract(ec.template_context_json, '$.templateSlug') AS TEXT),
         CAST(json_extract(ec.template_context_json, '$.templateKey') AS TEXT),
         CAST(json_extract(ec.template_context_json, '$.template') AS TEXT),
@@ -565,7 +615,25 @@ function evalCaseLibraryWhere(filters: EvalCaseLibraryFilters): { whereSql: stri
       )) = lower(?)
       OR lower(ec.template_context_json) LIKE '%' || lower(?) || '%'
     )`);
-    args.push(filters.template, filters.template);
+    args.push(filters.template, filters.template, filters.template, filters.template);
+  }
+
+  if (filters.sourceTemplateVersionId) {
+    whereParts.push(`(
+      ec.source_template_version_id = ?
+      OR CAST(json_extract(ec.template_context_json, '$.sourceTemplateVersionId') AS TEXT) = ?
+      OR CAST(json_extract(ec.template_context_json, '$.templateVersionId') AS TEXT) = ?
+    )`);
+    args.push(filters.sourceTemplateVersionId, filters.sourceTemplateVersionId, filters.sourceTemplateVersionId);
+  }
+
+  if (filters.templateIntakeAnswerId) {
+    whereParts.push(`(
+      ec.template_intake_answer_id = ?
+      OR CAST(json_extract(ec.template_context_json, '$.templateIntakeAnswerId') AS TEXT) = ?
+      OR CAST(json_extract(ec.template_context_json, '$.intakeAnswerId') AS TEXT) = ?
+    )`);
+    args.push(filters.templateIntakeAnswerId, filters.templateIntakeAnswerId, filters.templateIntakeAnswerId);
   }
 
   if (filters.agent) {

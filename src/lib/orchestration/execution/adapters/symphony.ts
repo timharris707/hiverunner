@@ -13,6 +13,12 @@ import path from "path";
 import type Database from "better-sqlite3";
 
 import {
+  DEFAULT_SYMPHONY_NO_OUTPUT_TIMEOUT_MS,
+  DEFAULT_SYMPHONY_PROGRESS_INTERVAL_MS,
+  DEFAULT_SYMPHONY_TERMINATION_GRACE_MS,
+  DEFAULT_SYMPHONY_TIMEOUT_MS,
+} from "@/lib/orchestration/execution-timeouts";
+import {
   ensureCompanyWorkspaceScaffold,
   resolveCanonicalCompanyWorkspaceRoot,
   resolveCompanyWorkspaceRoot,
@@ -29,6 +35,7 @@ import {
 } from "@/lib/orchestration/symphony/issue";
 
 import type {
+  CancelAdapterResult,
   ExecutionAdapter,
   ExecutionInput,
   ExecutionResult,
@@ -106,7 +113,9 @@ type SymphonyExecResult = {
   exitCode: number | null;
   signal: string | null;
   timedOut: boolean;
+  silentTimedOut: boolean;
   killedForBuffer: boolean;
+  forcedKilled: boolean;
   terminationReason: string | null;
   failureClass: string | null;
   errorMessage: string | null;
@@ -117,9 +126,9 @@ type SymphonyRunCommandOptions = {
   executionRunId?: string;
   heartbeatRunId?: string | null;
   db?: Database.Database;
+  emitEvent?: (eventType: string, detail: string) => void;
 };
 
-const DEFAULT_SYMPHONY_TIMEOUT_MS = 20 * 60 * 1000;
 const DEFAULT_SYMPHONY_MAX_BUFFER = 10 * 1024 * 1024;
 
 function getDb(): Database.Database {
@@ -167,6 +176,14 @@ function numberFrom(value: unknown): number | undefined {
 function numberFromEnv(name: string, fallback: number): number {
   const parsed = Number.parseInt(process.env[name] ?? "", 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function numberFromEnvNames(names: string[], fallback: number): number {
+  for (const name of names) {
+    const parsed = Number.parseInt(process.env[name] ?? "", 10);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return fallback;
 }
 
 function normalizeRunnerProvider(value: string | null | undefined): string {
@@ -389,6 +406,108 @@ function processGroupId(pid: number | undefined): number | null {
   }
 }
 
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function childProcessIds(pid: number): number[] {
+  if (process.platform === "win32") return [];
+  try {
+    const result = spawnSync("pgrep", ["-P", String(pid)], { encoding: "utf8" });
+    if (result.status !== 0 && !result.stdout.trim()) return [];
+    return result.stdout
+      .split(/\s+/)
+      .map((value) => Number.parseInt(value, 10))
+      .filter((value) => Number.isFinite(value) && value > 0);
+  } catch {
+    return [];
+  }
+}
+
+function descendantProcessIds(pid: number): number[] {
+  const seen = new Set<number>();
+  const visit = (parentPid: number) => {
+    for (const childPid of childProcessIds(parentPid)) {
+      if (seen.has(childPid)) continue;
+      seen.add(childPid);
+      visit(childPid);
+    }
+  };
+  visit(pid);
+  return [...seen];
+}
+
+function signalProcessTree(pid: number, signal: NodeJS.Signals): string {
+  const pgid = processGroupId(pid);
+  if (process.platform !== "win32" && pgid === pid) {
+    process.kill(-pgid, signal);
+    return "process_group";
+  }
+
+  const descendants = descendantProcessIds(pid).reverse();
+  for (const childPid of descendants) {
+    try {
+      process.kill(childPid, signal);
+    } catch {
+      // Child may have exited while walking the tree.
+    }
+  }
+  process.kill(pid, signal);
+  return descendants.length > 0 ? "process_tree" : "process";
+}
+
+function terminateChildProcess(
+  child: ReturnType<typeof spawn>,
+  input: { pid?: number; pgid: number | null; signal: NodeJS.Signals },
+): string {
+  if (
+    process.platform !== "win32" &&
+    input.pid &&
+    input.pgid &&
+    input.pgid === input.pid
+  ) {
+    try {
+      process.kill(-input.pgid, input.signal);
+      return "process_group";
+    } catch {
+      // Fall back to the wrapper PID below.
+    }
+  }
+  child.kill(input.signal);
+  return "process";
+}
+
+async function cancel(_runId: string, pid: number | null): Promise<CancelAdapterResult> {
+  if (pid === null) return { killed: false, method: "no-op:pid-null" };
+  if (!isPidAlive(pid)) return { killed: false, method: "no-op:already-exited" };
+
+  let method: string;
+  try {
+    method = signalProcessTree(pid, "SIGTERM");
+  } catch (error) {
+    return { killed: false, method: "SIGTERM", error: error instanceof Error ? error.message : String(error) };
+  }
+
+  const graceMs = numberFromEnv("MC_CANCEL_SIGKILL_GRACE_MS", DEFAULT_SYMPHONY_TERMINATION_GRACE_MS);
+  await new Promise((resolve) => setTimeout(resolve, graceMs));
+
+  if (!isPidAlive(pid)) {
+    return { killed: true, method: `${method}:SIGTERM` };
+  }
+
+  try {
+    signalProcessTree(pid, "SIGKILL");
+    return { killed: true, method: `${method}:SIGTERM+SIGKILL` };
+  } catch {
+    return { killed: true, method: `${method}:SIGTERM` };
+  }
+}
+
 function mergeExecutionRunnerMetadata(
   db: Database.Database,
   executionRunId: string,
@@ -429,11 +548,13 @@ function appendTail(current: string, chunk: Buffer, maxChars = 4000): string {
 function terminationReason(input: {
   spawnError: string | null;
   timedOut: boolean;
+  silentTimedOut: boolean;
   killedForBuffer: boolean;
   exitCode: number | null;
   signal: string | null;
 }): string | null {
   if (input.spawnError) return "spawn_error";
+  if (input.silentTimedOut) return "silent_timeout";
   if (input.timedOut) return "adapter_timeout";
   if (input.killedForBuffer) return "stdout_buffer_exceeded";
   if (input.signal) return "external_signal";
@@ -443,6 +564,8 @@ function terminationReason(input: {
 
 function failureClassForTermination(reason: string | null): string | null {
   switch (reason) {
+    case "silent_timeout":
+      return "silent_timeout";
     case "adapter_timeout":
       return "adapter_timeout";
     case "stdout_buffer_exceeded":
@@ -762,6 +885,15 @@ function runCommand(
   options?: SymphonyRunCommandOptions,
 ): Promise<SymphonyExecResult> {
   const timeoutMs = numberFromEnv("SYMPHONY_EXEC_TIMEOUT_MS", DEFAULT_SYMPHONY_TIMEOUT_MS);
+  const noOutputTimeoutMs = Math.min(
+    numberFromEnvNames(
+      ["SYMPHONY_EXEC_NO_OUTPUT_TIMEOUT_MS", "SYMPHONY_EXEC_SILENT_TIMEOUT_MS"],
+      DEFAULT_SYMPHONY_NO_OUTPUT_TIMEOUT_MS,
+    ),
+    timeoutMs,
+  );
+  const progressIntervalMs = numberFromEnv("SYMPHONY_EXEC_PROGRESS_INTERVAL_MS", DEFAULT_SYMPHONY_PROGRESS_INTERVAL_MS);
+  const terminationGraceMs = numberFromEnv("SYMPHONY_EXEC_TERMINATION_GRACE_MS", DEFAULT_SYMPHONY_TERMINATION_GRACE_MS);
   const maxBufferBytes = numberFromEnv("SYMPHONY_EXEC_MAX_BUFFER", DEFAULT_SYMPHONY_MAX_BUFFER);
   const startedAt = Date.now();
   const stdinPayload = `${JSON.stringify(payload, null, 2)}\n`;
@@ -775,9 +907,110 @@ function runCommand(
         HIVERUNNER_SYMPHONY_PAYLOAD: "stdin-json",
       },
       stdio: ["pipe", "pipe", "pipe"],
+      detached: process.platform !== "win32",
     });
     const pid = child.pid;
     const pgid = processGroupId(pid);
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
+    let stdoutTail = "";
+    let stderrTail = "";
+    let killedForBuffer = false;
+    let timedOut = false;
+    let silentTimedOut = false;
+    let forcedKilled = false;
+    let spawnError: string | null = null;
+    let lastOutputAt: number | null = null;
+    let progressUpdateCount = 0;
+    let terminationSignalMethod: string | null = null;
+    let forceKillTimer: ReturnType<typeof setTimeout> | null = null;
+    let noOutputTimer: ReturnType<typeof setTimeout> | null = null;
+    let progressTimer: ReturnType<typeof setInterval> | null = null;
+
+    const mergeProgressMetadata = (status: string, patch: Record<string, unknown> = {}) => {
+      if (!options?.executionRunId || !options.db) return;
+      const nowMs = Date.now();
+      const lastActivityAt = lastOutputAt ?? startedAt;
+      try {
+        options.db.prepare(
+          `UPDATE execution_runs
+           SET updated_at = ?
+           WHERE id = ?
+             AND status IN ('pending', 'running')`,
+        ).run(new Date(nowMs).toISOString(), options.executionRunId);
+        mergeExecutionRunnerMetadata(options.db, options.executionRunId, {
+          heartbeatRunId: options.heartbeatRunId ?? null,
+          status,
+          lastProgressAt: new Date(nowMs).toISOString(),
+          lastOutputAt: lastOutputAt ? new Date(lastOutputAt).toISOString() : null,
+          lastActivityAt: new Date(lastActivityAt).toISOString(),
+          silentForMs: nowMs - lastActivityAt,
+          durationMs: nowMs - startedAt,
+          progressUpdateCount,
+          stdoutBytes,
+          stderrBytes,
+          stdoutTail: trimForStorage(stdoutTail),
+          stderrTail: trimForStorage(stderrTail),
+          noOutputTimeoutMs,
+          progressIntervalMs,
+          terminationGraceMs,
+          ...patch,
+        });
+      } catch {
+        // Progress diagnostics are best effort.
+      }
+    };
+
+    const clearRuntimeTimers = () => {
+      if (noOutputTimer) {
+        clearTimeout(noOutputTimer);
+        noOutputTimer = null;
+      }
+      if (progressTimer) {
+        clearInterval(progressTimer);
+        progressTimer = null;
+      }
+      if (forceKillTimer) {
+        clearTimeout(forceKillTimer);
+        forceKillTimer = null;
+      }
+    };
+
+    const requestTermination = (status: string, detail: string) => {
+      if (!terminationSignalMethod) {
+        terminationSignalMethod = terminateChildProcess(child, { pid, pgid, signal: "SIGTERM" });
+        options?.emitEvent?.("provider_error", detail);
+        mergeProgressMetadata(status, {
+          terminationSignal: "SIGTERM",
+          terminationSignalMethod,
+        });
+      }
+      if (!forceKillTimer) {
+        forceKillTimer = setTimeout(() => {
+          forcedKilled = true;
+          terminationSignalMethod = terminateChildProcess(child, { pid, pgid, signal: "SIGKILL" });
+          mergeProgressMetadata("force_killed", {
+            forcedKilled: true,
+            terminationSignal: "SIGKILL",
+            terminationSignalMethod,
+          });
+        }, terminationGraceMs);
+      }
+    };
+
+    const resetNoOutputTimer = () => {
+      if (noOutputTimer) clearTimeout(noOutputTimer);
+      noOutputTimer = setTimeout(() => {
+        silentTimedOut = true;
+        requestTermination(
+          "silent_timeout",
+          `External runner produced no stdout/stderr for ${formatDuration(noOutputTimeoutMs)}; terminating stalled command.`,
+        );
+      }, noOutputTimeoutMs);
+    };
+
     if (options?.executionRunId && options.db) {
       try {
         if (pid) {
@@ -796,50 +1029,66 @@ function runCommand(
           startedAt: new Date(startedAt).toISOString(),
           status: "running",
           timeoutMs,
+          noOutputTimeoutMs,
+          progressIntervalMs,
+          terminationGraceMs,
           maxBufferBytes,
         });
       } catch {}
     }
-    const stdoutChunks: Buffer[] = [];
-    const stderrChunks: Buffer[] = [];
-    let stdoutBytes = 0;
-    let stderrBytes = 0;
-    let stdoutTail = "";
-    let stderrTail = "";
-    let killedForBuffer = false;
-    let timedOut = false;
-    let spawnError: string | null = null;
 
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill("SIGTERM");
+      requestTermination(
+        "adapter_timeout",
+        `External runner command timed out after ${formatDuration(timeoutMs)}; terminating command.`,
+      );
     }, timeoutMs);
+    resetNoOutputTimer();
+    progressTimer = setInterval(() => {
+      progressUpdateCount += 1;
+      const silentForMs = Date.now() - (lastOutputAt ?? startedAt);
+      options?.emitEvent?.(
+        "waiting",
+        `External runner still active after ${formatDuration(Date.now() - startedAt)}; ${formatDuration(silentForMs)} since last stdout/stderr.`,
+      );
+      mergeProgressMetadata(lastOutputAt ? "running" : "running_silent");
+    }, progressIntervalMs);
 
     child.stdout.on("data", (chunk: Buffer) => {
+      lastOutputAt = Date.now();
       stdoutBytes += chunk.length;
       stdoutTail = appendTail(stdoutTail, chunk);
       if (stdoutBytes <= maxBufferBytes) stdoutChunks.push(chunk);
+      resetNoOutputTimer();
       if (stdoutBytes > maxBufferBytes && !killedForBuffer) {
         killedForBuffer = true;
-        child.kill("SIGTERM");
+        requestTermination(
+          "stdout_buffer_exceeded",
+          `External runner command exceeded ${maxBufferBytes} bytes of stdout; terminating command.`,
+        );
       }
     });
     child.stderr.on("data", (chunk: Buffer) => {
+      lastOutputAt = Date.now();
       stderrBytes += chunk.length;
       stderrTail = appendTail(stderrTail, chunk);
       if (stderrBytes <= maxBufferBytes) stderrChunks.push(chunk);
+      resetNoOutputTimer();
     });
     child.on("error", (error) => {
       spawnError = error.message;
     });
     child.on("close", (exitCode, signal) => {
       clearTimeout(timer);
+      clearRuntimeTimers();
       const stdout = Buffer.concat(stdoutChunks).toString("utf8");
       const stderr = Buffer.concat(stderrChunks).toString("utf8");
       const compactStderrTail = stderrTail.trim().replace(/\s+/g, " ").slice(-500);
-      const reason = terminationReason({ spawnError, timedOut, killedForBuffer, exitCode, signal });
+      const reason = terminationReason({ spawnError, timedOut, silentTimedOut, killedForBuffer, exitCode, signal });
       const failureClass = failureClassForTermination(reason);
       const errorMessage = spawnError
+        ?? (silentTimedOut ? `External runner command produced no stdout/stderr for ${noOutputTimeoutMs}ms` : null)
         ?? (timedOut ? `External runner command timed out after ${timeoutMs}ms` : null)
         ?? (killedForBuffer ? `External runner command exceeded ${maxBufferBytes} bytes of stdout` : null)
         ?? (signal ? `External runner command terminated by signal ${signal}` : null)
@@ -857,11 +1106,17 @@ function runCommand(
             exitCode,
             signal,
             timedOut,
+            silentTimedOut,
             killedForBuffer,
+            forcedKilled,
             terminationReason: reason,
+            terminationSignalMethod,
             failureClass,
             stdoutBytes,
             stderrBytes,
+            noOutputTimeoutMs,
+            progressUpdateCount,
+            lastOutputAt: lastOutputAt ? new Date(lastOutputAt).toISOString() : null,
             stdoutTail: trimForStorage(stdoutTail),
             stderrTail: trimForStorage(stderrTail),
           });
@@ -878,7 +1133,9 @@ function runCommand(
         exitCode,
         signal,
         timedOut,
+        silentTimedOut,
         killedForBuffer,
+        forcedKilled,
         terminationReason: reason,
         failureClass,
         errorMessage,
@@ -928,6 +1185,7 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
     db,
     executionRunId: input.executionRunId,
     heartbeatRunId: input.runId ?? null,
+    emitEvent: input.emitEvent,
   } : undefined);
   const workspaceAfter = captureWorkspaceGitSnapshots(trackedRoots);
   const workspaceRunVisibility = buildWorkspaceRunVisibility({
@@ -995,7 +1253,9 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
       exitCode: result.exitCode,
       signal: result.signal,
       timedOut: result.timedOut,
+      silentTimedOut: result.silentTimedOut,
       killedForBuffer: result.killedForBuffer,
+      forcedKilled: result.forcedKilled,
       terminationReason: result.terminationReason,
       failureClass: result.failureClass,
       stdoutBytes: result.stdoutBytes,
@@ -1055,4 +1315,5 @@ export const symphonyExecutionAdapter: ExecutionAdapter = {
   adapterType: "symphony",
   execute,
   clearTaskSessionForSelfHeal,
+  cancel,
 };

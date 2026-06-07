@@ -30,6 +30,7 @@ import {
   Search,
   Sparkles,
   Terminal,
+  Users,
 } from "lucide-react";
 
 import { getCompanyInboxUnreadCount, getPendingSprintPlanDraftCount, listCompanies, listCompanyAgents, listProjects, updateProjectSettings } from "@/lib/orchestration/client";
@@ -78,7 +79,7 @@ import {
 } from "@/lib/orchestration/route-paths";
 import { useLiveStream } from "@/components/live/LiveStreamProvider";
 import { useLiveRuns } from "@/hooks/useLiveRuns";
-import { isAgentLive } from "@/lib/orchestration/live-status";
+import { isAgentActivelyRunning } from "@/lib/orchestration/live-status";
 import { useEventStream, type StreamEvent } from "@/lib/orchestration/use-event-stream";
 
 interface NavItem {
@@ -196,6 +197,7 @@ const OPERATIONS_ITEMS: DockIconNavItem[] = [
 ];
 
 const COMPANY_ITEMS: DockIconNavItem[] = [
+  { label: "Team", icon: Users },
   { label: "Org", icon: OrgChartBuildIcon as LucideIcon, animatedIcon: true, iconMotion: "org-chart-build-wide" },
   { label: "Manage Projects", icon: FolderKanban },
   { label: "Overseer", icon: Bot },
@@ -841,6 +843,8 @@ function operationsItemHref(code: string, itemLabel: string): string {
 
 function companyItemHref(code: string, itemLabel: string): string {
   switch (itemLabel) {
+    case "Team":
+      return buildCanonicalTeamPath(code);
     case "Org":
       return buildCanonicalOrgPath(code);
     case "Manage Projects":
@@ -1500,14 +1504,12 @@ export function Dock() {
 
   const activeAgentCount = useMemo(() => {
     return currentCompanyAgents.filter((agent) =>
-      isAgentLive({
+      isAgentActivelyRunning({
         agentId: agent.id,
-        agentStatus: agent.status,
-        liveAgentIds,
         liveRunsByAgentId: runsByAgentId,
       })
     ).length;
-  }, [liveAgentIds, runsByAgentId, currentCompanyAgents]);
+  }, [runsByAgentId, currentCompanyAgents]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1522,7 +1524,7 @@ export function Dock() {
         return;
       }
       if (mode === "initial" && agentsCompanySlug !== company.slug) setAgentsLoading(true);
-      const rows = await listCompanyAgents(company.slug);
+      const rows = await listCompanyAgents(company.slug, { rosterState: "active" });
       if (cancelled) return;
       const sorted = rows.sort((a, b) => a.name.localeCompare(b.name));
       setAgentsCompanySlug(company.slug);
@@ -1586,7 +1588,7 @@ export function Dock() {
             { href: buildCanonicalDashboardPath(cc), label: "Dashboard", icon: Building2 },
             { href: operationsItemHref(cc, "Tasks"), label: "Tasks", icon: ListChecks },
             { href: buildCanonicalProjectsPath(cc), label: "Projects", icon: FolderOpen },
-            { href: buildCanonicalTeamPath(cc), label: "Agents", icon: Bot },
+            { href: buildCanonicalTeamPath(cc), label: "Team", icon: Users },
           ]
         : []),
       { href: "/search", label: "Search", icon: Search },
@@ -2038,7 +2040,7 @@ export function Dock() {
       {hasCompanyContext ? (
         <>
       <SectionHeader
-        label="Agents"
+        label="Active Crew"
         collapsed={!agentsOpen}
         onToggle={() => setAgentsOpen((prev) => !prev)}
         onCreate={() => {
@@ -2053,7 +2055,7 @@ export function Dock() {
           <div style={shimmerStyle()} />
         </div>
       ) : currentCompanyAgents.length === 0 ? (
-        <p style={{ margin: "2px 8px 4px", fontSize: "10px", color: DOCK_TEXT_MUTED }}>No agents registered.</p>
+        <p style={{ margin: "2px 8px 4px", fontSize: "10px", color: DOCK_TEXT_MUTED }}>No active agents.</p>
       ) : (
         currentCompanyAgents.map((agent) => {
           const agentSlug = agent.slug || agent.id;
@@ -2062,10 +2064,8 @@ export function Dock() {
           const href = currentAgentSubpage
             ? `${basePath}/${currentAgentSubpage}`
             : `${basePath}/dashboard`;
-          const agentIsLive = isAgentLive({
+          const agentIsLive = isAgentActivelyRunning({
             agentId: agent.id,
-            agentStatus: agent.status,
-            liveAgentIds,
             liveRunsByAgentId: runsByAgentId,
           });
           return (

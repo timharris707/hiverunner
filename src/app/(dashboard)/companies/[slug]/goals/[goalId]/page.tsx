@@ -11,6 +11,8 @@ import { SprintRow } from "@/components/goals/SprintRow";
 import { AgentAvatarInline } from "@/components/tasks/InlineAssigneePicker";
 import { TaskRow as TaskRowComponent } from "@/components/tasks/TaskRow";
 import { type InlineEditCallbacks, type TaskRow as TaskRowT, getActiveRunLabel } from "@/components/tasks/types";
+import { ScopedActiveCrewPanel } from "@/components/team/ScopedActiveCrewPanel";
+import { TemplateLaunchDialog, type CreatedTemplateDraft } from "@/components/templates/TemplateLaunchDialog";
 import {
   createGoalContractItem,
   createSprintPlanningTask,
@@ -647,6 +649,17 @@ export default function GoalDetailPage({
     window.setTimeout(() => alignDraft(behavior), 520);
   }, []);
 
+  const handleTemplateDraftCreated = useCallback(async ({ draftPlan }: CreatedTemplateDraft) => {
+    setPendingDrafts((current) => (
+      current.some((draft) => draft.id === draftPlan.draft.id)
+        ? current
+        : [...current, draftPlan.draft].sort((a, b) => a.sequenceNumber - b.sequenceNumber || a.createdAt.localeCompare(b.createdAt))
+    ));
+    setFocusedDraftId(draftPlan.draft.id);
+    await refreshGoalsAndDraft();
+    handleSprintDraftJump(draftPlan.draft.id);
+  }, [handleSprintDraftJump, refreshGoalsAndDraft]);
+
   const taskCallbacks = useMemo<InlineEditCallbacks>(() => ({
     onStatusChange: async (taskId: string, status: TaskStatus) => {
       const previous = tasks;
@@ -703,6 +716,56 @@ export default function GoalDetailPage({
   }, [allGoals, goal, parentGoal, tasks]);
 
   const groupedTasks = useMemo(() => groupBySprint(sprintTasks, "sprint"), [sprintTasks]);
+  const activeCrewReferences = useMemo(() => {
+    if (!goal) return [];
+    const refs = new Set<string>();
+    if (goal.sprint.leadAgentId) refs.add(goal.sprint.leadAgentId);
+    if (goal.sprint.owner) refs.add(goal.sprint.owner);
+
+    if (determineGoalKind(goal) === "company") {
+      for (const sprint of supportingSprints) {
+        if (sprint.sprint.leadAgentId) refs.add(sprint.sprint.leadAgentId);
+        if (sprint.sprint.owner) refs.add(sprint.sprint.owner);
+      }
+      for (const draft of pendingDrafts) {
+        if (draft.sprint.owner) refs.add(draft.sprint.owner);
+        for (const draftTask of draft.tasks) {
+          if (draftTask.assignee) refs.add(draftTask.assignee);
+        }
+      }
+    } else {
+      for (const task of sprintTasks) {
+        if (task.assignee) refs.add(task.assignee);
+      }
+    }
+
+    return Array.from(refs);
+  }, [goal, pendingDrafts, sprintTasks, supportingSprints]);
+
+  const handleAddBenchAgentToGoalWork = useCallback(async (agent: OrchestrationAgent) => {
+    if (!goal) return;
+    if (determineGoalKind(goal) === "sprint") {
+      const target = sprintTasks.find((task) => !task.assignee && task.status !== "done" && task.status !== "cancelled");
+      if (target) {
+        const previous = tasks;
+        setTasks((prev) => prev.map((task) => (task.id === target.id ? { ...task, assignee: agent.id } : task)));
+        const ok = await updateTaskAssignee(target.id, agent.id);
+        if (!ok) {
+          setTasks(previous);
+          setError("Task assignee update failed.");
+          throw new Error("Could not add this Bench agent to the sprint work.");
+        }
+        return;
+      }
+    }
+    const updated = await updateCompanyGoal({ companySlug: slug, sprintId: goal.sprint.id, leadAgentId: agent.id });
+    if (!updated) {
+      setError("Goal update failed.");
+      throw new Error("Could not add this Bench agent to the goal work.");
+    }
+    setAllGoals((prev) => prev.map((candidate) => (candidate.sprint.id === updated.sprint.id ? updated : candidate)));
+    setGoal(updated);
+  }, [goal, slug, sprintTasks, tasks]);
 
   if (loading) {
     return (
@@ -764,6 +827,17 @@ export default function GoalDetailPage({
           <div role="status" style={{ marginTop: 14, color: "#ef4444", fontSize: 12 }}>{error}</div>
         ) : null}
 
+        <div style={{ marginTop: 18, maxWidth: 980 }}>
+          <ScopedActiveCrewPanel
+            companySlug={activeCompanySlug}
+            companyCode={companyCode}
+            scopeLabel={goalKind === "sprint" ? `${goal.sprint.name} sprint` : `${goal.sprint.name} goal`}
+            activeAgents={agents}
+            activeAgentReferences={activeCrewReferences}
+            onAddAgent={handleAddBenchAgentToGoalWork}
+          />
+        </div>
+
         {goalKind === "sprint" ? (
           <ContractSection
             key={`${goal.sprint.id}:${goal.sprint.updated}:${goal.sprint.contractItems?.length ?? 0}`}
@@ -793,9 +867,26 @@ export default function GoalDetailPage({
             <SectionTitle
               title={`Supporting sprints (${supportingSprints.length})`}
               action={(
-                <button type="button" onClick={handlePlanSprint} disabled={planning} style={secondaryButtonStyle}>
-                  {planning ? "Planning..." : "Plan sprint"}
-                </button>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                  <TemplateLaunchDialog
+                    companySlug={activeCompanySlug}
+                    companyCode={companyCode}
+                    launchSource="goal-detail"
+                    triggerLabel="Template"
+                    dialogTitle="Generate sprint plan from template"
+                    existingGoal={{
+                      goalId: goal.sprint.id,
+                      goalName: goal.sprint.name,
+                      defaultExecutionEngine: goal.sprint.defaultExecutionEngine,
+                      defaultModelLane: goal.sprint.defaultModelLane,
+                    }}
+                    onCreated={handleTemplateDraftCreated}
+                    redirectOnCreated={false}
+                  />
+                  <button type="button" onClick={handlePlanSprint} disabled={planning} style={secondaryButtonStyle}>
+                    {planning ? "Planning..." : "Plan sprint"}
+                  </button>
+                </div>
               )}
             />
             {supportingSprints.length === 0 ? (

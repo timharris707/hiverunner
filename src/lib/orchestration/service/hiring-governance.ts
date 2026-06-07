@@ -3,10 +3,14 @@ import type Database from "better-sqlite3";
 import { OrchestrationApiError } from "@/lib/orchestration/api";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { resolveCompanyIdBySlug } from "@/lib/orchestration/company-service";
+import {
+  ensureCompanySettingsJsonColumn,
+  normalizeHiringGovernanceSettings,
+  parseCompanySettingsJson,
+  type CompanyHiringGovernanceSettings,
+} from "@/lib/orchestration/hiring-governance-settings";
 
-export type CompanyHiringGovernanceSettings = {
-  autoApproveNewHires: boolean;
-};
+export type { CompanyHiringGovernanceSettings } from "@/lib/orchestration/hiring-governance-settings";
 
 export type CompanyHiringGovernanceView = {
   company: {
@@ -17,34 +21,14 @@ export type CompanyHiringGovernanceView = {
   hiring: CompanyHiringGovernanceSettings;
 };
 
-const DEFAULT_HIRING_GOVERNANCE: CompanyHiringGovernanceSettings = {
-  autoApproveNewHires: false,
-};
-
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
 }
 
-function parseSettingsJson(value: string | null | undefined): Record<string, unknown> {
-  if (!value?.trim()) return {};
-  try {
-    return asRecord(JSON.parse(value));
-  } catch {
-    return {};
-  }
-}
-
 function normalizeHiringSettings(settings: Record<string, unknown>): CompanyHiringGovernanceSettings {
-  const governance = asRecord(settings.governance);
-  const hiring = asRecord(governance.hiring);
-  return {
-    autoApproveNewHires:
-      typeof hiring.autoApproveNewHires === "boolean"
-        ? hiring.autoApproveNewHires
-        : DEFAULT_HIRING_GOVERNANCE.autoApproveNewHires,
-  };
+  return normalizeHiringGovernanceSettings(settings);
 }
 
 function resolveCompany(companyIdOrSlug: string, db: Database.Database) {
@@ -53,12 +37,6 @@ function resolveCompany(companyIdOrSlug: string, db: Database.Database) {
     throw new OrchestrationApiError(404, "company_not_found", "Company not found");
   }
   return resolved;
-}
-
-function ensureCompanySettingsJsonColumn(db: Database.Database) {
-  const columns = db.prepare("PRAGMA table_info(companies)").all() as Array<{ name: string }>;
-  if (columns.some((column) => column.name === "settings_json")) return;
-  db.prepare("ALTER TABLE companies ADD COLUMN settings_json TEXT NOT NULL DEFAULT '{}'").run();
 }
 
 export function getCompanyHiringGovernanceSettings(
@@ -77,7 +55,7 @@ export function getCompanyHiringGovernanceSettings(
       slug: company.slug,
       name: company.name,
     },
-    hiring: normalizeHiringSettings(parseSettingsJson(row?.settings_json)),
+    hiring: normalizeHiringSettings(parseCompanySettingsJson(row?.settings_json)),
   };
 }
 
@@ -92,7 +70,7 @@ export function updateCompanyHiringGovernanceSettings(input: {
   const row = db
     .prepare("SELECT settings_json FROM companies WHERE id = ? LIMIT 1")
     .get(company.id) as { settings_json: string | null } | undefined;
-  const settings = parseSettingsJson(row?.settings_json);
+  const settings = parseCompanySettingsJson(row?.settings_json);
   const governance = asRecord(settings.governance);
   const hiring = {
     ...asRecord(governance.hiring),

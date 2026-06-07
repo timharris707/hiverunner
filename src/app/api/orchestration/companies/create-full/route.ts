@@ -5,13 +5,14 @@ import path from "path";
 import { execSync } from "child_process";
 
 import { getOrchestrationDb } from "@/lib/orchestration/db";
+import { OrchestrationApiError } from "@/lib/orchestration/api";
 import {
   assignDefaultSkillsForAgent,
   ensureDefaultCompanySkills,
 } from "@/lib/orchestration/default-skills";
 import { generateAgentDossier, writeAgentDossierFiles } from "@/lib/orchestration/agent-dossier";
 import { defaultAgentIconToken } from "@/lib/orchestration/avatar-icons";
-import { createCompany } from "@/lib/orchestration/company-service";
+import { createCompany, createCompanyGoal, generateTemplateDraftPlan } from "@/lib/orchestration/company-service";
 import { refreshEdgeRouteMapCache } from "@/lib/orchestration/edge-route-map-service";
 import { triggerTaskExecution } from "@/lib/orchestration/execution";
 import { ensureOpenClawAgentScaffold } from "@/lib/orchestration/openclaw-agent-scaffold";
@@ -25,7 +26,9 @@ import {
 import {
   buildCanonicalCompanyPath,
   buildCanonicalDashboardPath,
+  buildCanonicalGoalPath,
   buildCanonicalTasksPath,
+  goalRouteKey,
 } from "@/lib/orchestration/route-paths";
 import { canAutonomouslyExecuteCompany } from "@/lib/orchestration/service/dev-execution-test-mode";
 import {
@@ -34,6 +37,10 @@ import {
   normalizeRuntimeProvider,
 } from "@/lib/orchestration/service/company-agent-provisioning";
 import { readSelectedStarterAgents } from "@/lib/orchestration/starter-team-templates";
+import {
+  getBuiltInStarterSprintTemplate,
+  isBuiltInStarterSprintTemplateId,
+} from "@/lib/orchestration/starter-sprint-templates";
 import { createTask } from "@/lib/orchestration/service/task";
 import { resolveRequestCompanyOwnerUserId } from "@/lib/orchestration/request-auth";
 import {
@@ -84,6 +91,21 @@ function inferRuntimeProviderFromModel(model: unknown): string | null {
 
 function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function readRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function resolveStarterSprintTemplateId(value: unknown): ReturnType<typeof getBuiltInStarterSprintTemplate> {
+  const raw = readString(value) ?? "build-something";
+  const id = raw.includes("@") ? raw.split("@")[0] ?? raw : raw;
+  if (!isBuiltInStarterSprintTemplateId(id)) {
+    throw new OrchestrationApiError(400, "invalid_template", "Unknown starter sprint template");
+  }
+  return getBuiltInStarterSprintTemplate(id);
 }
 
 function resolveCeoRuntimeProvider(ceo: unknown): string {
@@ -142,6 +164,23 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { company, owner, project, ceo, task, starterTeam } = body;
+    const firstWork = readRecord(body?.firstWork);
+    const explicitTemplateLaunch = readRecord(body?.templateLaunch);
+    const templateLaunch = Object.keys(explicitTemplateLaunch).length > 0
+      ? explicitTemplateLaunch
+      : firstWork.mode === "template"
+        ? {
+            templateId: firstWork.templateId,
+            goalName: firstWork.goalName,
+            answers: readRecord(firstWork.answers),
+          }
+        : {};
+    const firstWorkMode = body?.firstWorkMode === "template" || firstWork.mode === "template" || Object.keys(templateLaunch).length > 0
+      ? "template"
+      : "task";
+    const firstWorkTemplate = firstWorkMode === "template"
+      ? resolveStarterSprintTemplateId(templateLaunch.templateId ?? templateLaunch.templateVersionId)
+      : null;
 
     // ---------- Validate required fields ----------
     if (!company?.name?.trim()) {
@@ -150,7 +189,7 @@ export async function POST(req: NextRequest) {
     if (!ceo?.name?.trim()) {
       return NextResponse.json({ error: "CEO name is required" }, { status: 400 });
     }
-    if (!task?.title?.trim()) {
+    if (firstWorkMode === "task" && !task?.title?.trim()) {
       return NextResponse.json({ error: "Task title is required" }, { status: 400 });
     }
     if (!owner?.displayName?.trim()) {
@@ -432,6 +471,81 @@ export async function POST(req: NextRequest) {
     );
     fs.chmodSync(mcToolTarget, "755");
 
+    if (firstWorkMode === "template" && firstWorkTemplate) {
+      const goalName = readString(templateLaunch.goalName) ?? firstWorkTemplate.draftOutputs.goal.title;
+      const createdGoal = createCompanyGoal({
+        companyIdOrSlug: companyId,
+        projectId,
+        name: goalName,
+        goal: firstWorkTemplate.draftOutputs.goal.objective,
+        goalKind: "company",
+        status: "planned",
+        leadAgentId: agentId,
+        actorUserId: createdCompany.owner?.id ?? requestOwnerUserId,
+      }).goal;
+      const draftPlan = generateTemplateDraftPlan({
+        companyIdOrSlug: companyId,
+        companyGoalId: createdGoal.sprint.id,
+        templateId: firstWorkTemplate.id,
+        answers: readRecord(templateLaunch.answers),
+        submittedByAgentId: agentId,
+        submittedByUserId: createdCompany.owner?.id ?? requestOwnerUserId,
+      });
+
+      refreshEdgeRouteMapCache();
+
+      const dashboardHref = buildCanonicalDashboardPath(createdCompany.code);
+      const boardHref = `${buildCanonicalTasksPath(createdCompany.code)}?view=board&group=status`;
+      const goalHref = buildCanonicalGoalPath(createdCompany.code, goalRouteKey(createdGoal.sprint));
+
+      return NextResponse.json(
+        {
+          success: true,
+          company: {
+            id: companyId,
+            slug: createdCompany.slug,
+            code: createdCompany.code,
+            name: company.name.trim(),
+            owner: createdCompany.owner,
+          },
+          project: { id: projectId, slug: projectSlug, name: effectiveProject.name },
+          agent: { id: agentId, name: ceo.name.trim(), runtimeProvider, openclawAgentId },
+          starterTeam: {
+            selectedCount: provisionedStarterAgents.length,
+            failedCount: starterTeamProvisioningWarnings.length,
+            agents: provisionedStarterAgents,
+            warnings: starterTeamProvisioningWarnings,
+          },
+          firstWorkMode,
+          templateLaunch: {
+            createsBoardTasksImmediately: false,
+            goal: createdGoal,
+            draftPlan,
+            goalHref,
+          },
+          goal: createdGoal,
+          goalHref,
+          boardHref,
+          dashboardHref,
+          initialExecution: {
+            status: "skipped",
+            reason: "template_draft_review_required",
+            mode: "manual",
+          },
+          workspace: workspacePath,
+          agentDir,
+          filesCreated: [
+            path.join(agentDir, "IDENTITY.md"),
+            path.join(agentDir, "SOUL.md"),
+            path.join(agentDir, "AGENTS.md"),
+            path.join(agentDir, "HEARTBEAT.md"),
+            path.join(workspacePath, "AGENTS.md"),
+          ],
+        },
+        { status: 201 },
+      );
+    }
+
     // ---------- 7. Create and start first task ----------
     const createdTask = createTask({
       projectId,
@@ -528,6 +642,9 @@ export async function POST(req: NextRequest) {
       { status: 201 },
     );
   } catch (error: unknown) {
+    if (error instanceof OrchestrationApiError) {
+      return NextResponse.json({ error: error.message, code: error.code, details: error.details }, { status: error.status });
+    }
     console.error("[create-full] error:", error);
     const message = error instanceof Error ? error.message : "Internal server error";
     return NextResponse.json({ error: message }, { status: 500 });

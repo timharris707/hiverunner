@@ -19,6 +19,7 @@ import {
 } from "@/components/orchestration/AgentIdentityFields";
 import CompanyTeamPage from "@/app/(dashboard)/companies/[slug]/team/page";
 import { buildCanonicalTeamPath } from "@/lib/orchestration/route-paths";
+import { COMPANY_SLUG_TO_CODE } from "@/lib/orchestration/edge-route-maps";
 import { buildProviderRuntimeConfigPatch } from "@/lib/orchestration/provider-runtime-controls";
 
 const inputStyle: React.CSSProperties = {
@@ -45,7 +46,7 @@ export default function CreateCompanyAgentPage() {
   const params = useParams<{ slug: string }>();
   const router = useRouter();
   const slug = params?.slug ?? "";
-  const code = slug.slice(0, 3).toUpperCase();
+  const code = COMPANY_SLUG_TO_CODE[slug] ?? slug.slice(0, 3).toUpperCase();
   const agentsPath = buildCanonicalTeamPath(code);
 
   const [name, setName] = useState("");
@@ -82,7 +83,7 @@ export default function CreateCompanyAgentPage() {
     let cancelled = false;
     const loadRoster = async () => {
       try {
-        const res = await fetch(`/api/orchestration/companies/${encodeURIComponent(slug)}/agents?syncOpenClaw=false`, { cache: "no-store" });
+        const res = await fetch(`/api/orchestration/companies/${encodeURIComponent(slug)}/agents?syncOpenClaw=false&rosterState=active`, { cache: "no-store" });
         const json = (await res.json().catch(() => ({}))) as { agents?: Array<{ id?: string; name?: string; avatar?: string; emoji?: string; openclawAgentId?: string }> };
         if (!res.ok || cancelled) return;
         setRosterOptions(

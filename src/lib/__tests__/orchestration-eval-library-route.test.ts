@@ -137,6 +137,8 @@ async function run() {
       runnerProvider: string;
       runnerModel: string;
       templateId: string;
+      sourceTemplateVersionId: string;
+      templateIntakeAnswerId: string;
       createdAt: string;
     }) {
       const task = createTask({
@@ -179,7 +181,13 @@ async function run() {
           agentId: runner.id,
           agentName: runner.name,
         },
-        templateContext: { templateId: input.templateId, templateName: input.templateId },
+        templateContext: {
+          templateId: input.templateId,
+          templateName: input.templateId,
+          sourceTemplateVersionId: input.sourceTemplateVersionId,
+          templateIntakeAnswerId: input.templateIntakeAnswerId,
+          draftId: `${input.templateId}-draft`,
+        },
         review: {
           outcome: input.outcome,
           rationale: `Reviewed ${input.outcome} evidence for ${input.title}.`,
@@ -205,7 +213,9 @@ async function run() {
       outcome: "accepted",
       runnerProvider: "openai",
       runnerModel: "gpt-5.5",
-      templateId: "starter-build",
+      templateId: "build-something",
+      sourceTemplateVersionId: "build-something@1.0.0",
+      templateIntakeAnswerId: "intake-build-something",
       createdAt: "2026-06-06T21:00:00.000Z",
     });
     saveCase({
@@ -217,7 +227,9 @@ async function run() {
       outcome: "returned",
       runnerProvider: "anthropic",
       runnerModel: "claude-5",
-      templateId: "review-loop",
+      templateId: "bug-triage",
+      sourceTemplateVersionId: "bug-triage@1.0.0",
+      templateIntakeAnswerId: "intake-bug-triage",
       createdAt: "2026-06-07T21:00:00.000Z",
     });
 
@@ -255,7 +267,7 @@ async function run() {
       const query = new URLSearchParams({
         projectId: project.id,
         taskType: "feature",
-        template: "starter-build",
+        template: "build-something",
         agent: runner.id,
         runner: "openai",
         model: "gpt-5.5",
@@ -272,6 +284,20 @@ async function run() {
       assert.equal(response.body.filters?.projectId, project.id);
       assert.equal(response.body.filters?.reviewOutcome, "accepted");
       assert.deepEqual(response.body.cases?.[0]?.sourceTask.tags, ["api", "evals"]);
+    });
+
+    await test("applies explicit template version and intake-answer filters from eval context", async () => {
+      const query = new URLSearchParams({
+        sourceTemplateVersionId: "build-something@1.0.0",
+        templateIntakeAnswerId: "intake-build-something",
+      });
+      const response = await load(`?${query.toString()}`);
+
+      assert.equal(response.status, 200);
+      assert.equal(response.body.total, 1);
+      assert.equal(response.body.cases?.[0]?.id, accepted.id);
+      assert.equal(response.body.filters?.sourceTemplateVersionId, "build-something@1.0.0");
+      assert.equal(response.body.filters?.templateIntakeAnswerId, "intake-build-something");
     });
 
     await test("returns an empty library slice when filters do not match", async () => {

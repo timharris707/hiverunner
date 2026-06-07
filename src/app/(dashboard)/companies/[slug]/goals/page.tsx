@@ -6,6 +6,7 @@ import { useParams, usePathname, useRouter, useSearchParams } from "next/navigat
 import { Check, ChevronDown, ChevronRight, Flag, Layers3, Plus, Target, X } from "lucide-react";
 import { DateWindowChip } from "@/components/goals/DateWindowChip";
 import { OwnerChip } from "@/components/goals/OwnerChip";
+import { TemplateLaunchDialog } from "@/components/templates/TemplateLaunchDialog";
 import {
   createCompanyGoal,
   listPendingSprintPlanDrafts,
@@ -2128,39 +2129,49 @@ export default function CompanyGoalsPage() {
               {statusMessage}
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => openComposer("company")}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "8px",
-              padding: "8px 16px",
-              borderRadius: "8px",
-              border: "0.5px solid var(--border-strong)",
-              background: "transparent",
-              color: "var(--text-secondary)",
-              fontSize: "13px",
-              fontWeight: 500,
-              cursor: "pointer",
-              whiteSpace: "nowrap",
-              flexShrink: 0,
-              transition: "all 120ms ease",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = "rgba(168,162,158,0.5)";
-              e.currentTarget.style.background = "var(--surface-hover)";
-              e.currentTarget.style.color = "var(--text-primary)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = "var(--border-strong)";
-              e.currentTarget.style.background = "transparent";
-              e.currentTarget.style.color = "var(--text-secondary)";
-            }}
-          >
-            <Plus size={14} strokeWidth={2.2} />
-            Add
-          </button>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+            <TemplateLaunchDialog
+              companySlug={activeCompanySlug}
+              companyCode={companyCode}
+              launchSource="goals"
+              triggerLabel="Template"
+              dialogTitle="Create goal from template"
+              onCreated={() => refreshGoals()}
+            />
+            <button
+              type="button"
+              onClick={() => openComposer("company")}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                padding: "8px 16px",
+                borderRadius: "8px",
+                border: "0.5px solid var(--border-strong)",
+                background: "transparent",
+                color: "var(--text-secondary)",
+                fontSize: "13px",
+                fontWeight: 500,
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+                flexShrink: 0,
+                transition: "all 120ms ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = "rgba(168,162,158,0.5)";
+                e.currentTarget.style.background = "var(--surface-hover)";
+                e.currentTarget.style.color = "var(--text-primary)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = "var(--border-strong)";
+                e.currentTarget.style.background = "transparent";
+                e.currentTarget.style.color = "var(--text-secondary)";
+              }}
+            >
+              <Plus size={14} strokeWidth={2.2} />
+              Add
+            </button>
+          </div>
         </div>
       </div>
 

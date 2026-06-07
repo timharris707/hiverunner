@@ -1,5 +1,6 @@
 import assert from "node:assert";
 
+import { createSyncTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import {
   STARTER_TEAM_TEMPLATES,
   STARTER_TEAM_WORK_TYPE_IDS,
@@ -11,21 +12,7 @@ import {
   readSelectedStarterAgents,
 } from "@/lib/orchestration/starter-team-templates";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => void) {
-  try {
-    fn();
-    passed += 1;
-    console.log(`  pass ${name}`);
-  } catch (error) {
-    failed += 1;
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`  fail ${name}`);
-    console.error(`    ${message}`);
-  }
-}
+const { test, finish } = createSyncTestRunner({ passLabel: "pass", failLabel: "fail" });
 
 function assertNoBannedPublicCopy(text: string, label: string) {
   const bannedPatterns = [
@@ -249,9 +236,4 @@ test("setup payload reader rejects unknown work types", () => {
   );
 });
 
-if (failed > 0) {
-  console.error(`\n${failed} failed, ${passed} passed`);
-  process.exit(1);
-}
-
-console.log(`\n${passed} passed`);
+finish();

@@ -41,6 +41,7 @@ import { TaskTableView } from "@/components/tasks/TaskTableView";
 import { TaskContextMenu } from "@/components/tasks/TaskContextMenu";
 import { TaskQuickViewModal } from "@/components/tasks/TaskQuickViewModal";
 import { SprintGroupedList } from "@/components/goals/SprintGroupedList";
+import { ScopedActiveCrewPanel } from "@/components/team/ScopedActiveCrewPanel";
 import { useTaskKeyboard } from "@/components/tasks/useTaskKeyboard";
 import { useLiveRuns } from "@/hooks/useLiveRuns";
 import {
@@ -473,6 +474,9 @@ export default function CompanyTasksPage() {
   }, [filtered, groupMode]);
 
   const flatTasks = useMemo(() => grouped.flatMap((g) => g.items.filter((t) => !t.parentTaskId)), [grouped]);
+  const visibleAssigneeRefs = useMemo(() => (
+    Array.from(new Set(filtered.map((task) => task.assignee).filter(Boolean) as string[]))
+  ), [filtered]);
 
   const handleStatusChange = useCallback(async (taskId: string, status: TaskStatus) => {
     const previousTask = tasks.find((t) => t.id === taskId) ?? null;
@@ -504,10 +508,33 @@ export default function CompanyTasksPage() {
     await updateTask({ taskId, priority });
   }, []);
 
-  const handleAssigneeChange = useCallback(async (taskId: string, assignee: string) => {
-    setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, assignee: assignee || undefined, updated: new Date().toISOString() } : t));
-    await updateTaskAssignee(taskId, assignee);
-  }, []);
+  const handleAssigneeChange = useCallback(async (taskId: string, assignee: string, options?: { throwOnFailure?: boolean }) => {
+    const previousTask = tasks.find((task) => task.id === taskId) ?? null;
+    const now = new Date().toISOString();
+    setMutationError(null);
+    setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, assignee: assignee || undefined, updated: now } : t));
+    const saved = await updateTaskAssignee(taskId, assignee || null);
+    if (!saved) {
+      if (previousTask) {
+        setTasks((prev) => prev.map((t) => t.id === taskId ? previousTask : t));
+      }
+      setMutationError("Could not save the assignee change.");
+      if (options?.throwOnFailure) {
+        throw new Error("Could not add this Bench agent to the visible work.");
+      }
+    }
+  }, [tasks]);
+
+  const handleAddBenchAgentToVisibleWork = useCallback(async (agent: OrchestrationAgent) => {
+    const target = filtered.find((task) => !task.assignee && task.status !== "done" && task.status !== "cancelled")
+      ?? filtered.find((task) => task.status !== "done" && task.status !== "cancelled")
+      ?? null;
+    if (!target) {
+      setMutationError("No visible task is available for assignment.");
+      throw new Error("No visible task is available for assignment.");
+    }
+    await handleAssigneeChange(target.id, agent.id, { throwOnFailure: true });
+  }, [filtered, handleAssigneeChange]);
 
   const handleBoardGroupDrop = useCallback(async (taskId: string, target: TaskBoardDropTarget) => {
     const previousTask = tasks.find((t) => t.id === taskId) ?? null;
@@ -764,6 +791,18 @@ export default function CompanyTasksPage() {
         projects={projects}
         searchRef={searchRef}
       />
+
+      <div style={{ padding: `0 ${space.xl}px ${space.sm}px` }}>
+        <ScopedActiveCrewPanel
+          companySlug={activeCompanySlug}
+          companyCode={companyCode}
+          scopeLabel={activeProjectRecord ? `${activeProjectRecord.name} tasks` : "Visible tasks"}
+          activeAgents={agents}
+          activeAgentReferences={visibleAssigneeRefs}
+          compact
+          onAddAgent={handleAddBenchAgentToVisibleWork}
+        />
+      </div>
 
       {mutationError && (
         <div

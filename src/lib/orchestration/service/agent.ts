@@ -11,6 +11,7 @@ import { ensureUniqueAgentRuntimeSlug } from "@/lib/orchestration/runtime-identi
 import { resolveCompanyAgentWorkspacePath } from "@/lib/workspaces/company-paths";
 import { isPathContained } from "@/lib/workspaces/delete-safety";
 import { normalizeAgentAdapterType } from "@/lib/orchestration/service/provider-activation";
+import type { AgentRosterState } from "@/lib/orchestration/types";
 
 import {
   type AgentRow,
@@ -23,6 +24,7 @@ import {
   OrchestrationApiError,
   agentById,
   agentFromRow,
+  agentRosterStateFor,
   getOrchestrationDb,
   getProjectRow,
   resolveCompanyId,
@@ -581,11 +583,13 @@ export function listProjectAgents(
 
 export function listCompanyAgents(
   companyIdOrSlug: string,
-  options?: { includeNonProduction?: boolean; includeArchived?: boolean }
+  options?: { includeNonProduction?: boolean; includeArchived?: boolean; rosterState?: AgentRosterState }
 ): { agents: OrchestrationAgent[] } {
   const db = getOrchestrationDb();
   const includeNonProduction = options?.includeNonProduction ?? false;
   const includeArchived = options?.includeArchived ?? false;
+  const rosterState = options?.rosterState;
+  const includeArchivedRows = includeArchived || rosterState === "archived" || rosterState === "all";
 
   const companyId = resolveCompanyId(db, companyIdOrSlug);
   if (!companyId) {
@@ -643,12 +647,12 @@ export function listCompanyAgents(
          ON hap.company_id = a.company_id
         AND hap.type = 'hire_agent'
         AND hap.status IN ('pending', 'revision_requested')
-        AND json_extract(hap.payload_json, '$.agentId') = a.id
+       AND json_extract(hap.payload_json, '$.agentId') = a.id
        WHERE a.company_id = ?
          AND (? = 1 OR a.archived_at IS NULL)
        ORDER BY a.name ASC`
     )
-    .all(companyRow.id, companyRow.id, includeArchived ? 1 : 0) as AgentRow[];
+    .all(companyRow.id, companyRow.id, includeArchivedRows ? 1 : 0) as AgentRow[];
 
   const filteredRows = dedupeCompanyAgentsByName(
     rows
@@ -662,20 +666,31 @@ export function listCompanyAgents(
   const agentIds = filteredRows.map((row) => row.id);
   const activeExecutionByAgent = loadActiveExecutionEvidence(db, agentIds);
   const activeHeartbeatByAgent = loadActiveHeartbeatEvidence(db, agentIds);
+  const rowsWithResolvedState = filteredRows.map((row) => {
+    const activeExecution = activeExecutionByAgent.get(row.id);
+    const activeHeartbeat = activeHeartbeatByAgent.get(row.id);
+    const status = resolveEffectiveAgentStatus(
+      row.status,
+      Boolean(activeExecution),
+      Boolean(activeHeartbeat),
+    );
+
+    return {
+      row,
+      status,
+      rosterState: agentRosterStateFor(status, row.archived_at),
+      currentTask: activeExecution?.task_title ?? undefined,
+    };
+  });
+  const rosterRows = rosterState && rosterState !== "all"
+    ? rowsWithResolvedState.filter((entry) => entry.rosterState === rosterState)
+    : rowsWithResolvedState;
 
   return {
-    agents: filteredRows.map((row) => {
-      const activeExecution = activeExecutionByAgent.get(row.id);
-      const activeHeartbeat = activeHeartbeatByAgent.get(row.id);
-      const status = resolveEffectiveAgentStatus(
-        row.status,
-        Boolean(activeExecution),
-        Boolean(activeHeartbeat),
-      );
-
+    agents: rosterRows.map(({ row, status, currentTask }) => {
       return agentFromRow(row, {
         status,
-        currentTask: activeExecution?.task_title ?? undefined,
+        currentTask,
       });
     }),
   };

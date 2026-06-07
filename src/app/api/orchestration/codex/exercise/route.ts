@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { createTaskComment } from "@/lib/orchestration/service/comment";
+import { linkTemplateGeneratedExecutionRun } from "@/lib/orchestration/template-persistence";
 
 export const dynamic = "force-dynamic";
 
@@ -129,6 +130,15 @@ export async function POST(req: NextRequest) {
       now,
       now,
     );
+    linkTemplateGeneratedExecutionRun({
+      taskId: task.id,
+      executionRunId: runId,
+      provenance: {
+        source: "codex_exerciser",
+        provider: "codex",
+        status,
+      },
+    });
 
     // ── Step 2: Import exerciser comments using real createTaskComment() ──
     //

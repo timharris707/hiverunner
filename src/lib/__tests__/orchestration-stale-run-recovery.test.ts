@@ -6,8 +6,10 @@
  */
 
 import assert from "node:assert";
+import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { rmSync } from "node:fs";
+import type Database from "better-sqlite3";
 
 let passed = 0;
 let failed = 0;
@@ -41,6 +43,100 @@ function missingPidFixture(): number {
   const missing = candidates.find((pid) => !pidIsAlive(pid));
   assert.ok(missing, "expected at least one high fake PID to be missing");
   return missing;
+}
+
+function setAgentRuntime(db: Database.Database, agentId: string, adapterType: string): void {
+  db.prepare(
+    `UPDATE agents
+     SET adapter_type = ?, updated_at = ?
+     WHERE id = ?`
+  ).run(adapterType, new Date().toISOString(), agentId);
+}
+
+function setTaskSymphony(db: Database.Database, taskId: string, dependencyIds: string[] = []): void {
+  db.prepare(
+    `UPDATE tasks
+     SET execution_engine = 'symphony',
+         model_lane = 'default',
+         depends_on_json = ?,
+         updated_at = ?
+     WHERE id = ?`
+  ).run(JSON.stringify(dependencyIds), new Date().toISOString(), taskId);
+}
+
+function insertStaleSymphonyRun(input: {
+  db: Database.Database;
+  companyId: string;
+  taskId: string;
+  agentId: string;
+  triggerDetail: string;
+  contextSnapshot?: Record<string, unknown>;
+  includeClaimedWake?: boolean;
+  wakeIdempotencyKey?: string;
+}): { staleRunId: string; executionRunId: string; wakeupId: string | null } {
+  const staleStartedAt = new Date(Date.now() - 26 * 60 * 1000).toISOString();
+  const wakeupId = input.includeClaimedWake ? randomUUID() : null;
+  const staleRunId = randomUUID();
+  const executionRunId = randomUUID();
+  const snapshot = input.contextSnapshot ?? {
+    taskId: input.taskId,
+    taskStatus: "in_progress",
+    assigneeAgentId: input.agentId,
+    executionEngine: "symphony",
+  };
+
+  if (wakeupId) {
+    input.db.prepare(
+      `INSERT INTO agent_wakeup_requests
+         (id, agent_id, company_id, source, reason, payload_json, status, idempotency_key, run_id, requested_at, claimed_at, created_at, updated_at)
+       VALUES (?, ?, ?, 'api', ?, ?, 'claimed', ?, ?, ?, ?, ?, ?)`
+    ).run(
+      wakeupId,
+      input.agentId,
+      input.companyId,
+      input.triggerDetail,
+      JSON.stringify({ taskId: input.taskId, taskStatus: "in_progress" }),
+      input.wakeIdempotencyKey ?? `manual:${input.taskId}:stale`,
+      staleRunId,
+      staleStartedAt,
+      staleStartedAt,
+      staleStartedAt,
+      staleStartedAt,
+    );
+  }
+
+  input.db.prepare(
+    `INSERT INTO heartbeat_runs
+       (id, agent_id, company_id, invocation_source, trigger_detail, status, started_at, wakeup_request_id, context_snapshot_json, created_at, updated_at)
+     VALUES (?, ?, ?, 'wakeup_request', ?, 'running', ?, ?, ?, ?, ?)`
+  ).run(
+    staleRunId,
+    input.agentId,
+    input.companyId,
+    input.triggerDetail,
+    staleStartedAt,
+    wakeupId,
+    JSON.stringify(snapshot),
+    staleStartedAt,
+    staleStartedAt,
+  );
+
+  input.db.prepare(
+    `INSERT INTO execution_runs
+       (id, task_id, agent_id, provider, execution_engine, runner_provider, status, started_at, token_usage_json, idempotency_key, created_at, updated_at)
+     VALUES (?, ?, ?, 'symphony', 'symphony', 'symphony', 'running', ?, ?, ?, ?, ?)`
+  ).run(
+    executionRunId,
+    input.taskId,
+    input.agentId,
+    staleStartedAt,
+    JSON.stringify({ heartbeatRunId: staleRunId }),
+    `execution:${input.taskId}:stale`,
+    staleStartedAt,
+    staleStartedAt,
+  );
+
+  return { staleRunId, executionRunId, wakeupId };
 }
 
 console.log("\nOrchestration Stale Run Recovery Contract Test\n");
@@ -153,6 +249,462 @@ async function run() {
       const refreshedAgent = listCompanyAgents(project.companyId, { includeNonProduction: true }).agents.find((candidate) => candidate.id === agent.id);
       assert.ok(refreshedAgent);
       assert.strictEqual(refreshedAgent?.status, "idle");
+    });
+
+    await test("recoverStaleRuns() queues a replacement wake for runnable in-progress Symphony tasks", async () => {
+      const { getOrchestrationDb } = await import("@/lib/orchestration/db");
+      const { createProject, createProjectAgent, createTask } = await import("@/lib/orchestration/service");
+      const { updateDevExecutionTestMode } = await import("@/lib/orchestration/service/dev-execution-test-mode");
+      const { configureCompanyExecutionHive, ensureCompanyExecutionHives } = await import("@/lib/orchestration/service/execution-hives");
+      const { __testHooks } = await import("@/lib/orchestration/engine/engine");
+      const { recoverStaleRuns } = await import("@/lib/orchestration/engine/heartbeat-manager");
+
+      const project = createProject({
+        companyId: "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f",
+        name: `Stale Retry ${Date.now()}`,
+        description: "Stale retry fixture",
+        color: "#14b8a6",
+        emoji: "R",
+        status: "active",
+      }).project;
+
+      const agent = createProjectAgent({
+        projectId: project.id,
+        name: `Retry Agent ${Math.random().toString(36).slice(2, 6)}`,
+        emoji: "R",
+        role: "External Runner",
+        personality: "Reliable",
+        openclawAgentId: `retry-agent-${Math.random().toString(36).slice(2, 8)}`,
+        status: "working",
+        skills: ["orchestration"],
+      }).agent;
+
+      const task = createTask({
+        projectId: project.id,
+        title: "Restart stale Symphony execution",
+        description: "Disposable stale retry fixture.",
+        priority: "P1",
+        type: "infrastructure",
+        status: "in-progress",
+        assignee: agent.id,
+        labels: ["stale-recovery"],
+        createdBy: "test-suite",
+      }).task;
+
+      const db = getOrchestrationDb();
+      ensureCompanyExecutionHives({ companyIdOrSlug: project.companyId }, db);
+      configureCompanyExecutionHive({
+        companyIdOrSlug: project.companyId,
+        hiveId: "balanced-builder",
+        orchestrationMode: "symphony",
+        runtimeProvider: "codex",
+        runtimeLabel: "Codex",
+        modelRouting: "hive-managed",
+        modelRoutingLabel: "Hive managed",
+      }, db);
+      updateDevExecutionTestMode({
+        companyIdOrSlug: project.companyId,
+        enabled: true,
+        durationMinutes: 15,
+        actor: "stale-run-recovery-test",
+      }, db);
+
+      setAgentRuntime(db, agent.id, "symphony");
+      setTaskSymphony(db, task.id);
+      const { staleRunId, executionRunId, wakeupId } = insertStaleSymphonyRun({
+        db,
+        companyId: project.companyId,
+        taskId: task.id,
+        agentId: agent.id,
+        triggerDetail: "manual_execution_before_stale",
+        includeClaimedWake: true,
+      });
+      assert.ok(wakeupId, "expected claimed wake fixture");
+
+      const recovered = recoverStaleRuns(db);
+      assert.strictEqual(recovered, 1);
+
+      const oldWake = db.prepare(
+        `SELECT status, idempotency_key
+         FROM agent_wakeup_requests
+         WHERE id = ?
+         LIMIT 1`
+      ).get(wakeupId) as { status: string; idempotency_key: string | null } | undefined;
+      assert.strictEqual(oldWake?.status, "failed");
+      assert.strictEqual(oldWake?.idempotency_key, null);
+
+      const oldExecution = db.prepare(
+        `SELECT status, failure_class, idempotency_key
+         FROM execution_runs
+         WHERE id = ?
+         LIMIT 1`
+      ).get(executionRunId) as { status: string; failure_class: string | null; idempotency_key: string | null } | undefined;
+      assert.strictEqual(oldExecution?.status, "failed");
+      assert.strictEqual(oldExecution?.failure_class, "timeout");
+      assert.strictEqual(oldExecution?.idempotency_key, null);
+
+      const replacement = db.prepare(
+        `SELECT awr.id, awr.status, awr.reason, awr.idempotency_key, awr.run_id, awr.payload_json,
+                hr.status AS heartbeat_status, hr.context_snapshot_json
+         FROM agent_wakeup_requests awr
+         INNER JOIN heartbeat_runs hr ON hr.id = awr.run_id
+         WHERE awr.agent_id = ?
+           AND awr.reason = 'stale_run_recovery_retry'
+           AND json_extract(awr.payload_json, '$.taskId') = ?
+         LIMIT 1`
+      ).get(agent.id, task.id) as
+        | {
+            id: string;
+            status: string;
+            reason: string;
+            idempotency_key: string | null;
+            run_id: string;
+            payload_json: string;
+            heartbeat_status: string;
+            context_snapshot_json: string;
+          }
+        | undefined;
+      assert.ok(replacement, "expected stale recovery replacement wake");
+      assert.strictEqual(replacement?.status, "queued");
+      assert.strictEqual(replacement?.heartbeat_status, "queued");
+      assert.strictEqual(replacement?.idempotency_key, `stale_recovery:${task.id}:${agent.id}`);
+
+      const payload = JSON.parse(replacement?.payload_json ?? "{}") as {
+        taskId?: string;
+        taskStatus?: string;
+        executionEngine?: string;
+        executionProvider?: string;
+        staleRecovery?: {
+          previousHeartbeatRunId?: string;
+          previousExecutionRunIds?: string[];
+        };
+      };
+      assert.strictEqual(payload.taskId, task.id);
+      assert.strictEqual(payload.taskStatus, "in_progress");
+      assert.strictEqual(payload.executionEngine, "symphony");
+      assert.strictEqual(payload.executionProvider, "symphony");
+      assert.strictEqual(payload.staleRecovery?.previousHeartbeatRunId, staleRunId);
+      assert.deepStrictEqual(payload.staleRecovery?.previousExecutionRunIds, [executionRunId]);
+
+      const activeCount = db.prepare(
+        `SELECT COUNT(*) AS count
+         FROM heartbeat_runs
+         WHERE agent_id = ?
+           AND status = 'queued'
+           AND json_extract(context_snapshot_json, '$.taskId') = ?`
+      ).get(agent.id, task.id) as { count: number };
+      assert.strictEqual(activeCount.count, 1);
+
+      const claimed = __testHooks.claimNextQueuedRun(db);
+      assert.ok(claimed, "expected replacement wake to be claimable");
+      assert.strictEqual(claimed?.id, replacement?.run_id);
+    });
+
+    await test("recoverStaleRuns() queues a replacement wake when imported standalone", async () => {
+      assert.ok(dbPath, "standalone recovery regression requires ORCHESTRATION_DB_PATH");
+      const { getOrchestrationDb } = await import("@/lib/orchestration/db");
+      const { createProject, createProjectAgent, createTask } = await import("@/lib/orchestration/service");
+      const { updateDevExecutionTestMode } = await import("@/lib/orchestration/service/dev-execution-test-mode");
+      const { configureCompanyExecutionHive, ensureCompanyExecutionHives } = await import("@/lib/orchestration/service/execution-hives");
+
+      const project = createProject({
+        companyId: "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f",
+        name: `Standalone Stale Retry ${Date.now()}`,
+        description: "Standalone stale retry fixture",
+        color: "#0f766e",
+        emoji: "S",
+        status: "active",
+      }).project;
+
+      const agent = createProjectAgent({
+        projectId: project.id,
+        name: `Standalone Retry Agent ${Math.random().toString(36).slice(2, 6)}`,
+        emoji: "S",
+        role: "External Runner",
+        personality: "Reliable",
+        openclawAgentId: `standalone-retry-agent-${Math.random().toString(36).slice(2, 8)}`,
+        status: "working",
+        skills: ["orchestration"],
+      }).agent;
+
+      const task = createTask({
+        projectId: project.id,
+        title: "Restart stale standalone Symphony execution",
+        description: "Disposable standalone stale retry fixture.",
+        priority: "P1",
+        type: "infrastructure",
+        status: "in-progress",
+        assignee: agent.id,
+        labels: ["stale-recovery"],
+        createdBy: "test-suite",
+      }).task;
+
+      const db = getOrchestrationDb();
+      ensureCompanyExecutionHives({ companyIdOrSlug: project.companyId }, db);
+      configureCompanyExecutionHive({
+        companyIdOrSlug: project.companyId,
+        hiveId: "balanced-builder",
+        orchestrationMode: "symphony",
+        runtimeProvider: "codex",
+        runtimeLabel: "Codex",
+        modelRouting: "hive-managed",
+        modelRoutingLabel: "Hive managed",
+      }, db);
+      updateDevExecutionTestMode({
+        companyIdOrSlug: project.companyId,
+        enabled: true,
+        durationMinutes: 15,
+        actor: "standalone-stale-run-recovery-test",
+      }, db);
+
+      setAgentRuntime(db, agent.id, "symphony");
+      setTaskSymphony(db, task.id);
+      const { staleRunId, executionRunId } = insertStaleSymphonyRun({
+        db,
+        companyId: project.companyId,
+        taskId: task.id,
+        agentId: agent.id,
+        triggerDetail: "standalone_manual_execution_before_stale",
+        includeClaimedWake: true,
+      });
+
+      const childCode = `
+        import { getOrchestrationDb } from './src/lib/orchestration/db';
+        import { recoverStaleRuns } from './src/lib/orchestration/engine/heartbeat-manager';
+        const db = getOrchestrationDb();
+        const recovered = recoverStaleRuns(db);
+        console.log('STANDALONE_RECOVERY_RESULT:' + JSON.stringify({ recovered }));
+      `;
+      const child = spawnSync("npx", ["tsx", "-e", childCode], {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          ORCHESTRATION_DB_PATH: dbPath,
+          MC_HEARTBEAT_RUN_TIMEOUT_MS: "600000",
+          MC_DEV_EXECUTION_TEST_MODE: "1",
+          PORT: "3010",
+          NODE_ENV: "development",
+        },
+        encoding: "utf8",
+      });
+
+      assert.strictEqual(
+        child.status,
+        0,
+        `standalone recovery failed\nstdout:\n${child.stdout}\nstderr:\n${child.stderr}`,
+      );
+      assert.doesNotMatch(child.stderr, /heartbeat_manager_dependencies_not_configured/);
+
+      const resultLine = child.stdout
+        .split(/\r?\n/)
+        .find((line) => line.startsWith("STANDALONE_RECOVERY_RESULT:"));
+      assert.ok(resultLine, `expected standalone recovery result marker in stdout:\n${child.stdout}`);
+      const result = JSON.parse(resultLine.slice("STANDALONE_RECOVERY_RESULT:".length)) as { recovered?: number };
+      assert.strictEqual(result.recovered, 1);
+
+      const replacement = db.prepare(
+        `SELECT awr.id, awr.run_id, awr.status, awr.reason, awr.idempotency_key, awr.payload_json,
+                hr.status AS heartbeat_status
+         FROM agent_wakeup_requests awr
+         INNER JOIN heartbeat_runs hr ON hr.id = awr.run_id
+         WHERE awr.agent_id = ?
+           AND awr.reason = 'stale_run_recovery_retry'
+           AND json_extract(awr.payload_json, '$.taskId') = ?
+         LIMIT 1`
+      ).get(agent.id, task.id) as
+        | {
+            id: string;
+            run_id: string;
+            status: string;
+            reason: string;
+            idempotency_key: string | null;
+            payload_json: string;
+            heartbeat_status: string;
+          }
+        | undefined;
+      assert.ok(replacement, "expected standalone recovery replacement wake");
+      assert.strictEqual(replacement?.status, "queued");
+      assert.strictEqual(replacement?.heartbeat_status, "queued");
+      assert.strictEqual(replacement?.idempotency_key, `stale_recovery:${task.id}:${agent.id}`);
+
+      const payload = JSON.parse(replacement?.payload_json ?? "{}") as {
+        staleRecovery?: {
+          previousHeartbeatRunId?: string;
+          previousExecutionRunIds?: string[];
+        };
+      };
+      assert.strictEqual(payload.staleRecovery?.previousHeartbeatRunId, staleRunId);
+      assert.deepStrictEqual(payload.staleRecovery?.previousExecutionRunIds, [executionRunId]);
+
+      const cleanupAt = new Date().toISOString();
+      db.prepare(
+        `UPDATE agent_wakeup_requests
+         SET status = 'failed', idempotency_key = NULL, finished_at = ?, updated_at = ?
+         WHERE id = ?`
+      ).run(cleanupAt, cleanupAt, replacement?.id);
+      db.prepare(
+        `UPDATE heartbeat_runs
+         SET status = 'failed', finished_at = ?, updated_at = ?
+         WHERE id = ?`
+      ).run(cleanupAt, cleanupAt, replacement?.run_id);
+    });
+
+    await test("recoverStaleRuns() does not retry when task dependencies are still pending", async () => {
+      const { getOrchestrationDb } = await import("@/lib/orchestration/db");
+      const { createProject, createProjectAgent, createTask } = await import("@/lib/orchestration/service");
+      const { updateDevExecutionTestMode } = await import("@/lib/orchestration/service/dev-execution-test-mode");
+      await import("@/lib/orchestration/engine/engine");
+      const { recoverStaleRuns } = await import("@/lib/orchestration/engine/heartbeat-manager");
+
+      const project = createProject({
+        companyId: "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f",
+        name: `Dependency Retry Gate ${Date.now()}`,
+        description: "Dependency gate fixture",
+        color: "#64748b",
+        emoji: "D",
+        status: "active",
+      }).project;
+
+      const agent = createProjectAgent({
+        projectId: project.id,
+        name: `Dependency Agent ${Math.random().toString(36).slice(2, 6)}`,
+        emoji: "D",
+        role: "External Runner",
+        personality: "Reliable",
+        openclawAgentId: `dependency-agent-${Math.random().toString(36).slice(2, 8)}`,
+        status: "working",
+        skills: ["orchestration"],
+      }).agent;
+
+      const dependency = createTask({
+        projectId: project.id,
+        title: "Still pending dependency",
+        description: "Blocks downstream stale retry.",
+        priority: "P2",
+        type: "infrastructure",
+        status: "in-progress",
+        assignee: agent.id,
+        labels: ["stale-recovery"],
+        createdBy: "test-suite",
+      }).task;
+
+      const task = createTask({
+        projectId: project.id,
+        title: "Do not restart with pending dependency",
+        description: "Disposable dependency gate fixture.",
+        priority: "P1",
+        type: "infrastructure",
+        status: "in-progress",
+        assignee: agent.id,
+        labels: ["stale-recovery"],
+        createdBy: "test-suite",
+      }).task;
+
+      const db = getOrchestrationDb();
+      updateDevExecutionTestMode({
+        companyIdOrSlug: project.companyId,
+        enabled: true,
+        durationMinutes: 15,
+        actor: "stale-run-recovery-test",
+      }, db);
+
+      setAgentRuntime(db, agent.id, "symphony");
+      setTaskSymphony(db, task.id, [dependency.id]);
+      insertStaleSymphonyRun({
+        db,
+        companyId: project.companyId,
+        taskId: task.id,
+        agentId: agent.id,
+        triggerDetail: "dependency_gate_before_stale",
+      });
+
+      const recovered = recoverStaleRuns(db);
+      assert.strictEqual(recovered, 1);
+
+      const replacementCount = db.prepare(
+        `SELECT COUNT(*) AS count
+         FROM agent_wakeup_requests
+         WHERE reason = 'stale_run_recovery_retry'
+           AND json_extract(payload_json, '$.taskId') = ?`
+      ).get(task.id) as { count: number };
+      assert.strictEqual(replacementCount.count, 0);
+    });
+
+    await test("recoverStaleRuns() does not retry a stale recovery retry again", async () => {
+      const { getOrchestrationDb } = await import("@/lib/orchestration/db");
+      const { createProject, createProjectAgent, createTask } = await import("@/lib/orchestration/service");
+      const { updateDevExecutionTestMode } = await import("@/lib/orchestration/service/dev-execution-test-mode");
+      await import("@/lib/orchestration/engine/engine");
+      const { recoverStaleRuns } = await import("@/lib/orchestration/engine/heartbeat-manager");
+
+      const project = createProject({
+        companyId: "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f",
+        name: `Retry Loop Bound ${Date.now()}`,
+        description: "Retry loop bound fixture",
+        color: "#a855f7",
+        emoji: "B",
+        status: "active",
+      }).project;
+
+      const agent = createProjectAgent({
+        projectId: project.id,
+        name: `Bounded Retry Agent ${Math.random().toString(36).slice(2, 6)}`,
+        emoji: "B",
+        role: "External Runner",
+        personality: "Reliable",
+        openclawAgentId: `bounded-retry-agent-${Math.random().toString(36).slice(2, 8)}`,
+        status: "working",
+        skills: ["orchestration"],
+      }).agent;
+
+      const task = createTask({
+        projectId: project.id,
+        title: "Bound stale retry loop",
+        description: "Disposable retry loop fixture.",
+        priority: "P1",
+        type: "infrastructure",
+        status: "in-progress",
+        assignee: agent.id,
+        labels: ["stale-recovery"],
+        createdBy: "test-suite",
+      }).task;
+
+      const db = getOrchestrationDb();
+      updateDevExecutionTestMode({
+        companyIdOrSlug: project.companyId,
+        enabled: true,
+        durationMinutes: 15,
+        actor: "stale-run-recovery-test",
+      }, db);
+
+      setAgentRuntime(db, agent.id, "symphony");
+      setTaskSymphony(db, task.id);
+      insertStaleSymphonyRun({
+        db,
+        companyId: project.companyId,
+        taskId: task.id,
+        agentId: agent.id,
+        triggerDetail: "stale_run_recovery_retry",
+        contextSnapshot: {
+          taskId: task.id,
+          taskStatus: "in_progress",
+          assigneeAgentId: agent.id,
+          executionEngine: "symphony",
+          wakeReason: "stale_run_recovery_retry",
+          staleRecovery: { previousHeartbeatRunId: "older-stale-run" },
+        },
+      });
+
+      const recovered = recoverStaleRuns(db);
+      assert.strictEqual(recovered, 1);
+
+      const replacementCount = db.prepare(
+        `SELECT COUNT(*) AS count
+         FROM agent_wakeup_requests
+         WHERE reason = 'stale_run_recovery_retry'
+           AND json_extract(payload_json, '$.taskId') = ?`
+      ).get(task.id) as { count: number };
+      assert.strictEqual(replacementCount.count, 0);
     });
 
     await test("tick() cancels stale pending execution runs that never started", async () => {

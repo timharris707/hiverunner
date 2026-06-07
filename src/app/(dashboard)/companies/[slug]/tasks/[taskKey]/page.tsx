@@ -30,6 +30,7 @@ import { InlineStatusPicker } from "@/components/tasks/InlineStatusPicker";
 import { InlinePriorityPicker } from "@/components/tasks/InlinePriorityPicker";
 import { AgentAvatarInline, InlineAssigneePicker, resolveAvatar } from "@/components/tasks/InlineAssigneePicker";
 import { InlineTagsEditor } from "@/components/tasks/InlineTagsEditor";
+import { ScopedActiveCrewPanel } from "@/components/team/ScopedActiveCrewPanel";
 import { getAgentByAnyId } from "@/config/agents";
 import { TaskVoiceModal } from "@/components/voice/TaskVoiceModal";
 import type { VoiceBindingRequest } from "@/lib/voice-binding";
@@ -1315,11 +1316,29 @@ export default function TaskDetailPage() {
     }
   }, [narrowRefetch, task]);
 
-  const onAssigneeChange = useCallback(async (_id: string, assignee: string) => {
+  const onAssigneeChange = useCallback(async (_id: string, assignee: string, options?: { throwOnFailure?: boolean }) => {
     if (!task) return;
+    const previousTask = task;
+    setMutationError(null);
     setTask({ ...task, assignee: assignee || undefined, updated: new Date().toISOString() });
-    await updateTaskAssignee(task.id, assignee);
+    const saved = await updateTaskAssignee(task.id, assignee || null);
+    if (!saved) {
+      setTask(previousTask);
+      setMutationError("Could not save the assignee change.");
+      if (options?.throwOnFailure) {
+        throw new Error("Could not add this Bench agent to the task.");
+      }
+    }
   }, [task]);
+
+  const activeTaskCrewReferences = useMemo(() => (
+    [task?.assignee, execution?.agentId].filter(Boolean) as string[]
+  ), [execution?.agentId, task?.assignee]);
+
+  const onAddBenchAgentToTask = useCallback(async (agent: OrchestrationAgent) => {
+    if (!task) return;
+    await onAssigneeChange(task.id, agent.id, { throwOnFailure: true });
+  }, [onAssigneeChange, task]);
 
   const onRunTask = useCallback(async () => {
     if (!task || runActionPending) return;
@@ -2843,6 +2862,16 @@ export default function TaskDetailPage() {
                 />
               )}
             </PropertyRow>
+
+            <ScopedActiveCrewPanel
+              companySlug={company?.slug ?? slug}
+              companyCode={companyCode}
+              scopeLabel={task.key ?? task.title}
+              activeAgents={agents}
+              activeAgentReferences={activeTaskCrewReferences}
+              compact
+              onAddAgent={onAddBenchAgentToTask}
+            />
 
             {/* Project */}
             <PropertyRow label="Project">

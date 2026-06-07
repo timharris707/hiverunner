@@ -16,6 +16,7 @@ export async function GET(
     const query = listCompanyAgentsQuerySchema.parse({
       includeNonProduction: req.nextUrl.searchParams.get("includeNonProduction") ?? undefined,
       includeArchived: req.nextUrl.searchParams.get("includeArchived") ?? undefined,
+      rosterState: req.nextUrl.searchParams.get("rosterState") ?? undefined,
     });
     const syncRequested = req.nextUrl.searchParams.get("syncOpenClaw");
     const shouldSyncOpenClaw = syncRequested === "true";
@@ -64,6 +65,7 @@ export async function GET(
       listCompanyAgents(slug, {
         includeNonProduction: query.includeNonProduction,
         includeArchived: query.includeArchived,
+        rosterState: query.rosterState,
       })
     );
   } catch (error) {

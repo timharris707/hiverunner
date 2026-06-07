@@ -16,6 +16,7 @@ import { submitCompanyReviewDecision } from "@/lib/orchestration/review-decision
 import { createGoalCompletionProposal, createSprintPlanDrafts, recordGoalContractEvidence } from "@/lib/orchestration/company-service";
 import { maybeAutoCompleteSprintForTaskDone } from "@/lib/orchestration/service/task";
 import { recordExplicitSkillUse } from "@/lib/orchestration/skill-effectiveness";
+import { linkTemplateGeneratedExecutionRun } from "@/lib/orchestration/template-persistence";
 import { normalizeTaskModelLane } from "@/lib/orchestration/task-model-routing";
 import { assertExecutableAgentRuntime, isExecutableAgentRuntime, runtimeProviderLabel } from "@/lib/orchestration/runtime-readiness";
 import type { TaskExecutionEngine, TaskModelLane, TaskPriority, TaskType } from "@/lib/orchestration/types";
@@ -172,6 +173,9 @@ export type McAction =
         successCriteria?: string[];
         validationChecks?: string[];
         outOfScope?: string[];
+        sourceTemplateVersionId?: string | null;
+        templateIntakeAnswerId?: string | null;
+        templateGenerationProvenance?: Record<string, unknown>;
       };
       tasks?: Array<{
         id?: string;
@@ -184,6 +188,9 @@ export type McAction =
         modelLane?: TaskModelLane | null;
         dependsOn?: string[];
         validation?: string;
+        sourceTemplateVersionId?: string | null;
+        templateIntakeAnswerId?: string | null;
+        templateGenerationProvenance?: Record<string, unknown>;
       }>;
       sprints?: Array<{
         sequenceNumber?: number;
@@ -197,6 +204,9 @@ export type McAction =
         successCriteria?: string[];
         validationChecks?: string[];
         outOfScope?: string[];
+        sourceTemplateVersionId?: string | null;
+        templateIntakeAnswerId?: string | null;
+        templateGenerationProvenance?: Record<string, unknown>;
         tasks: Array<{
           id?: string;
           title: string;
@@ -208,8 +218,14 @@ export type McAction =
           modelLane?: TaskModelLane | null;
           dependsOn?: string[];
           validation?: string;
+          sourceTemplateVersionId?: string | null;
+          templateIntakeAnswerId?: string | null;
+          templateGenerationProvenance?: Record<string, unknown>;
         }>;
       }>;
+      sourceTemplateVersionId?: string | null;
+      intakeAnswerId?: string | null;
+      generationProvenance?: Record<string, unknown>;
     }
   | {
       action: "record_validation_evidence" | "record_success_evidence";
@@ -506,6 +522,9 @@ export async function executeMcAction(
           companyGoalId: action.companyGoalId,
           planningTaskId: planningTask.id,
           proposedByAgentId: input.agentId,
+          sourceTemplateVersionId: action.sourceTemplateVersionId ?? null,
+          intakeAnswerId: action.intakeAnswerId ?? null,
+          generationProvenance: action.generationProvenance,
           drafts: sprints.map((sprint, sprintIndex) => ({
             sequenceNumber: sprint.sequenceNumber ?? sprintIndex + 1,
             sprint: {
@@ -519,6 +538,9 @@ export async function executeMcAction(
               successCriteria: sprint.successCriteria ?? [],
               validationChecks: sprint.validationChecks ?? [],
               outOfScope: sprint.outOfScope ?? [],
+              sourceTemplateVersionId: sprint.sourceTemplateVersionId ?? action.sourceTemplateVersionId ?? null,
+              templateIntakeAnswerId: sprint.templateIntakeAnswerId ?? action.intakeAnswerId ?? null,
+              templateGenerationProvenance: sprint.templateGenerationProvenance ?? action.generationProvenance,
             },
             tasks: sprint.tasks.map((task, index) => ({
               id: task.id ?? `s${sprint.sequenceNumber ?? sprintIndex + 1}-task-${index + 1}`,
@@ -531,6 +553,9 @@ export async function executeMcAction(
               modelLane: task.modelLane ?? null,
               dependsOn: task.dependsOn ?? [],
               validation: task.validation,
+              sourceTemplateVersionId: task.sourceTemplateVersionId ?? sprint.sourceTemplateVersionId ?? action.sourceTemplateVersionId ?? null,
+              templateIntakeAnswerId: task.templateIntakeAnswerId ?? sprint.templateIntakeAnswerId ?? action.intakeAnswerId ?? null,
+              templateGenerationProvenance: task.templateGenerationProvenance ?? sprint.templateGenerationProvenance ?? action.generationProvenance,
             })),
           })),
         });
@@ -1749,6 +1774,19 @@ function autoStartAssignedTask(input: {
       now,
     );
   }
+  linkTemplateGeneratedExecutionRun({
+    companyId: input.companyId,
+    taskId: input.taskId,
+    executionRunId,
+    provenance: {
+      source: "engine_auto_task_assignment",
+      actionRunId: input.runId,
+      provider,
+      executionEngine,
+      runnerProvider,
+      modelLane,
+    },
+  });
 
   const wake = enqueueWakeup(
     {

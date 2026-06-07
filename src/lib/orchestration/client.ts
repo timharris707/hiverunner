@@ -42,12 +42,14 @@ import type {
   OrchestrationSprintPlanDraft,
   OrchestrationSprintPlanDraftSprint,
   OrchestrationSprintPlanDraftTask,
+  OrchestrationTemplateDraftPlan,
   OrchestrationSprint,
   OrchestrationStaleAlert,
   OrchestrationTask,
   DetectedOrchestrationRuntime,
   TaskExecutionEngine,
   TaskStatus,
+  AgentRosterState,
 } from "@/lib/orchestration/types";
 import type {
   ExecutionHive,
@@ -1251,6 +1253,21 @@ function normalizeTask(raw: JsonRecord): OrchestrationTask {
       : raw.source_takeaway_id
       ? String(raw.source_takeaway_id)
       : undefined,
+    sourceTemplateVersionId: raw.sourceTemplateVersionId === null || raw.source_template_version_id === null
+      ? null
+      : raw.sourceTemplateVersionId
+      ? String(raw.sourceTemplateVersionId)
+      : raw.source_template_version_id
+      ? String(raw.source_template_version_id)
+      : undefined,
+    templateIntakeAnswerId: raw.templateIntakeAnswerId === null || raw.template_intake_answer_id === null
+      ? null
+      : raw.templateIntakeAnswerId
+      ? String(raw.templateIntakeAnswerId)
+      : raw.template_intake_answer_id
+      ? String(raw.template_intake_answer_id)
+      : undefined,
+    templateGenerationProvenance: jsonRecord(raw.templateGenerationProvenance ?? raw.template_generation_provenance),
     dueDate: raw.dueDate ? String(raw.dueDate) : raw.due_date ? String(raw.due_date) : undefined,
     created: String(raw.created ?? raw.created_at ?? new Date().toISOString()),
     updated: String(raw.updated ?? raw.updated_at ?? new Date().toISOString()),
@@ -1331,6 +1348,20 @@ function normalizeEvalCase(raw: JsonRecord): OrchestrationEvalCase {
       key: sourceGoal.key === null ? null : sourceGoal.key ? String(sourceGoal.key) : null,
     },
     templateContext: jsonRecord(raw.templateContext),
+    sourceTemplateVersionId: raw.sourceTemplateVersionId === null || raw.source_template_version_id === null
+      ? null
+      : raw.sourceTemplateVersionId
+      ? String(raw.sourceTemplateVersionId)
+      : raw.source_template_version_id
+      ? String(raw.source_template_version_id)
+      : undefined,
+    templateIntakeAnswerId: raw.templateIntakeAnswerId === null || raw.template_intake_answer_id === null
+      ? null
+      : raw.templateIntakeAnswerId
+      ? String(raw.templateIntakeAnswerId)
+      : raw.template_intake_answer_id
+      ? String(raw.template_intake_answer_id)
+      : undefined,
     review: {
       outcome: String(review.outcome ?? "accepted") as OrchestrationEvalReviewOutcome,
       rationale: String(review.rationale ?? ""),
@@ -1580,6 +1611,17 @@ function normalizeSprintPlanDraft(raw: JsonRecord): OrchestrationSprintPlanDraft
       successCriteria: Array.isArray(sprintRaw.successCriteria) ? sprintRaw.successCriteria.map(String) : [],
       validationChecks: Array.isArray(sprintRaw.validationChecks) ? sprintRaw.validationChecks.map(String) : [],
       outOfScope: Array.isArray(sprintRaw.outOfScope) ? sprintRaw.outOfScope.map(String) : [],
+      sourceTemplateVersionId: sprintRaw.sourceTemplateVersionId === null
+        ? null
+        : sprintRaw.sourceTemplateVersionId
+        ? String(sprintRaw.sourceTemplateVersionId)
+        : undefined,
+      templateIntakeAnswerId: sprintRaw.templateIntakeAnswerId === null
+        ? null
+        : sprintRaw.templateIntakeAnswerId
+        ? String(sprintRaw.templateIntakeAnswerId)
+        : undefined,
+      templateGenerationProvenance: jsonRecord(sprintRaw.templateGenerationProvenance),
     },
     tasks: tasksRaw.map((task, index) => {
       const taskRaw = task && typeof task === "object" ? task as JsonRecord : {};
@@ -1594,8 +1636,34 @@ function normalizeSprintPlanDraft(raw: JsonRecord): OrchestrationSprintPlanDraft
         modelLane: taskRaw.modelLane ? String(taskRaw.modelLane) as OrchestrationSprintPlanDraftTask["modelLane"] : null,
         dependsOn: Array.isArray(taskRaw.dependsOn) ? taskRaw.dependsOn.map(String) : [],
         validation: taskRaw.validation ? String(taskRaw.validation) : "",
+        sourceTemplateVersionId: taskRaw.sourceTemplateVersionId === null
+          ? null
+          : taskRaw.sourceTemplateVersionId
+          ? String(taskRaw.sourceTemplateVersionId)
+          : undefined,
+        templateIntakeAnswerId: taskRaw.templateIntakeAnswerId === null
+          ? null
+          : taskRaw.templateIntakeAnswerId
+          ? String(taskRaw.templateIntakeAnswerId)
+          : undefined,
+        templateGenerationProvenance: jsonRecord(taskRaw.templateGenerationProvenance),
       };
     }),
+    sourceTemplateVersionId: raw.sourceTemplateVersionId === null || raw.source_template_version_id === null
+      ? null
+      : raw.sourceTemplateVersionId
+      ? String(raw.sourceTemplateVersionId)
+      : raw.source_template_version_id
+      ? String(raw.source_template_version_id)
+      : undefined,
+    intakeAnswerId: raw.intakeAnswerId === null || raw.intake_answer_id === null
+      ? null
+      : raw.intakeAnswerId
+      ? String(raw.intakeAnswerId)
+      : raw.intake_answer_id
+      ? String(raw.intake_answer_id)
+      : undefined,
+    generationProvenance: jsonRecord(raw.generationProvenance ?? raw.generation_provenance),
     rejectReason: raw.rejectReason || raw.reject_reason ? String(raw.rejectReason ?? raw.reject_reason) : null,
     createdAt: String(raw.createdAt ?? raw.created_at ?? new Date().toISOString()),
     updatedAt: String(raw.updatedAt ?? raw.updated_at ?? new Date().toISOString()),
@@ -1644,6 +1712,21 @@ function normalizeSprint(raw: JsonRecord): OrchestrationSprint {
     progressSummary: String(raw.progressSummary ?? raw.progress_summary ?? ""),
     defaultExecutionEngine: raw.defaultExecutionEngine || raw.default_execution_engine ? String(raw.defaultExecutionEngine ?? raw.default_execution_engine) as OrchestrationSprint["defaultExecutionEngine"] : null,
     defaultModelLane: raw.defaultModelLane || raw.default_model_lane ? String(raw.defaultModelLane ?? raw.default_model_lane) as OrchestrationSprint["defaultModelLane"] : null,
+    sourceTemplateVersionId: raw.sourceTemplateVersionId === null || raw.source_template_version_id === null
+      ? null
+      : raw.sourceTemplateVersionId
+      ? String(raw.sourceTemplateVersionId)
+      : raw.source_template_version_id
+      ? String(raw.source_template_version_id)
+      : undefined,
+    templateIntakeAnswerId: raw.templateIntakeAnswerId === null || raw.template_intake_answer_id === null
+      ? null
+      : raw.templateIntakeAnswerId
+      ? String(raw.templateIntakeAnswerId)
+      : raw.template_intake_answer_id
+      ? String(raw.template_intake_answer_id)
+      : undefined,
+    templateGenerationProvenance: jsonRecord(raw.templateGenerationProvenance ?? raw.template_generation_provenance),
     contractItems,
     validationSummary: validationSummaryRaw
       ? {
@@ -2176,6 +2259,48 @@ export async function getPendingSprintPlanDrafts(input: {
   return data.draft ? [normalizeSprintPlanDraft(data.draft)] : [];
 }
 
+export async function createTemplateDraftPlan(input: {
+  companySlug: string;
+  companyGoalId: string;
+  templateId?: string;
+  templateVersionId?: string;
+  answers?: Record<string, unknown>;
+  idempotencyKey?: string;
+  submittedByAgentId?: string;
+  submittedByUserId?: string;
+  defaultExecutionEngine?: OrchestrationSprint["defaultExecutionEngine"];
+  defaultModelLane?: OrchestrationSprint["defaultModelLane"];
+  materializeCrewRecommendations?: boolean;
+  materializeCrewRecommendationLanes?: Array<"required" | "useful" | "later">;
+}): Promise<OrchestrationTemplateDraftPlan | null> {
+  const response = await fetch(
+    `/api/orchestration/companies/${encodeURIComponent(input.companySlug)}/goals/${encodeURIComponent(input.companyGoalId)}/drafts`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...(input.templateId ? { templateId: input.templateId } : {}),
+        ...(input.templateVersionId ? { templateVersionId: input.templateVersionId } : {}),
+        answers: input.answers ?? {},
+        ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
+        ...(input.submittedByAgentId ? { submittedByAgentId: input.submittedByAgentId } : {}),
+        ...(input.submittedByUserId ? { submittedByUserId: input.submittedByUserId } : {}),
+        ...(input.defaultExecutionEngine ? { defaultExecutionEngine: input.defaultExecutionEngine } : {}),
+        ...(input.defaultModelLane ? { defaultModelLane: input.defaultModelLane } : {}),
+        ...(input.materializeCrewRecommendations !== undefined ? { materializeCrewRecommendations: input.materializeCrewRecommendations } : {}),
+        ...(input.materializeCrewRecommendationLanes ? { materializeCrewRecommendationLanes: input.materializeCrewRecommendationLanes } : {}),
+      }),
+    },
+  ).catch(() => null);
+  if (!response?.ok) return null;
+  const data = await response.json() as JsonRecord;
+  if (!data.draft || typeof data.draft !== "object") return null;
+  return {
+    ...(data as unknown as OrchestrationTemplateDraftPlan),
+    draft: normalizeSprintPlanDraft(data.draft as JsonRecord),
+  };
+}
+
 export async function listPendingSprintPlanDrafts(input?: {
   companySlug?: string;
 }): Promise<OrchestrationPendingSprintPlanDraftSummary[]> {
@@ -2704,10 +2829,11 @@ export async function listProjectAgents(projectId: string, tasks: OrchestrationT
 
 export async function listCompanyAgents(
   companySlug: string,
-  input?: { includeNonProduction?: boolean; includeArchived?: boolean }
+  input?: { includeNonProduction?: boolean; includeArchived?: boolean; rosterState?: AgentRosterState }
 ): Promise<OrchestrationAgent[]> {
   const params = new URLSearchParams();
   params.set("includeNonProduction", input?.includeNonProduction === false ? "false" : "true");
+  params.set("rosterState", input?.rosterState ?? "active");
   if (typeof input?.includeArchived === "boolean") {
     params.set("includeArchived", input.includeArchived ? "true" : "false");
   }
@@ -2729,6 +2855,7 @@ export async function listCompanyAgents(
       role: String(a.role ?? "Agent"),
       avatar: a.avatar ? String(a.avatar) : undefined,
       status: (String(a.status ?? "idle") as OrchestrationAgent["status"]) ?? "idle",
+      rosterState: a.rosterState ? String(a.rosterState) as OrchestrationAgent["rosterState"] : undefined,
       currentTask: a.currentTask ? String(a.currentTask) : undefined,
       personality: a.personality ? String(a.personality) : undefined,
       model: a.model ? String(a.model) : undefined,
@@ -3260,6 +3387,8 @@ export async function listCompanyEvalCases(
   if (input?.projectId) params.set("projectId", input.projectId);
   if (input?.taskType) params.set("taskType", input.taskType);
   if (input?.template) params.set("template", input.template);
+  if (input?.sourceTemplateVersionId) params.set("sourceTemplateVersionId", input.sourceTemplateVersionId);
+  if (input?.templateIntakeAnswerId) params.set("templateIntakeAnswerId", input.templateIntakeAnswerId);
   if (input?.agent) params.set("agent", input.agent);
   if (input?.runner) params.set("runner", input.runner);
   if (input?.model) params.set("model", input.model);

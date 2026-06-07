@@ -15,14 +15,15 @@ import {
   recordCostEvent,
   usageTokenDeltas,
   applyUsageDeltasToTelemetry,
-  ExecutionRunProvider,
 } from "./cost-recorder";
 export type { ExecutionRunProvider } from "./cost-recorder";
 import { getHeartbeatRunTimeoutMs } from "@/lib/orchestration/execution-timeouts";
 import { recordRuntimeSkillAvailabilityForRun } from "@/lib/orchestration/skill-effectiveness";
+import { linkTemplateGeneratedExecutionRun } from "@/lib/orchestration/template-persistence";
 import { normalizeTaskModelLane, resolveTaskModelRouting } from "@/lib/orchestration/task-model-routing";
 import { nonExecutableRuntimeReason } from "@/lib/orchestration/runtime-readiness";
 import type { TaskExecutionEngine } from "@/lib/orchestration/types";
+import { enqueueWakeup as enqueueWakeupDirect } from "@/lib/orchestration/engine/wakeup-queue";
 import {
   getOrCreateRuntimeState,
   getOrCreateTaskSession,
@@ -91,6 +92,26 @@ export type AgentRow = {
 };
 
 type HeartbeatRunStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled" | "timed_out";
+
+type StaleRecoveryTaskRow = {
+  id: string;
+  task_key: string | null;
+  status: string;
+  title: string;
+  type: string | null;
+  project_id: string | null;
+  company_id: string | null;
+  assignee_agent_id: string | null;
+  depends_on_json: string | null;
+  archived_at: string | null;
+  project_archived_at: string | null;
+  company_status: string | null;
+  company_archived_at: string | null;
+  agent_status: string | null;
+  agent_archived_at: string | null;
+  assignee_adapter_type: string | null;
+  assignee_model: string | null;
+};
 
 type EnqueueWakeupResult = {
   wakeupRequestId: string;
@@ -286,6 +307,223 @@ function isTransientExecutionFailure(message: string | null | undefined): boolea
     /\bfailed with exit code unknown\b/.test(normalized) ||
     /\b5\d\d\b/.test(normalized)
   );
+}
+
+function parseDependencyIds(value: string | null | undefined): string[] {
+  try {
+    const parsed = JSON.parse(value ?? "[]") as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((candidate): candidate is string => typeof candidate === "string" && candidate.length > 0)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function isVerificationRecoveryTask(row: Pick<StaleRecoveryTaskRow, "title" | "type">): boolean {
+  const type = (row.type ?? "").trim().toLowerCase();
+  const title = row.title.trim().toLowerCase();
+  return (
+    type === "qa" ||
+    type === "test" ||
+    title.includes("qa verification") ||
+    title.includes("verification")
+  );
+}
+
+function dependenciesSatisfiedForStaleRetry(
+  db: Database.Database,
+  task: Pick<StaleRecoveryTaskRow, "depends_on_json" | "title" | "type">,
+): boolean {
+  const dependencyIds = parseDependencyIds(task.depends_on_json);
+  if (dependencyIds.length === 0) return true;
+
+  const placeholders = dependencyIds.map(() => "?").join(",");
+  const dependencyReadyClause = isVerificationRecoveryTask(task)
+    ? "status NOT IN ('done', 'review')"
+    : "status != 'done'";
+  const blocking = db
+    .prepare(
+      `SELECT COUNT(*) AS n
+       FROM tasks
+       WHERE id IN (${placeholders})
+         AND archived_at IS NULL
+         AND ${dependencyReadyClause}`,
+    )
+    .get(...dependencyIds) as { n: number } | undefined;
+
+  return (blocking?.n ?? 0) === 0;
+}
+
+function hasPendingApprovalGateForTask(db: Database.Database, taskId: string): boolean {
+  const row = db
+    .prepare(
+      `SELECT 1 AS present
+       FROM approvals
+       WHERE linked_task_id = ?
+         AND status IN ('pending', 'revision_requested')
+       LIMIT 1`,
+    )
+    .get(taskId) as { present: number } | undefined;
+  return row?.present === 1;
+}
+
+function hasActiveTaskRecoveryRun(db: Database.Database, input: { taskId: string; agentId: string }): boolean {
+  const activeExecution = db
+    .prepare(
+      `SELECT 1 AS present
+       FROM execution_runs
+       WHERE task_id = ?
+         AND agent_id = ?
+         AND status IN ('pending', 'running')
+       LIMIT 1`,
+    )
+    .get(input.taskId, input.agentId) as { present: number } | undefined;
+  if (activeExecution?.present === 1) return true;
+
+  const activeWake = db
+    .prepare(
+      `SELECT 1 AS present
+       FROM heartbeat_runs hr
+       LEFT JOIN agent_wakeup_requests awr ON awr.id = hr.wakeup_request_id
+       WHERE (hr.agent_id = ? OR awr.agent_id = ?)
+         AND (
+           hr.status IN ('queued', 'running')
+           OR awr.status IN ('queued', 'claimed')
+         )
+         AND (
+           (json_valid(hr.context_snapshot_json) AND json_extract(hr.context_snapshot_json, '$.taskId') = ?)
+           OR (json_valid(awr.payload_json) AND json_extract(awr.payload_json, '$.taskId') = ?)
+         )
+       LIMIT 1`,
+    )
+    .get(input.agentId, input.agentId, input.taskId, input.taskId) as { present: number } | undefined;
+
+  return activeWake?.present === 1;
+}
+
+function isStaleRecoveryRetryContext(snapshot: Record<string, unknown>): boolean {
+  if (snapshot.wakeReason === "stale_run_recovery_retry") return true;
+  const marker = snapshot.staleRecovery;
+  return Boolean(marker && typeof marker === "object" && !Array.isArray(marker));
+}
+
+function loadStaleRecoveryTask(db: Database.Database, taskId: string): StaleRecoveryTaskRow | null {
+  const row = db
+    .prepare(
+      `SELECT
+         t.id,
+         t.task_key,
+         t.status,
+         t.title,
+         t.type,
+         t.project_id,
+         COALESCE(t.company_id, p.company_id) AS company_id,
+         t.assignee_agent_id,
+         t.depends_on_json,
+         t.archived_at,
+         p.archived_at AS project_archived_at,
+         c.status AS company_status,
+         c.archived_at AS company_archived_at,
+         a.status AS agent_status,
+         a.archived_at AS agent_archived_at,
+         a.adapter_type AS assignee_adapter_type,
+         a.model AS assignee_model
+       FROM tasks t
+       LEFT JOIN projects p ON p.id = t.project_id
+       LEFT JOIN companies c ON c.id = COALESCE(t.company_id, p.company_id)
+       LEFT JOIN agents a ON a.id = t.assignee_agent_id
+       WHERE t.id = ?
+       LIMIT 1`,
+    )
+    .get(taskId) as StaleRecoveryTaskRow | undefined;
+
+  return row ?? null;
+}
+
+function maybeEnqueueStaleTaskRecoveryWake(input: {
+  staleHeartbeatRunId: string;
+  agentId: string;
+  taskId: string;
+  contextSnapshot: Record<string, unknown>;
+  staleExecutionRunIds: string[];
+  now: string;
+  db: Database.Database;
+}): EnqueueWakeupResult | null {
+  if (isStaleRecoveryRetryContext(input.contextSnapshot)) return null;
+
+  const task = loadStaleRecoveryTask(input.db, input.taskId);
+  if (!task) return null;
+  if (
+    task.archived_at ||
+    task.project_archived_at ||
+    task.company_archived_at ||
+    task.company_status !== "active" ||
+    !task.company_id
+  ) {
+    return null;
+  }
+  if (task.status !== "in_progress") return null;
+  if (task.assignee_agent_id !== input.agentId) return null;
+  if (task.agent_archived_at || task.agent_status === "paused" || task.agent_status === "offline") return null;
+  if (nonExecutableRuntimeReason(task.assignee_adapter_type)) return null;
+
+  const claimCompanyId = resolveQueuedHeartbeatClaimCompanyId(input.db);
+  if (claimCompanyId === "__disabled__") return null;
+  if (claimCompanyId && claimCompanyId !== task.company_id) return null;
+
+  if (!dependenciesSatisfiedForStaleRetry(input.db, task)) return null;
+  if (hasPendingApprovalGateForTask(input.db, task.id)) return null;
+  if (hasActiveTaskRecoveryRun(input.db, { taskId: task.id, agentId: input.agentId })) return null;
+
+  let executionPolicy: ReturnType<typeof taskExecutionPolicyForWakeup>;
+  try {
+    executionPolicy = taskExecutionPolicyForWakeup({
+      db: input.db,
+      taskId: task.id,
+      assigneeAdapterType: task.assignee_adapter_type,
+      assigneeModel: task.assignee_model,
+    });
+  } catch {
+    return null;
+  }
+  if (!executionPolicy.executionProvider) return null;
+
+  const wake = enqueueWakeupDirect(
+    {
+      agentId: input.agentId,
+      companyId: task.company_id,
+      source: "api",
+      reason: "stale_run_recovery_retry",
+      payload: {
+        taskId: task.id,
+        taskKey: task.task_key ?? task.id,
+        taskStatus: task.status,
+        projectId: task.project_id,
+        assigneeAgentId: task.assignee_agent_id,
+        executionEngine: executionPolicy.executionEngine,
+        modelLane: executionPolicy.modelLane,
+        executionProvider: executionPolicy.executionProvider,
+        runnerProvider: executionPolicy.runnerProvider,
+        staleRecovery: {
+          recoveredAt: input.now,
+          previousHeartbeatRunId: input.staleHeartbeatRunId,
+          previousExecutionRunIds: input.staleExecutionRunIds,
+        },
+      },
+      idempotencyKey: `stale_recovery:${task.id}:${input.agentId}`,
+    },
+    input.db,
+  );
+
+  emitRunEvent(
+    input.staleHeartbeatRunId,
+    input.agentId,
+    "stale_recovery_retry_queued",
+    `Queued stale recovery retry ${wake.heartbeatRunId} for task ${task.id}.`,
+    input.db,
+  );
+  return wake;
 }
 
 export async function executeHeartbeatRun(
@@ -651,6 +889,20 @@ export async function executeHeartbeatRun(
       );
     }
     if (executionRunId) {
+      linkTemplateGeneratedExecutionRun({
+        companyId: agent.company_id,
+        taskId: taskKey,
+        executionRunId,
+        provenance: {
+          source: "heartbeat_execution_bridge",
+          heartbeatRunId: runId,
+          provider: executionRunProvider,
+          executionEngine: contextExecutionEngine,
+          runnerProvider: primaryRouteAttempt?.target.runtimeProvider ?? contextRunnerProvider,
+          runnerModel: primaryRouteAttempt?.target.model ?? null,
+          modelLane: executionRoute?.laneId ?? taskModelRouting.lane,
+        },
+      });
       autoMarkTaskInProgressForExecutionRun(db, {
         taskId: taskKey,
         agentId: agent.id,
@@ -1269,7 +1521,10 @@ export function recoverStaleRuns(db: Database.Database): number {
     // Also fail the linked wakeup requests
     db.prepare(
       `UPDATE agent_wakeup_requests
-       SET status = 'failed', finished_at = ?, updated_at = ?
+       SET status = 'failed',
+           idempotency_key = NULL,
+           finished_at = ?,
+           updated_at = ?
        WHERE status = 'claimed' AND claimed_at < ?`
     ).run(now, now, cutoff);
 
@@ -1289,12 +1544,40 @@ export function recoverStaleRuns(db: Database.Database): number {
       const durationMs = Number.isFinite(startedAt) ? Math.max(0, Date.now() - startedAt) : getHeartbeatRunTimeoutMs();
 
       const staleExecRuns = db.prepare(
-        `SELECT id FROM execution_runs WHERE task_id = ? AND agent_id = ? AND status IN ('pending', 'running')`
-      ).all(taskId, run.agent_id) as Array<{ id: string }>;
+        `SELECT id, provider, session_id, process_pid
+         FROM execution_runs
+         WHERE task_id = ?
+           AND agent_id = ?
+           AND status IN ('pending', 'running')`
+      ).all(taskId, run.agent_id) as Array<{
+        id: string;
+        provider: string;
+        session_id: string | null;
+        process_pid: number | null;
+      }>;
+
+      for (const staleRun of staleExecRuns) {
+        const adapter = getExecutionAdapter(staleRun.provider);
+        if (!adapter.cancel) continue;
+        adapter.cancel(staleRun.id, staleRun.process_pid, staleRun.session_id).catch((error) => {
+          console.warn("[heartbeat] stale-run process termination failed", {
+            runId: staleRun.id,
+            provider: staleRun.provider,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      }
 
       db.prepare(
         `UPDATE execution_runs
-         SET status = 'failed', completed_at = ?, duration_ms = ?, error_message = ?, updated_at = ?
+         SET status = 'failed',
+             completed_at = ?,
+             duration_ms = ?,
+             error_message = ?,
+             failure_class = COALESCE(failure_class, 'timeout'),
+             process_pid = NULL,
+             idempotency_key = NULL,
+             updated_at = ?
 	         WHERE task_id = ?
 	           AND agent_id = ?
 	           AND status IN ('pending', 'running')`
@@ -1305,6 +1588,15 @@ export function recoverStaleRuns(db: Database.Database): number {
       }
 
       reconcileTerminalOpenClawTaskState(taskId, db);
+      maybeEnqueueStaleTaskRecoveryWake({
+        staleHeartbeatRunId: run.id,
+        agentId: run.agent_id,
+        taskId,
+        contextSnapshot: run.context_snapshot_json ? parseJson(run.context_snapshot_json) : {},
+        staleExecutionRunIds: staleExecRuns.map((staleRun) => staleRun.id),
+        now,
+        db,
+      });
     }
   }
 

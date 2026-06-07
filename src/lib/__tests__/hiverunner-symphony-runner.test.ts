@@ -193,6 +193,10 @@ const outputFile = outputIndex >= 0 ? args[outputIndex + 1] : null;
 const prompt = fs.readFileSync(0, "utf8");
 fs.writeFileSync(process.env.FAKE_CODEX_ARGS_FILE, args.join("\\n"), "utf8");
 fs.writeFileSync(process.env.FAKE_CODEX_PROMPT_FILE, prompt, "utf8");
+if (process.env.FAKE_CODEX_MODE === "silent-sleep") {
+  setTimeout(() => {}, 60_000);
+  return;
+}
 if (outputFile) {
   fs.writeFileSync(outputFile, "Fixture Codex completed the external runner task.", "utf8");
 }
@@ -278,6 +282,42 @@ async function run() {
       assert.ok(prompt.includes("external execution runner"));
       assert.ok(prompt.includes("Symphony-compatible task handoff"));
       assert.ok(prompt.includes("INS-1 - Run fixture task"));
+      assert.ok(prompt.includes("Implement the fixture task."));
+    });
+
+    await test("runner terminates a silent Codex subprocess with a no-output diagnostic", () => {
+      const result = spawnSync(process.execPath, ["scripts/hiverunner-symphony-runner.mjs"], {
+        cwd: process.cwd(),
+        input: JSON.stringify(payload),
+        encoding: "utf8",
+        timeout: 5000,
+        env: {
+          ...process.env,
+          HIVERUNNER_SYMPHONY_CODEX_COMMAND: fakeCodex,
+          HIVERUNNER_SYMPHONY_MODEL: "",
+          HIVERUNNER_SYMPHONY_TIMEOUT_MS: "5000",
+          HIVERUNNER_SYMPHONY_CODEX_NO_OUTPUT_TIMEOUT_MS: "120",
+          HIVERUNNER_SYMPHONY_CODEX_PROGRESS_INTERVAL_MS: "25",
+          HIVERUNNER_SYMPHONY_CODEX_TERMINATION_GRACE_MS: "25",
+          FAKE_CODEX_ARGS_FILE: argsFile,
+          FAKE_CODEX_PROMPT_FILE: promptFile,
+          FAKE_CODEX_MODE: "silent-sleep",
+        },
+      });
+
+      assert.strictEqual(result.status, 0, result.stderr || String(result.error));
+      const output = JSON.parse(result.stdout) as Record<string, unknown>;
+      assert.match(String(output.error), /produced no stdout\/stderr/i);
+      assert.strictEqual(output.noOutputTimedOut, true);
+      assert.strictEqual(output.timedOut, false);
+      assert.strictEqual(output.terminationReason, "no_output_timeout");
+      assert.ok(Number(output.durationMs) < 5000, `silent subprocess should fail before spawnSync timeout, got ${String(output.durationMs)}ms`);
+      assert.match(result.stderr, /Codex still active/);
+
+      const usage = output.usage as Record<string, unknown>;
+      assert.strictEqual(usage.noOutputTimedOut, true);
+      assert.strictEqual(usage.terminationReason, "no_output_timeout");
+      const prompt = readFileSync(promptFile, "utf8");
       assert.ok(prompt.includes("Implement the fixture task."));
     });
 

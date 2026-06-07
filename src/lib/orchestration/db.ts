@@ -8,6 +8,7 @@ import {
   resolveHiveRunnerWorkspaceRoot,
   resolveOpenClawWorkspaceRoot,
 } from "@/lib/workspaces/root";
+import { BUILT_IN_STARTER_SPRINT_TEMPLATES } from "@/lib/orchestration/starter-sprint-templates";
 
 type Migration = {
   version: number;
@@ -3468,6 +3469,112 @@ const MIGRATIONS: Migration[] = [
       END;
     `,
   },
+  {
+    version: 116,
+    name: "template_version_intake_and_generated_work_persistence",
+    sql: `
+      CREATE TABLE IF NOT EXISTS template_versions (
+        id                   TEXT PRIMARY KEY,
+        company_id           TEXT REFERENCES companies(id) ON DELETE CASCADE,
+        scope                TEXT NOT NULL CHECK (scope IN ('built_in','company')),
+        template_key         TEXT NOT NULL,
+        version              INTEGER NOT NULL CHECK (version >= 1),
+        name                 TEXT NOT NULL,
+        description          TEXT NOT NULL DEFAULT '',
+        status               TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','archived')),
+        template_json        TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(template_json)),
+        intake_schema_json   TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(intake_schema_json)),
+        content_sha256       TEXT NOT NULL CHECK (length(content_sha256) = 64),
+        created_by           TEXT,
+        rollback_notes       TEXT NOT NULL DEFAULT 'Template versions are immutable; rollback by selecting an earlier version or creating a new company-local version.',
+        created_at           TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        CHECK (
+          (scope = 'built_in' AND company_id IS NULL)
+          OR (scope = 'company' AND company_id IS NOT NULL)
+        )
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_template_versions_builtin_key_version
+        ON template_versions(template_key, version)
+        WHERE scope = 'built_in';
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_template_versions_company_key_version
+        ON template_versions(company_id, template_key, version)
+        WHERE scope = 'company';
+
+      CREATE INDEX IF NOT EXISTS idx_template_versions_company_status
+        ON template_versions(company_id, status, template_key, version DESC)
+        WHERE company_id IS NOT NULL;
+
+      CREATE TRIGGER IF NOT EXISTS template_versions_prevent_update
+      BEFORE UPDATE ON template_versions
+      BEGIN
+        SELECT RAISE(ABORT, 'template_versions are immutable; create a new version instead');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS template_versions_prevent_delete
+      BEFORE DELETE ON template_versions
+      BEGIN
+        SELECT RAISE(ABORT, 'template_versions are immutable; create a new version instead');
+      END;
+
+      CREATE TABLE IF NOT EXISTS template_intake_answers (
+        id                         TEXT PRIMARY KEY,
+        company_id                 TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        template_version_id        TEXT NOT NULL REFERENCES template_versions(id) ON DELETE RESTRICT,
+        company_goal_id            TEXT REFERENCES sprints(id) ON DELETE SET NULL,
+        planning_task_id           TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+        proposal_group_id          TEXT,
+        submitted_by_agent_id      TEXT REFERENCES agents(id) ON DELETE SET NULL,
+        submitted_by_user_id       TEXT,
+        answers_json               TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(answers_json)),
+        normalized_answers_json    TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(normalized_answers_json)),
+        idempotency_key            TEXT,
+        created_at                 TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_template_intake_answers_template_created
+        ON template_intake_answers(company_id, template_version_id, created_at DESC);
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_template_intake_answers_company_idempotency
+        ON template_intake_answers(company_id, idempotency_key)
+        WHERE idempotency_key IS NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS template_generated_work (
+        id                         TEXT PRIMARY KEY,
+        company_id                 TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        template_version_id        TEXT NOT NULL REFERENCES template_versions(id) ON DELETE RESTRICT,
+        intake_answer_id           TEXT REFERENCES template_intake_answers(id) ON DELETE SET NULL,
+        source_draft_id            TEXT REFERENCES goal_sprint_plan_drafts(id) ON DELETE SET NULL,
+        generated_type             TEXT NOT NULL CHECK (generated_type IN ('goal','sprint','task','execution_run','eval_case','sprint_plan_draft')),
+        generated_id               TEXT NOT NULL,
+        goal_id                    TEXT REFERENCES sprints(id) ON DELETE SET NULL,
+        sprint_id                  TEXT REFERENCES sprints(id) ON DELETE SET NULL,
+        task_id                    TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+        execution_run_id           TEXT REFERENCES execution_runs(id) ON DELETE SET NULL,
+        eval_case_id               TEXT REFERENCES eval_cases(id) ON DELETE SET NULL,
+        provenance_json            TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(provenance_json)),
+        rollback_notes             TEXT NOT NULL DEFAULT 'Generated work links are provenance records; rollback the generated goal, sprint, task, run, or eval case through its owning workflow.',
+        created_at                 TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        UNIQUE(company_id, template_version_id, generated_type, generated_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_template_generated_work_template_created
+        ON template_generated_work(company_id, template_version_id, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_template_generated_work_task
+        ON template_generated_work(task_id)
+        WHERE task_id IS NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS template_persistence_migration_notes (
+        id                 TEXT PRIMARY KEY,
+        migration_version  INTEGER NOT NULL UNIQUE,
+        notes_json         TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(notes_json)),
+        rollback_notes     TEXT NOT NULL,
+        created_at         TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+    `,
+  },
 ];
 
 let dbInstance: Database.Database | null = null;
@@ -3824,6 +3931,175 @@ function hasColumn(db: Database.Database, tableName: string, columnName: string)
   return columns.some((column) => column.name === columnName);
 }
 
+function hasTable(db: Database.Database, tableName: string): boolean {
+  const row = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(tableName) as { name: string } | undefined;
+  return row?.name === tableName;
+}
+
+function builtInStarterSprintTemplateVersionsAreCurrent(db: Database.Database): boolean {
+  if (!hasTable(db, "template_versions")) return false;
+  if (!hasColumn(db, "template_versions", "id") || !hasColumn(db, "template_versions", "scope")) {
+    return false;
+  }
+  const ids = BUILT_IN_STARTER_SPRINT_TEMPLATES.map((template) => template.templateVersionId);
+  if (ids.length === 0) return true;
+  const placeholders = ids.map(() => "?").join(",");
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS count
+       FROM template_versions
+       WHERE scope = 'built_in'
+         AND id IN (${placeholders})`,
+    )
+    .get(...ids) as { count: number } | undefined;
+  return Number(row?.count ?? 0) === ids.length;
+}
+
+function templatePersistenceMigrationIsCurrent(db: Database.Database): boolean {
+  return (
+    hasTable(db, "template_versions") &&
+    hasTable(db, "template_intake_answers") &&
+    hasTable(db, "template_generated_work") &&
+    hasColumn(db, "sprints", "source_template_version_id") &&
+    hasColumn(db, "tasks", "source_template_version_id") &&
+    hasColumn(db, "execution_runs", "source_template_version_id") &&
+    hasColumn(db, "eval_cases", "source_template_version_id") &&
+    hasColumn(db, "goal_sprint_plan_drafts", "source_template_version_id") &&
+    builtInStarterSprintTemplateVersionsAreCurrent(db)
+  );
+}
+
+function templatePersistenceMigrationSql(): string {
+  const migration = MIGRATIONS.find((candidate) => candidate.version === 116);
+  if (!migration) throw new Error("Template persistence migration is not registered");
+  return migration.sql;
+}
+
+function applyTemplatePersistenceMigration(db: Database.Database): void {
+  db.exec(templatePersistenceMigrationSql());
+
+  ensureColumn(db, "sprints", "source_template_version_id", "TEXT REFERENCES template_versions(id) ON DELETE SET NULL");
+  ensureColumn(db, "sprints", "template_intake_answer_id", "TEXT REFERENCES template_intake_answers(id) ON DELETE SET NULL");
+  ensureColumn(db, "sprints", "template_generation_provenance_json", "TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(template_generation_provenance_json))");
+
+  ensureColumn(db, "tasks", "source_template_version_id", "TEXT REFERENCES template_versions(id) ON DELETE SET NULL");
+  ensureColumn(db, "tasks", "template_intake_answer_id", "TEXT REFERENCES template_intake_answers(id) ON DELETE SET NULL");
+  ensureColumn(db, "tasks", "template_generation_provenance_json", "TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(template_generation_provenance_json))");
+
+  ensureColumn(db, "execution_runs", "source_template_version_id", "TEXT REFERENCES template_versions(id) ON DELETE SET NULL");
+  ensureColumn(db, "execution_runs", "template_intake_answer_id", "TEXT REFERENCES template_intake_answers(id) ON DELETE SET NULL");
+  ensureColumn(db, "execution_runs", "template_generation_provenance_json", "TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(template_generation_provenance_json))");
+
+  ensureColumn(db, "eval_cases", "source_template_version_id", "TEXT REFERENCES template_versions(id) ON DELETE SET NULL");
+  ensureColumn(db, "eval_cases", "template_intake_answer_id", "TEXT REFERENCES template_intake_answers(id) ON DELETE SET NULL");
+
+  ensureColumn(db, "goal_sprint_plan_drafts", "source_template_version_id", "TEXT REFERENCES template_versions(id) ON DELETE SET NULL");
+  ensureColumn(db, "goal_sprint_plan_drafts", "intake_answer_id", "TEXT REFERENCES template_intake_answers(id) ON DELETE SET NULL");
+  ensureColumn(db, "goal_sprint_plan_drafts", "generation_provenance_json", "TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(generation_provenance_json))");
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_sprints_source_template_version
+      ON sprints(source_template_version_id)
+      WHERE source_template_version_id IS NOT NULL;
+
+    CREATE INDEX IF NOT EXISTS idx_tasks_source_template_version
+      ON tasks(source_template_version_id)
+      WHERE source_template_version_id IS NOT NULL;
+
+    CREATE INDEX IF NOT EXISTS idx_execution_runs_source_template_version
+      ON execution_runs(source_template_version_id)
+      WHERE source_template_version_id IS NOT NULL;
+
+    CREATE INDEX IF NOT EXISTS idx_eval_cases_source_template_version
+      ON eval_cases(source_template_version_id)
+      WHERE source_template_version_id IS NOT NULL;
+
+    CREATE INDEX IF NOT EXISTS idx_goal_sprint_plan_drafts_source_template_version
+      ON goal_sprint_plan_drafts(source_template_version_id)
+      WHERE source_template_version_id IS NOT NULL;
+  `);
+
+  const builtInTemplate = {
+    schema: "hiverunner.template_version.v1",
+    templateKey: "starter-sprint-build",
+    purpose: "Built-in starter sprint template record used as the immutable base for generated work provenance.",
+    sprintDefaults: {
+      successCriteria: [],
+      validationChecks: [],
+      outOfScope: [],
+    },
+  };
+  const builtInTemplateJson = JSON.stringify(builtInTemplate);
+  const builtInIntakeSchemaJson = JSON.stringify({
+    schema: "hiverunner.template_intake_schema.v1",
+    fields: [
+      { id: "objective", type: "text", required: true },
+      { id: "constraints", type: "text", required: false },
+    ],
+  });
+  const builtInHash = createHash("sha256").update(builtInTemplateJson).digest("hex");
+  db.prepare(
+    `INSERT OR IGNORE INTO template_versions (
+       id, company_id, scope, template_key, version, name, description, status,
+       template_json, intake_schema_json, content_sha256, created_by, rollback_notes
+     )
+     VALUES (?, NULL, 'built_in', ?, 1, ?, ?, 'active', ?, ?, ?, 'system', ?)`
+  ).run(
+    "builtin-starter-sprint-build-v1",
+    "starter-sprint-build",
+    "Starter Sprint Build",
+    "Immutable built-in starter sprint template for generated sprint-plan provenance.",
+    builtInTemplateJson,
+    builtInIntakeSchemaJson,
+    builtInHash,
+    "Rollback by selecting a prior built-in version if one exists, or by creating a company-local replacement version; built-in versions are immutable.",
+  );
+
+  const insertBuiltInStarterTemplate = db.prepare(
+    `INSERT OR IGNORE INTO template_versions (
+       id, company_id, scope, template_key, version, name, description, status,
+       template_json, intake_schema_json, content_sha256, created_by, rollback_notes
+     )
+     VALUES (?, NULL, 'built_in', ?, ?, ?, ?, 'active', ?, ?, ?, 'system', ?)`,
+  );
+  for (const template of BUILT_IN_STARTER_SPRINT_TEMPLATES) {
+    const templateJson = JSON.stringify({
+      schema: "hiverunner.starter_sprint_template.v1",
+      ...template,
+    });
+    const intakeSchemaJson = JSON.stringify(template.intake);
+    insertBuiltInStarterTemplate.run(
+      template.templateVersionId,
+      template.id,
+      Number.parseInt(template.version, 10) || 1,
+      template.name,
+      template.publicDescription,
+      templateJson,
+      intakeSchemaJson,
+      createHash("sha256").update(templateJson).digest("hex"),
+      "Built-in starter sprint template versions are immutable; rollback by selecting another published version or creating a company-local replacement.",
+    );
+  }
+
+  db.prepare(
+    `INSERT OR IGNORE INTO template_persistence_migration_notes (
+       id, migration_version, notes_json, rollback_notes
+     )
+     VALUES (?, 116, ?, ?)`
+  ).run(
+    "template-version-intake-generated-work-v116",
+    JSON.stringify({
+      schema: "hiverunner.template_persistence_migration_notes.v1",
+      tables: ["template_versions", "template_intake_answers", "template_generated_work"],
+      sourceColumns: ["sprints", "tasks", "execution_runs", "eval_cases", "goal_sprint_plan_drafts"],
+      idempotent: true,
+    }),
+    "Rollback requires a forward correction migration: keep immutable template_versions, remove or archive generated work through owning workflows, and clear nullable source_template_version_id/template_intake_answer_id links only after preserving audit evidence.",
+  );
+}
+
 function memoryCurationLifecycleIsCurrent(db: Database.Database): boolean {
   const row = db
     .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'memory_curation_states'")
@@ -4029,6 +4305,9 @@ function repairCompatibleAppliedMigrationIfNeeded(
   } else if (migration.version === 107 && !memoryCurationLifecycleIsCurrent(db)) {
     applyMemoryCurationCurrentLifecycleMigration(db);
     return 1;
+  } else if (migration.version === 116 && !templatePersistenceMigrationIsCurrent(db)) {
+    applyTemplatePersistenceMigration(db);
+    return 1;
   }
   return 0;
 }
@@ -4122,6 +4401,8 @@ function markOutOfBandMigrationIfAlreadyApplied(
     `);
   } else if (migration.version === 103 && hasColumn(db, "sprints", "goal_key")) {
     applyCompanyGoalKeysMigration(db);
+  } else if (migration.version === 116 && templatePersistenceMigrationIsCurrent(db)) {
+    applyTemplatePersistenceMigration(db);
   } else {
     return false;
   }
@@ -5009,6 +5290,14 @@ export function runOrchestrationMigrations(db = getOrchestrationDb()): {
     } else if (migration.version === 108) {
       const apply = db.transaction(() => {
         applyMemoryCurationExtendedLifecycleMigration(db);
+        db.prepare(
+          "INSERT INTO schema_migrations(version, name, checksum) VALUES (?, ?, ?)"
+        ).run(migration.version, migration.name, checksum);
+      });
+      apply();
+    } else if (migration.version === 116) {
+      const apply = db.transaction(() => {
+        applyTemplatePersistenceMigration(db);
         db.prepare(
           "INSERT INTO schema_migrations(version, name, checksum) VALUES (?, ?, ?)"
         ).run(migration.version, migration.name, checksum);

@@ -157,6 +157,7 @@ async function run() {
   const { listApprovals } = await import("@/lib/orchestration/service/approval");
   const {
     appendOverseerMessage,
+    completeOverseerTurn,
     createApprovalsForOverseerActions,
     createOverseerContextSnapshot,
     createOverseerSession,
@@ -187,6 +188,7 @@ async function run() {
   } = await import("@/app/api/orchestration/companies/[slug]/overseer/sessions/[sessionId]/compaction/route");
   const { POST: postAttachmentRoute } = await import("@/app/api/orchestration/companies/[slug]/overseer/sessions/[sessionId]/attachments/route");
   const { GET: getExportRoute } = await import("@/app/api/orchestration/companies/[slug]/overseer/sessions/[sessionId]/export/route");
+  const { POST: postMessageRoute } = await import("@/app/api/orchestration/companies/[slug]/overseer/sessions/[sessionId]/messages/route");
   const { GET: getSessionRoute } = await import("@/app/api/orchestration/companies/[slug]/overseer/sessions/[sessionId]/route");
   const { POST: postWatchRoute } = await import("@/app/api/orchestration/companies/[slug]/overseer/sessions/[sessionId]/watch/route");
   const { POST: postApprovalRoute } = await import("@/app/api/orchestration/approvals/[id]/route");
@@ -418,6 +420,91 @@ async function run() {
 
     assert.strictEqual(getOverseerSession(liveSession.id).codexSessionId, "thread-live-fixture-123");
     assert.strictEqual(getOverseerTurn(turn.id).codexSessionId, "thread-live-fixture-123");
+  });
+
+  await test("message route persists follow-ups while a run is active and drains them later", async () => {
+    const queueSession = createOverseerSession({
+      companyIdOrSlug: company.id,
+      projectId: project.id,
+      title: "Queued Follow-up Fixture",
+    }).session;
+    const activeUser = appendOverseerMessage({
+      sessionId: queueSession.id,
+      role: "user",
+      content: "Start a slow turn.",
+    });
+    const activeTurn = createOverseerTurn({
+      sessionId: queueSession.id,
+      userMessageId: activeUser.id,
+      prompt: "Start a slow turn.",
+    });
+    const turnCountBeforeQueue = (db
+      .prepare("SELECT COUNT(*) AS count FROM overseer_turns WHERE session_id = ?")
+      .get(queueSession.id) as { count: number }).count;
+
+    const queueRes = await postMessageRoute({
+      async json() {
+        return { content: "Queue this while the active run is still thinking." };
+      },
+    } as never, {
+      params: Promise.resolve({ slug: company.slug, sessionId: queueSession.id }),
+    });
+    assert.strictEqual(queueRes.status, 202);
+    const queuePayload = await queueRes.json() as {
+      queued?: boolean;
+      queuedMessageId?: string;
+      messages: Array<{ id: string; role: string; content: string; metadata: Record<string, unknown> }>;
+      events: Array<{ eventType: string; event: Record<string, unknown> }>;
+    };
+    assert.strictEqual(queuePayload.queued, true);
+    assert.ok(queuePayload.queuedMessageId);
+    assert.ok(queuePayload.messages.some((message) => (
+      message.id === queuePayload.queuedMessageId
+      && message.role === "user"
+      && message.content.includes("Queue this")
+      && message.metadata.queueStatus === "queued"
+    )));
+    assert.ok(queuePayload.events.some((event) => (
+      event.eventType === "overseer.message.queued"
+      && event.event.messageId === queuePayload.queuedMessageId
+    )));
+    const turnCountAfterQueue = (db
+      .prepare("SELECT COUNT(*) AS count FROM overseer_turns WHERE session_id = ?")
+      .get(queueSession.id) as { count: number }).count;
+    assert.strictEqual(turnCountAfterQueue, turnCountBeforeQueue);
+
+    completeOverseerTurn({
+      sessionId: queueSession.id,
+      turnId: activeTurn.id,
+      status: "completed",
+      codexSessionId: "thread-fixture-123",
+      durationMs: 90_000,
+    });
+
+    const drainRes = await postMessageRoute({
+      async json() {
+        return { queuedMessageId: queuePayload.queuedMessageId };
+      },
+    } as never, {
+      params: Promise.resolve({ slug: company.slug, sessionId: queueSession.id }),
+    });
+    assert.strictEqual(drainRes.status, 200);
+    const drainPayload = await drainRes.json() as {
+      messages: Array<{ id: string; role: string; content: string; metadata: Record<string, unknown> }>;
+      events: Array<{ eventType: string }>;
+    };
+    const drainedMessage = drainPayload.messages.find((message) => message.id === queuePayload.queuedMessageId);
+    assert.strictEqual(drainedMessage?.metadata.queueStatus, "completed");
+    assert.ok(drainedMessage?.metadata.turnId);
+    assert.ok(drainPayload.messages.some((message) => (
+      message.role === "assistant"
+      && message.content.includes("Follow-up answer from resumed Codex session.")
+    )));
+    assert.ok(drainPayload.events.some((event) => event.eventType === "codex.resume.started"));
+    const turnCountAfterDrain = (db
+      .prepare("SELECT COUNT(*) AS count FROM overseer_turns WHERE session_id = ?")
+      .get(queueSession.id) as { count: number }).count;
+    assert.strictEqual(turnCountAfterDrain, turnCountBeforeQueue + 1);
   });
 
   await test("session update stores defensive compaction controls in scope", () => {
@@ -786,6 +873,120 @@ async function run() {
     const events = listOverseerEvents(session.id).events;
     assert.ok(events.some((event) => event.eventType === "codex.resume.started"));
     assert.strictEqual(events.filter((event) => event.eventType === "turn.completed").length, 2);
+  });
+
+  await test("monitoring chat uses deterministic snapshot instead of resuming Codex", async () => {
+    const beforeArgs = readFileSync(argsLog, "utf8");
+    const beforeUsage = getOverseerSession(session.id).usage.totalTokens;
+    const response = await postMessageRoute({
+      async json() {
+        return { content: "What's the sprint status right now?" };
+      },
+    } as never, {
+      params: Promise.resolve({ slug: company.slug, sessionId: session.id }),
+    });
+    assert.strictEqual(response.status, 200);
+    const payload = await response.json() as {
+      fastPath?: boolean;
+      action?: string;
+      session: { usage?: { totalTokens?: number } };
+      messages: Array<{ role: string; content: string; metadata: Record<string, unknown> }>;
+      events: Array<{ eventType: string }>;
+    };
+    assert.strictEqual(payload.fastPath, true);
+    assert.strictEqual(payload.action, "snapshot");
+    assert.strictEqual(readFileSync(argsLog, "utf8"), beforeArgs);
+    assert.strictEqual(getOverseerSession(session.id).usage.totalTokens, beforeUsage);
+    assert.strictEqual(payload.session.usage?.totalTokens, beforeUsage);
+    assert.ok(payload.messages.some((message) => (
+      message.role === "assistant"
+      && message.metadata.kind === "overseer_watch_snapshot"
+      && message.content.includes("Monitoring snapshot")
+    )));
+    assert.ok(payload.events.some((event) => event.eventType === "overseer.monitoring.fast_path"));
+    assert.ok(payload.events.some((event) => event.eventType === "overseer.watch.snapshot"));
+  });
+
+  await test("continuous monitoring chat starts resident watch instead of resuming Codex", async () => {
+    const monitorSession = createOverseerSession({
+      companyIdOrSlug: company.id,
+      projectId: project.id,
+      title: "Persistent Monitor Fixture",
+    }).session;
+    const oldUser = appendOverseerMessage({
+      sessionId: monitorSession.id,
+      role: "user",
+      content: "Monitor this sprint.",
+    });
+    const oldTurn = createOverseerTurn({
+      sessionId: monitorSession.id,
+      userMessageId: oldUser.id,
+      prompt: oldUser.content,
+    });
+    completeOverseerTurn({
+      sessionId: monitorSession.id,
+      turnId: oldTurn.id,
+      status: "completed",
+      codexSessionId: "thread-heavy-monitor-123",
+      usage: {
+        inputTokens: 5_202_835,
+        outputTokens: 25_399,
+        totalTokens: 5_228_234,
+      },
+      durationMs: 180_000,
+    });
+
+    const beforeArgs = readFileSync(argsLog, "utf8");
+    const beforeUsage = getOverseerSession(monitorSession.id).usage.totalTokens;
+    const beforeTurnCount = (db
+      .prepare("SELECT COUNT(*) AS count FROM overseer_turns WHERE session_id = ?")
+      .get(monitorSession.id) as { count: number }).count;
+    const response = await postMessageRoute({
+      async json() {
+        return { content: "Monitor the current sprint continuously and give me updates." };
+      },
+    } as never, {
+      params: Promise.resolve({ slug: company.slug, sessionId: monitorSession.id }),
+    });
+    assert.strictEqual(response.status, 200);
+    const payload = await response.json() as {
+      fastPath?: boolean;
+      action?: string;
+      turnId?: string | null;
+      approvalIds?: string[];
+      session: {
+        usage?: { totalTokens?: number };
+        scope?: { watch?: { status?: string; enabled?: boolean; checkCount?: number } };
+      };
+      messages: Array<{ role: string; content: string; metadata: Record<string, unknown> }>;
+      events: Array<{ eventType: string }>;
+    };
+    assert.strictEqual(payload.fastPath, true);
+    assert.strictEqual(payload.action, "start_watch");
+    assert.strictEqual(payload.turnId, null);
+    assert.deepStrictEqual(payload.approvalIds, []);
+    assert.strictEqual(readFileSync(argsLog, "utf8"), beforeArgs);
+    assert.strictEqual(getOverseerSession(monitorSession.id).usage.totalTokens, beforeUsage);
+    assert.strictEqual(payload.session.usage?.totalTokens, beforeUsage);
+    assert.strictEqual(payload.session.scope?.watch?.status, "watching");
+    assert.strictEqual(payload.session.scope?.watch?.enabled, true);
+    assert.strictEqual(payload.session.scope?.watch?.checkCount, 1);
+    const afterTurnCount = (db
+      .prepare("SELECT COUNT(*) AS count FROM overseer_turns WHERE session_id = ?")
+      .get(monitorSession.id) as { count: number }).count;
+    assert.strictEqual(afterTurnCount, beforeTurnCount);
+    assert.strictEqual(getOverseerWatchState(getOverseerSession(monitorSession.id))?.status, "watching");
+    assert.ok(payload.messages.some((message) => (
+      message.role === "assistant"
+      && message.metadata.kind === "overseer_watch_update"
+      && message.content.includes("Watching started")
+    )));
+    assert.ok(payload.events.some((event) => event.eventType === "overseer.monitoring.fast_path"));
+    assert.ok(payload.events.some((event) => event.eventType === "overseer.watch.started"));
+    assert.ok(payload.events.some((event) => event.eventType === "overseer.watch.check"));
+    assert.ok(!payload.events.some((event) => event.eventType === "codex.resume.started"));
+
+    stopOverseerWatch({ sessionId: monitorSession.id });
   });
 
   await test("auto compaction requests approval before changing durable session memory", async () => {

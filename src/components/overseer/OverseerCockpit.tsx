@@ -594,7 +594,7 @@ function useOverseerCockpitController({ slug }: { slug: string }) {
   const [continuityProof, setContinuityProof] = useState<ContinuityProof | null>(null);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
-  const [sending, setSending] = useState(false);
+  const [sendingCount, setSendingCount] = useState(0);
   const [cancelling, setCancelling] = useState(false);
   const [watchToggling, setWatchToggling] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -613,6 +613,10 @@ function useOverseerCockpitController({ slug }: { slug: string }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const chatAutoStickRef = useRef(true);
+  const draftRef = useRef("");
+  const attachmentsRef = useRef<ComposerAttachment[]>([]);
+  const queueDrainingRef = useRef(false);
+  const sending = sendingCount > 0;
 
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId) ?? sessions[0] ?? null,
@@ -683,6 +687,22 @@ function useOverseerCockpitController({ slug }: { slug: string }) {
     return activeProvider;
   }, [messages, eventsByTurn, activeProvider]);
   const hasAssistantMessage = messages.some((message) => message.role === "assistant");
+  const nextQueuedMessage = useMemo(
+    () => messages.find((message) => (
+      message.role === "user"
+      && message.metadata.queueStatus === "queued"
+      && message.sessionId === activeSession?.id
+    )) ?? null,
+    [activeSession?.id, messages],
+  );
+
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
+
+  useEffect(() => {
+    attachmentsRef.current = attachments;
+  }, [attachments]);
 
   const scrollChatToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const node = chatScrollRef.current;
@@ -984,14 +1004,15 @@ function useOverseerCockpitController({ slug }: { slug: string }) {
   };
 
   const sendMessage = async () => {
-    const content = draft.trim();
-    if ((!content && attachments.length === 0) || sending || uploadingAttachments || cancelling) return;
+    const content = draftRef.current.trim();
+    const outgoingAttachments = attachmentsRef.current;
+    if ((!content && outgoingAttachments.length === 0) || uploadingAttachments || cancelling) return;
     const startedAt = Date.now();
-    const outgoingAttachments = attachments;
+    const shouldDeferRun = sending || activeSession?.status === "running";
     chatAutoStickRef.current = true;
-    setSending(true);
+    setSendingCount((current) => current + 1);
     setNowMs(startedAt);
-    setOptimisticRunStartedAtMs(startedAt);
+    if (!shouldDeferRun) setOptimisticRunStartedAtMs(startedAt);
     setError(null);
     try {
       let session: OverseerSession | null = activeSession;
@@ -1000,61 +1021,127 @@ function useOverseerCockpitController({ slug }: { slug: string }) {
         if (!createdSession) throw new Error("Could not create Overseer session.");
         session = createdSession;
       }
+      draftRef.current = "";
+      attachmentsRef.current = [];
       setDraft("");
       setAttachments([]);
-      const optimisticMessage: OverseerMessage = {
+      const optimisticCreatedAt = new Date(startedAt).toISOString();
+      const optimisticContent = content || `Attached ${outgoingAttachments.length} file${outgoingAttachments.length === 1 ? "" : "s"}.`;
+      setMessages((current) => [...current, {
         id: `optimistic-${startedAt}`,
         sessionId: session.id,
         turnId: null,
         role: "user",
-        content: content || `Attached ${outgoingAttachments.length} file${outgoingAttachments.length === 1 ? "" : "s"}.`,
-        metadata: { optimistic: true, attachments: outgoingAttachments },
-        sequence: (messages.at(-1)?.sequence ?? 0) + 1,
-        createdAt: new Date(startedAt).toISOString(),
-      };
-      setMessages((current) => [...current, optimisticMessage]);
+        content: optimisticContent,
+        metadata: {
+          optimistic: true,
+          attachments: outgoingAttachments,
+          ...(shouldDeferRun ? { queueStatus: "queued" } : {}),
+        },
+        sequence: (current.at(-1)?.sequence ?? 0) + 1,
+        createdAt: optimisticCreatedAt,
+      }]);
       setSessions((current) => current.map((entry) => entry.id === session?.id
         ? {
             ...entry,
             status: "running",
             messageCount: Math.max(entry.messageCount ?? 0, (entry.messageCount ?? messages.length) + 1),
-            updatedAt: optimisticMessage.createdAt,
+            updatedAt: optimisticCreatedAt,
           }
         : entry));
       const response = await fetch(`/api/orchestration/companies/${encodeURIComponent(slug)}/overseer/sessions/${encodeURIComponent(session.id)}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          content: content || `Attached ${outgoingAttachments.length} file${outgoingAttachments.length === 1 ? "" : "s"}.`,
+          content: optimisticContent,
           attachments: outgoingAttachments,
+          deferRun: shouldDeferRun,
         }),
       });
       const body = await response.json().catch(() => null) as
-        | { session: OverseerSession; messages: OverseerMessage[]; approvalIds?: string[] }
+        | { session: OverseerSession; messages: OverseerMessage[]; events?: OverseerEvent[]; approvalIds?: string[]; queued?: boolean; queuedMessageId?: string }
         | { error?: { message?: string } }
         | null;
       if (!response.ok) {
         throw new Error(body && "error" in body ? body.error?.message ?? "Message failed." : "Message failed.");
       }
-      const next = body as { session: OverseerSession; messages: OverseerMessage[] };
+      const next = body as { session: OverseerSession; messages: OverseerMessage[]; events?: OverseerEvent[]; queued?: boolean };
       const existingAssistantIds = new Set(messages.filter((message) => message.role === "assistant").map((message) => message.id));
       const assistantToReveal = latestNewAssistantMessage(next.messages, existingAssistantIds);
       setSessions((current) => [next.session, ...current.filter((entry) => entry.id !== next.session.id)]);
       selectActiveSessionId(next.session.id);
       setMessages(next.messages);
-      revealAssistantMessage(assistantToReveal);
-      await loadDetail(next.session.id).catch(() => {
-        // The POST response already contains messages; event refresh is best effort.
-      });
+      if (next.events) setEvents(next.events);
+      if (!next.queued) revealAssistantMessage(assistantToReveal);
+      if (!next.queued) {
+        await loadDetail(next.session.id).catch(() => {
+          // The POST response already contains messages; event refresh is best effort.
+        });
+      }
     } catch (sendError) {
       setError(sendError instanceof Error ? sendError.message : "Could not send message.");
-      setDraft(content);
-      setAttachments(outgoingAttachments);
+      if (!draftRef.current.trim()) {
+        draftRef.current = content;
+        setDraft(content);
+      }
+      if (attachmentsRef.current.length === 0) {
+        attachmentsRef.current = outgoingAttachments;
+        setAttachments(outgoingAttachments);
+      }
     } finally {
-      setSending(false);
-      setOptimisticRunStartedAtMs(null);
+      setSendingCount((current) => Math.max(0, current - 1));
+      if (!shouldDeferRun) setOptimisticRunStartedAtMs(null);
     }
   };
+
+  const runQueuedMessage = useCallback(async (messageId: string) => {
+    const session = activeSession;
+    if (!session || queueDrainingRef.current) return;
+    queueDrainingRef.current = true;
+    const startedAt = Date.now();
+    setSendingCount((current) => current + 1);
+    setNowMs(startedAt);
+    setOptimisticRunStartedAtMs(startedAt);
+    setError(null);
+    try {
+      const response = await fetch(`/api/orchestration/companies/${encodeURIComponent(slug)}/overseer/sessions/${encodeURIComponent(session.id)}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ queuedMessageId: messageId }),
+      });
+      const body = await response.json().catch(() => null) as
+        | { session: OverseerSession; messages: OverseerMessage[]; events?: OverseerEvent[]; queued?: boolean }
+        | { error?: { message?: string } }
+        | null;
+      if (!response.ok) {
+        throw new Error(body && "error" in body ? body.error?.message ?? "Queued message failed." : "Queued message failed.");
+      }
+      const next = body as { session: OverseerSession; messages: OverseerMessage[]; events?: OverseerEvent[]; queued?: boolean };
+      setSessions((current) => [next.session, ...current.filter((entry) => entry.id !== next.session.id)]);
+      selectActiveSessionId(next.session.id);
+      setMessages(next.messages);
+      if (next.events) setEvents(next.events);
+      if (!next.queued) {
+        const existingAssistantIds = new Set(messages.filter((message) => message.role === "assistant").map((message) => message.id));
+        revealAssistantMessage(latestNewAssistantMessage(next.messages, existingAssistantIds));
+        await loadDetail(next.session.id).catch(() => {
+          // The POST response already contains messages; event refresh is best effort.
+        });
+      }
+    } catch (queueError) {
+      setError(queueError instanceof Error ? queueError.message : "Could not run queued message.");
+    } finally {
+      queueDrainingRef.current = false;
+      setSendingCount((current) => Math.max(0, current - 1));
+      setOptimisticRunStartedAtMs(null);
+    }
+  }, [activeSession, loadDetail, messages, revealAssistantMessage, selectActiveSessionId, slug]);
+
+  useEffect(() => {
+    if (!activeSession || activeSession.status === "running" || sending || cancelling || queueDrainingRef.current) return;
+    if (!nextQueuedMessage) return;
+    void runQueuedMessage(nextQueuedMessage.id);
+  }, [activeSession, cancelling, nextQueuedMessage, runQueuedMessage, sending]);
 
   const stopRun = async () => {
     if (!activeSession || !runActive || cancelling) return;
@@ -2514,7 +2601,7 @@ function OverseerCompactComposer({ controller }: { controller: OverseerCockpitCo
     watchActive,
     watchToggling,
   } = controller;
-  const sendDisabled = (!draft.trim() && attachments.length === 0) || sending || uploadingAttachments || cancelling;
+  const sendDisabled = (!draft.trim() && attachments.length === 0) || uploadingAttachments || cancelling;
   const stopDisabled = !activeSession || !runActive || cancelling;
   const watchDisabled = watchToggling || (sending && !watchActive);
 
@@ -2631,7 +2718,7 @@ function OverseerCompactComposer({ controller }: { controller: OverseerCockpitCo
             tone="accent"
             onClick={() => void sendMessage()}
           >
-            {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+            <Send size={14} />
           </CompactActionButton>
         </div>
       </div>

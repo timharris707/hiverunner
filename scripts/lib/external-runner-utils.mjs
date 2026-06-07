@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 
 export function readStdin() {
   return new Promise((resolve, reject) => {
@@ -42,6 +42,107 @@ export function numberFrom(value) {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function processGroupId(pid) {
+  if (!pid || process.platform === "win32") return null;
+  try {
+    const result = spawnSync("ps", ["-o", "pgid=", "-p", String(pid)], {
+      encoding: "utf8",
+    });
+    if (result.status !== 0) return null;
+    const parsed = Number.parseInt(result.stdout.trim(), 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function childProcessIds(pid) {
+  if (process.platform === "win32") return [];
+  try {
+    const result = spawnSync("pgrep", ["-P", String(pid)], { encoding: "utf8" });
+    if (result.status !== 0 && !result.stdout.trim()) return [];
+    return result.stdout
+      .split(/\s+/)
+      .map((value) => Number.parseInt(value, 10))
+      .filter((value) => Number.isFinite(value) && value > 0);
+  } catch {
+    return [];
+  }
+}
+
+function descendantProcessIds(pid) {
+  const seen = new Set();
+  const visit = (parentPid) => {
+    for (const childPid of childProcessIds(parentPid)) {
+      if (seen.has(childPid)) continue;
+      seen.add(childPid);
+      visit(childPid);
+    }
+  };
+  visit(pid);
+  return [...seen];
+}
+
+function signalProcessGroup(pid, pgid, signal) {
+  if (process.platform === "win32" || !pid || !pgid || pgid !== pid) return false;
+  try {
+    process.kill(-pgid, signal);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function signalDescendants(pid, signal) {
+  const descendants = pid ? descendantProcessIds(pid).reverse() : [];
+  for (const childPid of descendants) {
+    try {
+      process.kill(childPid, signal);
+    } catch {
+      // The child may have exited while walking the process tree.
+    }
+  }
+  return descendants.length;
+}
+
+function terminateChildProcess(child, { pid, pgid, signal, terminateProcessTree }) {
+  if (!terminateProcessTree) {
+    child.kill(signal);
+    return "process";
+  }
+
+  if (signalProcessGroup(pid, pgid, signal)) return "process_group";
+
+  const descendantCount = signalDescendants(pid, signal);
+  child.kill(signal);
+  return descendantCount > 0 ? "process_tree" : "process";
+}
+
+function noOutputError({ noOutputTimedOut, noOutputTimeoutMs, describeNoOutputTimeout }) {
+  if (!noOutputTimedOut) return null;
+  return describeNoOutputTimeout?.({ noOutputTimeoutMs }) ?? `Command produced no stdout/stderr for ${noOutputTimeoutMs}ms`;
+}
+
+function timeoutError({ timedOut, timeoutMs, describeTimeout }) {
+  return timedOut ? describeTimeout({ timeoutMs }) : null;
+}
+
+function bufferLimitError({ killedForBuffer, maxBufferBytes, describeBufferLimit }) {
+  return killedForBuffer ? describeBufferLimit({ maxBufferBytes }) : null;
+}
+
+function exitError({ exitCode, signal, describeExit }) {
+  return exitCode === 0 ? null : describeExit({ exitCode, signal });
+}
+
+function commandError(input) {
+  return input.spawnError ??
+    noOutputError(input) ??
+    timeoutError(input) ??
+    bufferLimitError(input) ??
+    exitError(input);
+}
+
 export function runBufferedCommand({
   command,
   args,
@@ -51,56 +152,151 @@ export function runBufferedCommand({
   stdin,
   timeoutMs,
   maxBufferBytes,
+  noOutputTimeoutMs,
+  progressIntervalMs,
+  terminationGraceMs = 5_000,
+  terminateProcessTree = false,
   describeTimeout,
+  describeNoOutputTimeout,
   describeBufferLimit,
   describeExit,
+  onProgress,
 }) {
   const startedAt = Date.now();
 
   return new Promise((resolve) => {
-    const child = spawn(command, args, { cwd, env, stdio });
+    const child = spawn(command, args, {
+      cwd,
+      env,
+      stdio,
+      detached: terminateProcessTree && process.platform !== "win32",
+    });
+    const pid = child.pid;
+    const pgid = terminateProcessTree ? processGroupId(pid) : null;
     const stdoutChunks = [];
     const stderrChunks = [];
     let stdoutBytes = 0;
     let stderrBytes = 0;
     let timedOut = false;
+    let noOutputTimedOut = false;
     let killedForBuffer = false;
+    let forcedKilled = false;
     let spawnError = null;
+    let lastOutputAt = null;
+    let terminationReason = null;
+    let terminationSignalMethod = null;
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill("SIGTERM");
+      requestTermination("timeout");
     }, timeoutMs);
+    let noOutputTimer = null;
+    let progressTimer = null;
+    let forceKillTimer = null;
+
+    const clearRuntimeTimers = () => {
+      clearTimeout(timer);
+      if (noOutputTimer) clearTimeout(noOutputTimer);
+      if (progressTimer) clearInterval(progressTimer);
+      if (forceKillTimer) clearTimeout(forceKillTimer);
+    };
+
+    function requestTermination(reason) {
+      if (!terminationReason) terminationReason = reason;
+      if (!terminationSignalMethod) {
+        terminationSignalMethod = terminateChildProcess(child, {
+          pid,
+          pgid,
+          signal: "SIGTERM",
+          terminateProcessTree,
+        });
+      }
+      if (terminationGraceMs > 0 && !forceKillTimer) {
+        forceKillTimer = setTimeout(() => {
+          forcedKilled = true;
+          terminationSignalMethod = terminateChildProcess(child, {
+            pid,
+            pgid,
+            signal: "SIGKILL",
+            terminateProcessTree,
+          });
+        }, terminationGraceMs);
+      }
+    }
+
+    const resetNoOutputTimer = () => {
+      if (!noOutputTimeoutMs) return;
+      if (noOutputTimer) clearTimeout(noOutputTimer);
+      noOutputTimer = setTimeout(() => {
+        noOutputTimedOut = true;
+        requestTermination("no_output_timeout");
+      }, noOutputTimeoutMs);
+    };
+
+    if (noOutputTimeoutMs) resetNoOutputTimer();
+    if (progressIntervalMs && onProgress) {
+      progressTimer = setInterval(() => {
+        onProgress({
+          durationMs: Date.now() - startedAt,
+          silentForMs: Date.now() - (lastOutputAt ?? startedAt),
+          lastOutputAt,
+          stdoutBytes,
+          stderrBytes,
+        });
+      }, progressIntervalMs);
+    }
 
     child.stdout?.on("data", (chunk) => {
+      lastOutputAt = Date.now();
       stdoutBytes += chunk.length;
       if (stdoutBytes <= maxBufferBytes) stdoutChunks.push(chunk);
+      resetNoOutputTimer();
       if (stdoutBytes > maxBufferBytes && !killedForBuffer) {
         killedForBuffer = true;
-        child.kill("SIGTERM");
+        requestTermination("buffer_limit");
       }
     });
     child.stderr?.on("data", (chunk) => {
+      lastOutputAt = Date.now();
       stderrBytes += chunk.length;
       if (stderrBytes <= maxBufferBytes) stderrChunks.push(chunk);
+      resetNoOutputTimer();
     });
     child.on("error", (error) => {
       spawnError = error.message;
     });
     child.on("close", (exitCode, signal) => {
-      clearTimeout(timer);
+      clearRuntimeTimers();
       const stdout = Buffer.concat(stdoutChunks).toString("utf8");
       const stderr = Buffer.concat(stderrChunks).toString("utf8");
-      const error =
-        spawnError ??
-        (timedOut ? describeTimeout({ timeoutMs }) : null) ??
-        (killedForBuffer ? describeBufferLimit({ maxBufferBytes }) : null) ??
-        (exitCode === 0 ? null : describeExit({ exitCode, signal }));
+      const error = commandError({
+        spawnError,
+        noOutputTimedOut,
+        noOutputTimeoutMs,
+        timedOut,
+        timeoutMs,
+        killedForBuffer,
+        maxBufferBytes,
+        exitCode,
+        signal,
+        describeNoOutputTimeout,
+        describeTimeout,
+        describeBufferLimit,
+        describeExit,
+      });
       resolve({
         stdout,
         stderr,
         exitCode,
         signal,
         error,
+        timedOut,
+        noOutputTimedOut,
+        killedForBuffer,
+        forcedKilled,
+        terminationReason,
+        terminationSignalMethod,
+        stdoutBytes,
+        stderrBytes,
         durationMs: Date.now() - startedAt,
       });
     });

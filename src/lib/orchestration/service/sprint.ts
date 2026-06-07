@@ -30,6 +30,9 @@ export function listProjectSprints(projectIdOrSlug: string): { sprints: Orchestr
         s.status,
         s.start_date,
         s.end_date,
+        s.source_template_version_id,
+        s.template_intake_answer_id,
+        s.template_generation_provenance_json,
         s.created_at,
         s.updated_at,
         COUNT(t.id) AS task_count,
@@ -195,4 +198,3 @@ export function updateSprint(input: {
 
   return { sprint: sprintFromRow(sprint) };
 }
-

@@ -20,6 +20,7 @@ import {
 } from "./mappers";
 import { parseJsonArray, parseJsonObject, parseProjectSettings } from "./validators";
 import type {
+  AgentRosterState,
   OrchestrationTaskDependency,
 } from "@/lib/orchestration/types";
 import type {
@@ -368,6 +369,9 @@ function taskFromRow(
     dueDate: row.due_date ?? undefined,
     sourceReviewId: row.source_review_id ?? undefined,
     sourceTakeawayId: row.source_takeaway_id ?? undefined,
+    sourceTemplateVersionId: row.source_template_version_id,
+    templateIntakeAnswerId: row.template_intake_answer_id,
+    templateGenerationProvenance: parseJsonObject(row.template_generation_provenance_json ?? "{}"),
     created: row.created_at,
     updated: row.updated_at,
     completedAt: row.completed_at ?? undefined,
@@ -387,6 +391,9 @@ function sprintFromRow(row: SprintRow): OrchestrationSprint {
     endDate: row.end_date ?? undefined,
     created: row.created_at,
     updated: row.updated_at,
+    sourceTemplateVersionId: row.source_template_version_id ?? undefined,
+    templateIntakeAnswerId: row.template_intake_answer_id ?? undefined,
+    templateGenerationProvenance: parseJsonObject(row.template_generation_provenance_json ?? "{}"),
     taskCount: Number(row.task_count ?? 0),
     inProgressCount: Number(row.in_progress_count ?? 0),
     reviewCount: Number(row.review_count ?? 0),
@@ -442,6 +449,9 @@ function getTaskRowForUpdate(db: Database.Database, taskId: string): TaskWithPro
         labels_json,
         source_review_id,
         source_takeaway_id,
+        source_template_version_id,
+        template_intake_answer_id,
+        template_generation_provenance_json,
         review_notes,
         started_at,
         completed_at,
@@ -612,6 +622,9 @@ function fetchTaskRowsForProject(db: Database.Database, projectId: string): Task
         t.eligible_assignee_ids,
         t.source_review_id,
         t.source_takeaway_id,
+        t.source_template_version_id,
+        t.template_intake_answer_id,
+        t.template_generation_provenance_json,
         t.task_key,
         t.due_date,
         t.created_at,
@@ -779,6 +792,16 @@ function commentsForTasks(
   return map;
 }
 
+export function agentRosterStateFor(
+  status: OrchestrationAgent["status"],
+  archivedAt?: string | null,
+): Exclude<AgentRosterState, "all"> {
+  if (archivedAt) return "archived";
+  if (status === "paused") return "paused";
+  if (status === "offline" || status === "error") return "bench";
+  return "active";
+}
+
 function agentFromRow(
   row: AgentRow,
   overrides?: {
@@ -787,6 +810,7 @@ function agentFromRow(
   }
 ): OrchestrationAgent {
   const effectiveStatus = overrides?.status ?? row.status;
+  const rosterState = agentRosterStateFor(effectiveStatus, row.archived_at);
   const effectiveCurrentTask =
     effectiveStatus === "working"
       ? (overrides?.currentTask ?? row.current_task_title ?? undefined)
@@ -802,6 +826,7 @@ function agentFromRow(
     role: row.role,
     avatar: row.avatar_url ?? undefined,
     status: effectiveStatus,
+    rosterState,
     currentTask: effectiveCurrentTask,
     personality: row.personality,
     model: row.model ?? undefined,
@@ -936,6 +961,9 @@ function taskById(db: Database.Database, taskId: string): OrchestrationTask {
         t.eligible_assignee_ids,
         t.source_review_id,
         t.source_takeaway_id,
+        t.source_template_version_id,
+        t.template_intake_answer_id,
+        t.template_generation_provenance_json,
         t.task_key,
         t.due_date,
         t.created_at,
@@ -1043,6 +1071,9 @@ function sprintById(db: Database.Database, sprintId: string): SprintRow | undefi
         s.status,
         s.start_date,
         s.end_date,
+        s.source_template_version_id,
+        s.template_intake_answer_id,
+        s.template_generation_provenance_json,
         s.created_at,
         s.updated_at,
         COUNT(t.id) AS task_count,
