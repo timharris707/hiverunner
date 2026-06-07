@@ -262,6 +262,10 @@ async function run() {
     const { upsertCompanyRuntime } = await import("@/lib/orchestration/runtime-registry");
     const { ensureCompanyExecutionHives } = await import("@/lib/orchestration/service/execution-hives");
     const { __testHooks: symphonyAdapterTestHooks } = await import("@/lib/orchestration/execution/adapters/symphony");
+    const {
+      __resetLiveRuntimeEventsForTests,
+      subscribeLiveRuntimeEvents,
+    } = await import("@/lib/orchestration/live-runtime-events");
 
     const db = getOrchestrationDb();
 
@@ -560,11 +564,16 @@ async function run() {
     });
 
     await test("task executionEngine=symphony dispatches through the external runner contract", async () => {
+      __resetLiveRuntimeEventsForTests();
+      const liveEvents: Array<{ kind: string; runId: string; provider: string; providerMeta?: Record<string, unknown> }> = [];
+      const unsubscribe = subscribeLiveRuntimeEvents((event) => {
+        liveEvents.push(event);
+      }, { companyId: company.id });
       const { queued, runId } = await executeQueuedSymphonyHeartbeat({
         taskId: task.id,
         reason: "symphony_execution_adapter_test",
         assertResultErrorNull: true,
-      });
+      }).finally(() => unsubscribe());
 
       assert.strictEqual(queued.queued, true);
       const payload = readFixturePayload();
@@ -662,6 +671,17 @@ async function run() {
         .prepare(`SELECT COUNT(*) AS count FROM execution_run_transcript_events WHERE execution_run_id = ? AND provider = 'symphony'`)
         .get(executionRun.id) as { count: number };
       assert.strictEqual(transcriptCount.count, 4);
+
+      const runtimeEvents = liveEvents.filter((event) => event.runId === executionRun.id);
+      assert.ok(runtimeEvents.some((event) => event.kind === "command_start" && event.provider === "symphony"), "Symphony should emit command_start live events");
+      assert.ok(runtimeEvents.some((event) => event.kind === "process_spawned"), "Symphony should emit process_spawned live events");
+      assert.ok(runtimeEvents.some((event) => event.kind === "stdout_chunk"), "Symphony should emit stdout_chunk live events");
+      assert.ok(runtimeEvents.some((event) => event.kind === "assistant_text_final"), "Symphony should emit final assistant text live events");
+      assert.ok(runtimeEvents.some((event) => event.kind === "command_exit"), "Symphony should emit command_exit live events");
+      assert.ok(
+        runtimeEvents.every((event) => event.providerMeta?.heartbeatRunId === runId),
+        "live runtime events should retain heartbeat run metadata",
+      );
 
       const polled = await pollTaskExecutionStatus(task.id);
       assert.strictEqual(polled.mode, "symphony");

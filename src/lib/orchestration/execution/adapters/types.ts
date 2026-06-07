@@ -15,6 +15,7 @@ import type Database from "better-sqlite3";
 
 import type { AgentRow, RuntimeState, TaskSession } from "@/lib/orchestration/engine/engine";
 import type { ResolvedExecutionRoute, ResolvedExecutionRouteAttempt } from "@/lib/orchestration/execution-route-resolver";
+import type { MCLiveEventKind, MCLiveEventPayload } from "@/lib/orchestration/live-events";
 import type { TaskModelRouting } from "@/lib/orchestration/task-model-routing";
 
 export interface ExecutionResult {
@@ -27,6 +28,17 @@ export interface ExecutionResult {
   usage?: Record<string, unknown>;
 }
 
+export type ExecutionLiveEventInput = {
+  kind: MCLiveEventKind;
+  summary: string;
+  payload: MCLiveEventPayload;
+  provider?: string;
+  providerMeta?: Record<string, unknown>;
+  ts?: number;
+};
+
+export type ExecutionLiveEventEmitter = (event: ExecutionLiveEventInput) => void;
+
 export interface ExecutionInput {
   agent: AgentRow;
   prompt: string;
@@ -38,6 +50,7 @@ export interface ExecutionInput {
   runId?: string;
   executionRunId?: string;
   emitEvent?: (eventType: string, detail: string) => void;
+  emitLiveEvent?: ExecutionLiveEventEmitter;
 }
 
 export interface ExecutionSelfHealInput {

@@ -31,9 +31,11 @@ import type {
   CancelAdapterResult,
   ExecutionAdapter,
   ExecutionInput,
+  ExecutionLiveEventEmitter,
   ExecutionResult,
   ExecutionSelfHealInput,
 } from "./types";
+import { createAdapterLiveChunkEmitter } from "./live-event-utils";
 
 type AnthropicRuntimeRow = {
   command: string | null;
@@ -112,6 +114,12 @@ function parseJson(value: string | null | undefined): Record<string, unknown> {
   }
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
 function stringFrom(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -135,6 +143,105 @@ function transcriptText(value: string | null | undefined, maxChars = 12000): { b
 function formatDuration(durationMs: number): string {
   if (durationMs < 1000) return `${durationMs}ms`;
   return `${(durationMs / 1000).toFixed(1)}s`;
+}
+
+function liveEventForTranscript(event: Record<string, unknown>, provider = "anthropic") {
+  const kind = typeof event.kind === "string" ? event.kind : "provider_event";
+  const title = typeof event.title === "string" ? event.title : kind;
+  const body = typeof event.body === "string" ? event.body : title;
+  const role = typeof event.role === "string" ? event.role : null;
+  const metadata = asRecord(event.metadata);
+  const providerMeta = {
+    transcriptKind: kind,
+    role,
+    title,
+    ...(metadata ? { transcriptMetadata: metadata } : {}),
+  };
+  const summary = trimForStorage(body || title, 240);
+
+  if (kind === "assistant_text_final") {
+    return {
+      kind: "assistant_text_final" as const,
+      summary,
+      provider,
+      payload: { text: body },
+      providerMeta,
+    };
+  }
+  if (kind === "thinking_summary") {
+    return {
+      kind: "thinking_summary" as const,
+      summary,
+      provider,
+      payload: { summary: body },
+      providerMeta,
+    };
+  }
+  if (kind === "tool_call_start") {
+    const toolName = title || "tool";
+    return {
+      kind: "tool_call_start" as const,
+      summary,
+      provider,
+      payload: {
+        toolCallId: typeof metadata?.toolUseId === "string" ? metadata.toolUseId : `${provider}:${toolName}`,
+        toolName,
+      },
+      providerMeta,
+    };
+  }
+  if (kind === "tool_result") {
+    const toolName = title || "tool";
+    return {
+      kind: "tool_result" as const,
+      summary,
+      provider,
+      payload: {
+        toolCallId: typeof metadata?.toolUseId === "string" ? metadata.toolUseId : `${provider}:${toolName}`,
+        toolName,
+        output: body,
+        isError: Boolean(metadata?.isError),
+      },
+      providerMeta,
+    };
+  }
+  if (kind === "run_start") {
+    return {
+      kind: "run_start" as const,
+      summary,
+      provider,
+      payload: { invocationSource: "claude-code-cli" },
+      providerMeta,
+    };
+  }
+  if (kind === "run_end") {
+    return {
+      kind: "run_end" as const,
+      summary,
+      provider,
+      payload: { result: "success" as const },
+      providerMeta,
+    };
+  }
+  if (kind === "run_error" || kind === "error") {
+    return {
+      kind: kind === "run_error" ? "run_error" as const : "error" as const,
+      summary,
+      provider,
+      payload: { errorMessage: body, recoverable: false },
+      providerMeta,
+    };
+  }
+  return {
+    kind: "provider_stream_event" as const,
+    summary,
+    provider,
+    payload: {
+      providerEventType: title || kind,
+      event,
+    },
+    providerMeta,
+  };
 }
 
 function normalizeClaudeModel(value: string): string {
@@ -457,6 +564,7 @@ function buildClaudeConfig(input: {
 }
 
 function runClaude(config: ClaudeExecConfig, cwd: string, opts?: {
+  onLiveEvent?: ExecutionLiveEventEmitter;
   onPidReady?: (pid: number | undefined) => void;
   onExit?: () => void;
   runId?: string;
@@ -466,6 +574,21 @@ function runClaude(config: ClaudeExecConfig, cwd: string, opts?: {
   const maxBuffer = numberFromEnv("MC_CLAUDE_EXEC_MAX_BUFFER", DEFAULT_CLAUDE_MAX_BUFFER);
 
   return new Promise((resolve) => {
+    opts?.onLiveEvent?.({
+      kind: "command_start",
+      summary: `Starting Claude Code CLI: ${path.basename(config.command)}`,
+      provider: "anthropic",
+      payload: {
+        command: config.cliDisplay,
+        cwd,
+        argv: [config.command, ...config.args],
+      },
+      providerMeta: {
+        model: config.model ?? null,
+        reasoningEffort: config.reasoningEffort ?? null,
+        permissionMode: config.permissionMode,
+      },
+    });
     const child = spawn(
       config.command,
       config.args,
@@ -476,10 +599,37 @@ function runClaude(config: ClaudeExecConfig, cwd: string, opts?: {
       },
     );
     opts?.onPidReady?.(child.pid);
+    opts?.onLiveEvent?.({
+      kind: "process_spawned",
+      summary: child.pid ? `Claude Code process spawned (${child.pid})` : "Claude Code process spawned",
+      provider: "anthropic",
+      payload: {
+        pid: child.pid,
+        command: path.basename(config.command),
+        cwd,
+      },
+      providerMeta: {
+        argv: [config.command, ...config.args],
+      },
+    });
 
     let settled = false;
     let stdout = "";
     let stderr = "";
+    const stdoutLive = createAdapterLiveChunkEmitter(opts?.onLiveEvent, {
+      kind: "stdout_chunk",
+      provider: "anthropic",
+      stream: "stdout",
+      summaryPrefix: "Claude Code",
+      startedAt: started,
+    });
+    const stderrLive = createAdapterLiveChunkEmitter(opts?.onLiveEvent, {
+      kind: "stderr_chunk",
+      provider: "anthropic",
+      stream: "stderr",
+      summaryPrefix: "Claude Code",
+      startedAt: started,
+    });
 
     const finish = (input: {
       ok: boolean;
@@ -490,6 +640,38 @@ function runClaude(config: ClaudeExecConfig, cwd: string, opts?: {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      stdoutLive.flush();
+      stderrLive.flush();
+      const durationMs = Date.now() - started;
+      opts?.onLiveEvent?.({
+        kind: "process_exit",
+        summary: `Claude Code process exited with code ${input.exitCode ?? "unknown"}`,
+        provider: "anthropic",
+        payload: {
+          pid: child.pid,
+          exitCode: input.exitCode,
+          signal: input.signal,
+          durationMs,
+        },
+        providerMeta: {
+          errorMessage: input.errorMessage,
+        },
+      });
+      opts?.onLiveEvent?.({
+        kind: "command_exit",
+        summary: `Claude Code command exited with code ${input.exitCode ?? "unknown"}`,
+        provider: "anthropic",
+        payload: {
+          command: path.basename(config.command),
+          exitCode: input.exitCode,
+          signal: input.signal,
+          durationMs,
+        },
+        providerMeta: {
+          stdoutBytes: Buffer.byteLength(stdout),
+          stderrBytes: Buffer.byteLength(stderr),
+        },
+      });
       resolve({
         ok: input.ok,
         stdout,
@@ -497,12 +679,25 @@ function runClaude(config: ClaudeExecConfig, cwd: string, opts?: {
         exitCode: input.exitCode,
         signal: input.signal,
         errorMessage: input.errorMessage,
-        durationMs: Date.now() - started,
+        durationMs,
       });
     };
 
     const timer = setTimeout(() => {
       if (settled || child.killed) return;
+      opts?.onLiveEvent?.({
+        kind: "runtime_progress",
+        summary: `Claude Code exceeded ${formatDuration(timeout)}; terminating process.`,
+        provider: "anthropic",
+        payload: {
+          phase: "timeout",
+          message: `Claude Code exceeded ${formatDuration(timeout)}; terminating process.`,
+        },
+        providerMeta: {
+          timeoutMs: timeout,
+          durationMs: Date.now() - started,
+        },
+      });
       child.kill("SIGTERM");
       setTimeout(() => {
         if (!child.killed) child.kill("SIGKILL");
@@ -518,7 +713,21 @@ function runClaude(config: ClaudeExecConfig, cwd: string, opts?: {
 
     child.stdout?.on("data", (chunk: Buffer | string) => {
       stdout += chunk.toString();
+      stdoutLive.push(chunk);
       if (stdout.length > maxBuffer) {
+        opts?.onLiveEvent?.({
+          kind: "runtime_progress",
+          summary: `Claude Code exceeded ${maxBuffer} bytes of stdout; terminating process.`,
+          provider: "anthropic",
+          payload: {
+            phase: "output_buffer_limit",
+            message: `Claude Code exceeded ${maxBuffer} bytes of stdout; terminating process.`,
+          },
+          providerMeta: {
+            maxBufferBytes: maxBuffer,
+            stdoutBytes: Buffer.byteLength(stdout),
+          },
+        });
         child.kill("SIGTERM");
         finish({
           ok: false,
@@ -530,7 +739,21 @@ function runClaude(config: ClaudeExecConfig, cwd: string, opts?: {
     });
     child.stderr?.on("data", (chunk: Buffer | string) => {
       stderr += chunk.toString();
+      stderrLive.push(chunk);
       if (stderr.length > maxBuffer) {
+        opts?.onLiveEvent?.({
+          kind: "runtime_progress",
+          summary: `Claude Code exceeded ${maxBuffer} bytes of stderr; terminating process.`,
+          provider: "anthropic",
+          payload: {
+            phase: "output_buffer_limit",
+            message: `Claude Code exceeded ${maxBuffer} bytes of stderr; terminating process.`,
+          },
+          providerMeta: {
+            maxBufferBytes: maxBuffer,
+            stderrBytes: Buffer.byteLength(stderr),
+          },
+        });
         child.kill("SIGTERM");
         finish({
           ok: false,
@@ -541,6 +764,12 @@ function runClaude(config: ClaudeExecConfig, cwd: string, opts?: {
       }
     });
     child.on("error", (error) => {
+      opts?.onLiveEvent?.({
+        kind: "error",
+        summary: `Claude Code process error: ${error.message}`,
+        provider: "anthropic",
+        payload: { errorMessage: error.message },
+      });
       finish({
         ok: false,
         exitCode: null,
@@ -681,6 +910,7 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
   const startedAt = new Date().toISOString();
   const { executionRunId } = input;
   const result = await runClaude(config, workspaceRoot, executionRunId ? {
+    onLiveEvent: input.emitLiveEvent,
     onPidReady: (pid) => {
       if (!pid) return;
       try { db.prepare("UPDATE execution_runs SET process_pid = ? WHERE id = ?").run(pid, executionRunId); } catch {}
@@ -689,7 +919,7 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
       try { db.prepare("UPDATE execution_runs SET process_pid = NULL WHERE id = ?").run(executionRunId); } catch {}
     },
     runId: executionRunId,
-  } : undefined);
+  } : { onLiveEvent: input.emitLiveEvent });
   const completedAt = new Date().toISOString();
   const telemetry = collectAnthropicCliTelemetry(result.stdout, result.stderr, {
     cli: config.cliDisplay,
@@ -756,6 +986,116 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
     }
   }
 
+  const transcriptEvents = [
+    {
+      kind: "run_start",
+      role: "system",
+      title: "Claude Code CLI command",
+      body: config.cliDisplay,
+      occurredAt: startedAt,
+      metadata: {
+        command,
+        args: config.args,
+        workspaceRoot,
+        runtimeSlug: runtime?.runtime_slug ?? null,
+        runtimeScope: runtime?.scope ?? null,
+        model,
+        reasoningEffort: controls.reasoningEffort,
+        speedPreference: controls.speedPreference,
+        fastMode: controls.fastMode,
+        serviceTier: controls.serviceTier,
+        unsupportedRuntimeControls: {
+          speedPreference: controls.speedPreference,
+          fastMode: controls.fastMode,
+          serviceTier: controls.serviceTier,
+        },
+        permissionMode,
+      },
+    },
+    ...(thinkingTranscript.body
+      ? [{
+          kind: "thinking_summary",
+          role: "assistant",
+          title: "thinking",
+          body: thinkingTranscript.body,
+          occurredAt: completedAt,
+          metadata: {
+            truncated: thinkingTranscript.truncated,
+            rawLength: telemetry.thinkingSummary.length,
+          },
+        }]
+      : []),
+    ...telemetry.toolCallNames.map((toolName) => ({
+      kind: "tool_call_start",
+      role: "tool",
+      title: toolName,
+      body: `Claude Code reported tool use: ${toolName}`,
+      occurredAt: completedAt,
+      metadata: {
+        toolName,
+      },
+    })),
+    ...(toolResultTranscript.body
+      ? [{
+          kind: "tool_result",
+          role: "tool",
+          title: "tool results",
+          body: toolResultTranscript.body,
+          occurredAt: completedAt,
+          metadata: {
+            truncated: toolResultTranscript.truncated,
+            rawLength: telemetry.toolResultSummary.length,
+          },
+        }]
+      : []),
+    ...(assistantTranscript.body
+      ? [{
+          kind: "assistant_text_final",
+          role: "assistant",
+          title: "assistant",
+          body: assistantTranscript.body,
+          occurredAt: completedAt,
+          metadata: {
+            truncated: assistantTranscript.truncated,
+            resultSubtype: telemetry.resultSubtype,
+            sessionId: telemetry.sessionId,
+          },
+        }]
+      : []),
+    ...(stderrTranscript.body && !ok
+      ? [{
+          kind: "error",
+          role: "error",
+          title: "stderr",
+          body: stderrTranscript.body,
+          occurredAt: completedAt,
+          metadata: {
+            truncated: stderrTranscript.truncated,
+            rawLength: result.stderr.length,
+          },
+        }]
+      : []),
+    {
+      kind: ok ? "run_end" : "run_error",
+      role: "system",
+      title: ok ? "Claude Code completed" : "Claude Code failed",
+      body: ok
+        ? `Claude Code completed in ${formatDuration(result.durationMs)}.`
+        : errorMessage || "Claude Code failed.",
+      occurredAt: completedAt,
+      metadata: {
+        exitCode: result.exitCode,
+        signal: result.signal,
+        durationMs: result.durationMs,
+        sessionId: telemetry.sessionId,
+        resultSubtype: telemetry.resultSubtype,
+      },
+    },
+  ];
+  for (const event of transcriptEvents) {
+    input.emitLiveEvent?.(liveEventForTranscript(event));
+  }
+
   const usage = {
     provider: "anthropic",
     runnerProvider: "anthropic",
@@ -786,112 +1126,7 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
     stdoutTail: trimForStorage(result.stdout, 4000),
     stderrTail: trimForStorage(result.stderr, 2000),
     ...telemetry,
-    transcriptEvents: [
-      {
-        kind: "run_start",
-        role: "system",
-        title: "Claude Code CLI command",
-        body: config.cliDisplay,
-        occurredAt: startedAt,
-        metadata: {
-          command,
-          args: config.args,
-          workspaceRoot,
-          runtimeSlug: runtime?.runtime_slug ?? null,
-          runtimeScope: runtime?.scope ?? null,
-          model,
-          reasoningEffort: controls.reasoningEffort,
-          speedPreference: controls.speedPreference,
-          fastMode: controls.fastMode,
-          serviceTier: controls.serviceTier,
-          unsupportedRuntimeControls: {
-            speedPreference: controls.speedPreference,
-            fastMode: controls.fastMode,
-            serviceTier: controls.serviceTier,
-          },
-          permissionMode,
-        },
-      },
-      ...(thinkingTranscript.body
-        ? [{
-            kind: "thinking_summary",
-            role: "assistant",
-            title: "thinking",
-            body: thinkingTranscript.body,
-            occurredAt: completedAt,
-            metadata: {
-              truncated: thinkingTranscript.truncated,
-              rawLength: telemetry.thinkingSummary.length,
-            },
-          }]
-        : []),
-      ...telemetry.toolCallNames.map((toolName) => ({
-        kind: "tool_call_start",
-        role: "tool",
-        title: toolName,
-        body: `Claude Code reported tool use: ${toolName}`,
-        occurredAt: completedAt,
-        metadata: {
-          toolName,
-        },
-      })),
-      ...(toolResultTranscript.body
-        ? [{
-            kind: "tool_result",
-            role: "tool",
-            title: "tool results",
-            body: toolResultTranscript.body,
-            occurredAt: completedAt,
-            metadata: {
-              truncated: toolResultTranscript.truncated,
-              rawLength: telemetry.toolResultSummary.length,
-            },
-          }]
-        : []),
-      ...(assistantTranscript.body
-        ? [{
-            kind: "assistant_text_final",
-            role: "assistant",
-            title: "assistant",
-            body: assistantTranscript.body,
-            occurredAt: completedAt,
-            metadata: {
-              truncated: assistantTranscript.truncated,
-              resultSubtype: telemetry.resultSubtype,
-              sessionId: telemetry.sessionId,
-            },
-          }]
-        : []),
-      ...(stderrTranscript.body && !ok
-        ? [{
-            kind: "error",
-            role: "error",
-            title: "stderr",
-            body: stderrTranscript.body,
-            occurredAt: completedAt,
-            metadata: {
-              truncated: stderrTranscript.truncated,
-              rawLength: result.stderr.length,
-            },
-          }]
-        : []),
-      {
-        kind: ok ? "run_end" : "run_error",
-        role: "system",
-        title: ok ? "Claude Code completed" : "Claude Code failed",
-        body: ok
-          ? `Claude Code completed in ${formatDuration(result.durationMs)}.`
-          : errorMessage || "Claude Code failed.",
-        occurredAt: completedAt,
-        metadata: {
-          exitCode: result.exitCode,
-          signal: result.signal,
-          durationMs: result.durationMs,
-          sessionId: telemetry.sessionId,
-          resultSubtype: telemetry.resultSubtype,
-        },
-      },
-    ],
+    transcriptEvents,
     note: "Claude Code CLI emitted stream-json telemetry. HiveRunner persists normalized assistant, thinking, tool, and lifecycle events as post-run transcript evidence.",
   };
 

@@ -4,7 +4,9 @@ import type Database from "better-sqlite3";
 import { OrchestrationApiError } from "@/lib/orchestration/api";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { getExecutionAdapter } from "@/lib/orchestration/execution/adapters";
+import type { ExecutionLiveEventInput } from "@/lib/orchestration/execution/adapters/types";
 import { cleanupRunArtifacts } from "@/lib/orchestration/execution/cleanup";
+import { publishLiveRuntimeEvent } from "@/lib/orchestration/live-runtime-events";
 import { reconcileTerminalOpenClawTaskState } from "@/lib/orchestration/openclaw-reconciliation";
 import { recordCompanyAuditEvent } from "@/lib/orchestration/service/audit";
 import { checkProtectedRuntimeExecution } from "@/lib/orchestration/service/runtime-governance";
@@ -1052,6 +1054,28 @@ export async function executeHeartbeatRun(
         runId,
         executionRunId: executionRunId ?? undefined,
         emitEvent: (eventType, detail) => emitRunEvent(runId, agent.id, eventType, detail, db),
+        emitLiveEvent: executionRunId
+          ? (event: ExecutionLiveEventInput) => {
+              publishLiveRuntimeEvent({
+                id: randomUUID(),
+                agentId: agent.id,
+                runId: executionRunId,
+                companyId: agent.company_id,
+                kind: event.kind,
+                summary: event.summary,
+                ts: event.ts ?? Date.now(),
+                provider: event.provider ?? attemptProvider ?? attemptAdapterType,
+                payload: event.payload,
+                providerMeta: {
+                  heartbeatRunId: runId,
+                  adapterType: attemptAdapterType,
+                  executionRunProvider: attemptProvider ?? null,
+                  routeAttemptIndex: index,
+                  ...(event.providerMeta ?? {}),
+                },
+              });
+            }
+          : undefined,
       });
     } catch (error) {
       result = {

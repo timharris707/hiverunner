@@ -90,6 +90,10 @@ async function run() {
   const { assignCompanySkillToAgent, createCompanySkill, listRuntimeAgentSkills, updateCompanySkill } = await import("@/lib/orchestration/company-skills");
   const { updateApprovalStatus } = await import("@/lib/orchestration/service/approval");
   const { updateCompanyRuntimeGovernanceSettings } = await import("@/lib/orchestration/service/runtime-governance");
+  const {
+    __resetLiveRuntimeEventsForTests,
+    subscribeLiveRuntimeEvents,
+  } = await import("@/lib/orchestration/live-runtime-events");
 
   const db = getOrchestrationDb();
   const company = createCompany({
@@ -187,6 +191,11 @@ async function run() {
   }).task;
 
   await test("heartbeat run dispatches through Codex CLI and records task evidence", async () => {
+    __resetLiveRuntimeEventsForTests();
+    const liveEvents: Array<{ kind: string; runId: string; provider: string; payload: unknown; providerMeta?: Record<string, unknown> }> = [];
+    const unsubscribe = subscribeLiveRuntimeEvents((event) => {
+      liveEvents.push(event);
+    }, { companyId: company.id });
     const wake = enqueueWakeup({
       agentId: agent.id,
       companyId: company.id,
@@ -200,7 +209,12 @@ async function run() {
       },
     }, db);
 
-    const result = await executeHeartbeatRun(wake.heartbeatRunId, db);
+    let result: Awaited<ReturnType<typeof executeHeartbeatRun>>;
+    try {
+      result = await executeHeartbeatRun(wake.heartbeatRunId, db);
+    } finally {
+      unsubscribe();
+    }
     assert.strictEqual(result.status, "succeeded", result.error ?? "heartbeat should succeed");
     assert.strictEqual(result.error, null);
 
@@ -292,6 +306,18 @@ async function run() {
     assert.ok(transcriptEvents.some((event) => event.event_kind === "tool_result"));
     assert.ok(transcriptEvents.some((event) => event.event_kind === "assistant_text_final" && event.body.includes("fake codex completed")));
     assert.strictEqual(transcriptEvents[transcriptEvents.length - 1]?.event_kind, "run_end");
+
+    const runtimeEvents = liveEvents.filter((event) => event.runId === executionRun!.id);
+    assert.ok(runtimeEvents.some((event) => event.kind === "command_start" && event.provider === "codex"), "Codex should emit command_start live events");
+    assert.ok(runtimeEvents.some((event) => event.kind === "process_spawned"), "Codex should emit process_spawned live events");
+    assert.ok(runtimeEvents.some((event) => event.kind === "stdout_chunk"), "Codex should emit stdout_chunk live events");
+    assert.ok(runtimeEvents.some((event) => event.kind === "assistant_text_delta"), "Codex should emit assistant text live events");
+    assert.ok(runtimeEvents.some((event) => event.kind === "tool_call_start"), "Codex should emit tool call live events");
+    assert.ok(runtimeEvents.some((event) => event.kind === "command_exit"), "Codex should emit command_exit live events");
+    assert.ok(
+      runtimeEvents.every((event) => event.providerMeta?.heartbeatRunId === wake.heartbeatRunId),
+      "live runtime events should retain heartbeat run metadata",
+    );
 
     const comment = db
       .prepare(

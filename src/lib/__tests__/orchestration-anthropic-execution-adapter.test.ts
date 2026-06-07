@@ -74,6 +74,10 @@ async function run() {
   const { upsertCompanyRuntime } = await import("@/lib/orchestration/runtime-registry");
   const { ensureCompanyExecutionHives } = await import("@/lib/orchestration/service/execution-hives");
   const { anthropicExecutionAdapter } = await import("@/lib/orchestration/execution/adapters");
+  const {
+    __resetLiveRuntimeEventsForTests,
+    subscribeLiveRuntimeEvents,
+  } = await import("@/lib/orchestration/live-runtime-events");
 
   const db = getOrchestrationDb();
   const now = () => new Date().toISOString();
@@ -233,6 +237,11 @@ async function run() {
   }).task;
 
   await test("heartbeat run dispatches through Claude CLI and records structured telemetry", async () => {
+    __resetLiveRuntimeEventsForTests();
+    const liveEvents: Array<{ kind: string; runId: string; provider: string; providerMeta?: Record<string, unknown> }> = [];
+    const unsubscribe = subscribeLiveRuntimeEvents((event) => {
+      liveEvents.push(event);
+    }, { companyId: company.id });
     const wake = enqueueWakeup({
       agentId: agent.id,
       companyId: company.id,
@@ -246,7 +255,12 @@ async function run() {
       },
     }, db);
 
-    const result = await executeHeartbeatRun(wake.heartbeatRunId, db);
+    let result: Awaited<ReturnType<typeof executeHeartbeatRun>>;
+    try {
+      result = await executeHeartbeatRun(wake.heartbeatRunId, db);
+    } finally {
+      unsubscribe();
+    }
     assert.strictEqual(result.status, "succeeded", result.error ?? "heartbeat should succeed");
     assert.strictEqual(result.error, null);
 
@@ -322,6 +336,19 @@ async function run() {
     assert.strictEqual(transcriptEvents[4]?.event_kind, "assistant_text_final");
     assert.ok(transcriptEvents[4]?.body.includes("Final Claude fixture summary."));
     assert.strictEqual(transcriptEvents[5]?.event_kind, "run_end");
+
+    const runtimeEvents = liveEvents.filter((event) => event.runId === executionRun!.id);
+    assert.ok(runtimeEvents.some((event) => event.kind === "command_start" && event.provider === "anthropic"), "Claude should emit command_start live events");
+    assert.ok(runtimeEvents.some((event) => event.kind === "process_spawned"), "Claude should emit process_spawned live events");
+    assert.ok(runtimeEvents.some((event) => event.kind === "stdout_chunk"), "Claude should emit stdout_chunk live events");
+    assert.ok(runtimeEvents.some((event) => event.kind === "thinking_summary"), "Claude should emit thinking live events");
+    assert.ok(runtimeEvents.some((event) => event.kind === "tool_call_start"), "Claude should emit tool call live events");
+    assert.ok(runtimeEvents.some((event) => event.kind === "assistant_text_final"), "Claude should emit final assistant text live events");
+    assert.ok(runtimeEvents.some((event) => event.kind === "command_exit"), "Claude should emit command_exit live events");
+    assert.ok(
+      runtimeEvents.every((event) => event.providerMeta?.heartbeatRunId === wake.heartbeatRunId),
+      "live runtime events should retain heartbeat run metadata",
+    );
 
     const comment = db
       .prepare(

@@ -31,6 +31,8 @@ import type {
   CancelAdapterResult,
   ExecutionAdapter,
   ExecutionInput,
+  ExecutionLiveEventEmitter,
+  ExecutionLiveEventInput,
   ExecutionResult,
   ExecutionSelfHealInput,
 } from "./types";
@@ -39,6 +41,7 @@ import {
   captureWorkspaceGitSnapshots,
   detectReadOnlyIntent,
 } from "../workspace-run-visibility";
+import { createAdapterLiveChunkEmitter } from "./live-event-utils";
 
 type CodexRuntimeRow = {
   command: string | null;
@@ -677,6 +680,134 @@ function liveDetailForTranscript(event: TranscriptEventInput): string {
   return (body || title || event.kind).slice(0, 240);
 }
 
+function toolCallIdForTranscript(event: TranscriptEventInput): string {
+  const metadata = asRecord(event.metadata);
+  const explicit =
+    stringFrom(metadata?.toolCallId) ||
+    stringFrom(metadata?.toolUseId) ||
+    stringFrom(metadata?.id);
+  if (explicit) return explicit;
+  return `codex:${event.title ?? event.kind}:${event.occurredAt ?? ""}`;
+}
+
+function liveEventForTranscript(event: TranscriptEventInput): ExecutionLiveEventInput {
+  const text = event.body ?? event.title ?? event.kind;
+  const providerMeta = {
+    transcriptKind: event.kind,
+    role: event.role ?? null,
+    title: event.title ?? null,
+    ...(event.metadata ? { transcriptMetadata: event.metadata } : {}),
+  };
+
+  if (event.kind === "assistant_text_delta") {
+    return {
+      kind: "assistant_text_delta",
+      summary: liveDetailForTranscript(event),
+      provider: "codex",
+      payload: { delta: text, accumulatedText: text },
+      providerMeta,
+    };
+  }
+  if (event.kind === "assistant_text_final") {
+    return {
+      kind: "assistant_text_final",
+      summary: liveDetailForTranscript(event),
+      provider: "codex",
+      payload: { text },
+      providerMeta,
+    };
+  }
+  if (event.kind === "thinking_summary") {
+    return {
+      kind: "thinking_summary",
+      summary: liveDetailForTranscript(event),
+      provider: "codex",
+      payload: { summary: text },
+      providerMeta,
+    };
+  }
+  if (event.kind === "tool_call_start") {
+    const toolName = event.title ?? "tool";
+    return {
+      kind: "tool_call_start",
+      summary: liveDetailForTranscript(event),
+      provider: "codex",
+      payload: {
+        toolCallId: toolCallIdForTranscript(event),
+        toolName,
+      },
+      providerMeta,
+    };
+  }
+  if (event.kind === "tool_result") {
+    const toolName = event.title ?? "tool";
+    return {
+      kind: "tool_result",
+      summary: liveDetailForTranscript(event),
+      provider: "codex",
+      payload: {
+        toolCallId: toolCallIdForTranscript(event),
+        toolName,
+        output: text,
+        isError: false,
+      },
+      providerMeta,
+    };
+  }
+  if (event.kind === "run_start") {
+    return {
+      kind: "run_start",
+      summary: liveDetailForTranscript(event),
+      provider: "codex",
+      payload: { invocationSource: "codex-cli" },
+      providerMeta,
+    };
+  }
+  if (event.kind === "run_end") {
+    return {
+      kind: "run_end",
+      summary: liveDetailForTranscript(event),
+      provider: "codex",
+      payload: { result: "success" },
+      providerMeta,
+    };
+  }
+  if (event.kind === "run_error") {
+    return {
+      kind: "run_error",
+      summary: liveDetailForTranscript(event),
+      provider: "codex",
+      payload: { errorMessage: text, recoverable: false },
+      providerMeta,
+    };
+  }
+  if (event.kind === "error") {
+    return {
+      kind: "error",
+      summary: liveDetailForTranscript(event),
+      provider: "codex",
+      payload: { errorMessage: text },
+      providerMeta,
+    };
+  }
+  return {
+    kind: "provider_stream_event",
+    summary: liveDetailForTranscript(event),
+    provider: "codex",
+    payload: {
+      providerEventType: event.title ?? event.kind,
+      event: {
+        kind: event.kind,
+        role: event.role ?? null,
+        title: event.title ?? null,
+        body: event.body ?? null,
+        metadata: event.metadata ?? null,
+      },
+    },
+    providerMeta,
+  };
+}
+
 function resolveCodexRuntime(db: Database.Database, input: ExecutionInput): CodexRuntimeRow | null {
   const rows = db
     .prepare(
@@ -868,6 +999,7 @@ function runCodex(
   options: {
     onTranscriptEvent?: (event: TranscriptEventInput) => void;
     onLifecycleEvent?: (event: TranscriptEventInput) => void;
+    onLiveEvent?: ExecutionLiveEventEmitter;
     onPidReady?: (pid: number | undefined) => void;
     onExit?: () => void;
     runId?: string;
@@ -898,15 +1030,58 @@ function runCodex(
   args.push("-");
 
   return new Promise((resolve) => {
+    options.onLiveEvent?.({
+      kind: "command_start",
+      summary: `Starting Codex CLI: ${path.basename(command)} exec`,
+      provider: "codex",
+      payload: {
+        command: `${path.basename(command)} ${args.join(" ")}`,
+        cwd,
+        argv: [command, ...args],
+      },
+      providerMeta: {
+        model: model || null,
+        reasoningEffort: reasoningEffort || null,
+        serviceTier: serviceTier ?? null,
+        additionalWritableDirs,
+      },
+    });
     const child = spawn(command, args, {
       cwd,
       env: buildEnv(command),
       stdio: ["pipe", "pipe", "pipe"],
     });
     options.onPidReady?.(child.pid);
+    options.onLiveEvent?.({
+      kind: "process_spawned",
+      summary: child.pid ? `Codex process spawned (${child.pid})` : "Codex process spawned",
+      provider: "codex",
+      payload: {
+        pid: child.pid,
+        command: path.basename(command),
+        cwd,
+      },
+      providerMeta: {
+        argv: [command, ...args],
+      },
+    });
 
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
+    const stdoutLive = createAdapterLiveChunkEmitter(options.onLiveEvent, {
+      kind: "stdout_chunk",
+      provider: "codex",
+      stream: "stdout",
+      summaryPrefix: "Codex",
+      startedAt: started,
+    });
+    const stderrLive = createAdapterLiveChunkEmitter(options.onLiveEvent, {
+      kind: "stderr_chunk",
+      provider: "codex",
+      stream: "stderr",
+      summaryPrefix: "Codex",
+      startedAt: started,
+    });
     let bufferedBytes = 0;
     let timedOut = false;
     let killedForBuffer = false;
@@ -938,6 +1113,19 @@ function runCodex(
     const timer = setTimeout(() => {
       if (settled) return;
       timedOut = true;
+      options.onLiveEvent?.({
+        kind: "runtime_progress",
+        summary: `Codex exceeded ${formatDuration(timeout)}; terminating process.`,
+        provider: "codex",
+        payload: {
+          phase: "timeout",
+          message: `Codex exceeded ${formatDuration(timeout)}; terminating process.`,
+        },
+        providerMeta: {
+          timeoutMs: timeout,
+          durationMs: Date.now() - started,
+        },
+      });
       options.onLifecycleEvent?.({
         kind: "error",
         role: "error",
@@ -958,6 +1146,19 @@ function runCodex(
       bufferedBytes += chunk.length;
       if (bufferedBytes > maxBuffer && !killedForBuffer) {
         killedForBuffer = true;
+        options.onLiveEvent?.({
+          kind: "runtime_progress",
+          summary: `Codex exceeded ${maxBuffer} bytes of buffered output; terminating process.`,
+          provider: "codex",
+          payload: {
+            phase: "output_buffer_limit",
+            message: `Codex exceeded ${maxBuffer} bytes of buffered output; terminating process.`,
+          },
+          providerMeta: {
+            maxBufferBytes: maxBuffer,
+            bufferedBytes,
+          },
+        });
         options.onLifecycleEvent?.({
           kind: "error",
           role: "error",
@@ -977,6 +1178,7 @@ function runCodex(
       firstStdoutAtMs ??= atMs;
       lastStdoutAtMs = atMs;
       appendChunk(stdoutChunks, chunk);
+      stdoutLive.push(chunk);
       jsonCollector.push(chunk.toString("utf8"));
     });
     child.stderr.on("data", (chunk: Buffer) => {
@@ -984,9 +1186,16 @@ function runCodex(
       firstStderrAtMs ??= atMs;
       lastStderrAtMs = atMs;
       appendChunk(stderrChunks, chunk);
+      stderrLive.push(chunk);
     });
     child.on("error", (error) => {
       spawnError = error;
+      options.onLiveEvent?.({
+        kind: "error",
+        summary: `Codex process error: ${error.message}`,
+        provider: "codex",
+        payload: { errorMessage: error.message },
+      });
     });
 
     child.on("close", (code, signal) => {
@@ -994,6 +1203,8 @@ function runCodex(
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      stdoutLive.flush();
+      stderrLive.flush();
 
       let finalMessage = "";
       try {
@@ -1030,6 +1241,41 @@ function runCodex(
       if (timedOut && options.runId) {
         cleanupRunArtifacts(options.runId).catch(() => {});
       }
+      const durationMs = Date.now() - started;
+      options.onLiveEvent?.({
+        kind: "process_exit",
+        summary: `Codex process exited with code ${code ?? "unknown"}`,
+        provider: "codex",
+        payload: {
+          pid: child.pid,
+          exitCode: code,
+          signal,
+          durationMs,
+        },
+        providerMeta: {
+          timedOut,
+          killedForBuffer,
+          spawnError: spawnError?.message ?? null,
+        },
+      });
+      options.onLiveEvent?.({
+        kind: "command_exit",
+        summary: `Codex command exited with code ${code ?? "unknown"}`,
+        provider: "codex",
+        payload: {
+          command: path.basename(command),
+          exitCode: code,
+          signal,
+          durationMs,
+        },
+        providerMeta: {
+          timedOut,
+          killedForBuffer,
+          stdoutBytes: Buffer.byteLength(stdout),
+          stderrBytes: Buffer.byteLength(stderr),
+          outputLastMessageBytes,
+        },
+      });
 
       resolve({
         ok: code === 0 && !spawnError && !timedOut && !killedForBuffer,
@@ -1038,7 +1284,7 @@ function runCodex(
         exitCode: code,
         signal,
         errorMessage,
-        durationMs: Date.now() - started,
+        durationMs,
         jsonTelemetry,
         diagnostics: {
           promptChars: prompt.length,
@@ -1171,13 +1417,17 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
   const recordLifecycleEvent = (event: TranscriptEventInput) => {
     lifecycleEvents.push(event);
     input.emitEvent?.(liveEventTypeForTranscript(event), liveDetailForTranscript(event));
+    input.emitLiveEvent?.(liveEventForTranscript(event));
+  };
+  const recordTranscriptEvent = (event: TranscriptEventInput) => {
+    input.emitEvent?.(liveEventTypeForTranscript(event), liveDetailForTranscript(event));
+    input.emitLiveEvent?.(liveEventForTranscript(event));
   };
   const { executionRunId } = input;
   const result = await runCodex(command, input.prompt, workspaceRoot, model, reasoningEffort, appliedServiceTier, workspace.additionalWritableDirs, {
-    onTranscriptEvent: (event) => {
-      input.emitEvent?.(liveEventTypeForTranscript(event), liveDetailForTranscript(event));
-    },
+    onTranscriptEvent: recordTranscriptEvent,
     onLifecycleEvent: recordLifecycleEvent,
+    onLiveEvent: input.emitLiveEvent,
     ...(executionRunId ? {
       runId: executionRunId,
       onPidReady: (pid: number | undefined) => {

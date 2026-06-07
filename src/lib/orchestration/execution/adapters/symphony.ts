@@ -38,6 +38,7 @@ import type {
   CancelAdapterResult,
   ExecutionAdapter,
   ExecutionInput,
+  ExecutionLiveEventEmitter,
   ExecutionResult,
 } from "./types";
 import {
@@ -45,6 +46,7 @@ import {
   captureWorkspaceGitSnapshots,
   detectReadOnlyIntent,
 } from "../workspace-run-visibility";
+import { createAdapterLiveChunkEmitter } from "./live-event-utils";
 
 type SymphonyRuntimeRow = {
   command: string | null;
@@ -129,6 +131,7 @@ type SymphonyRunCommandOptions = {
   heartbeatRunId?: string | null;
   db?: Database.Database;
   emitEvent?: (eventType: string, detail: string) => void;
+  emitLiveEvent?: ExecutionLiveEventEmitter;
 };
 
 type MergeRunnerMetadataOptions = {
@@ -151,6 +154,70 @@ function getDb(): Database.Database {
     getOrchestrationDb: () => Database.Database;
   };
   return getOrchestrationDb();
+}
+
+function liveEventForTranscript(event: Record<string, unknown>, providerMetaPatch: Record<string, unknown> = {}) {
+  const kind = typeof event.kind === "string" ? event.kind : "provider_event";
+  const title = typeof event.title === "string" ? event.title : kind;
+  const body = typeof event.body === "string" ? event.body : title;
+  const role = typeof event.role === "string" ? event.role : null;
+  const metadata = asRecord(event.metadata);
+  const providerMeta = {
+    transcriptKind: kind,
+    role,
+    title,
+    ...(metadata ? { transcriptMetadata: metadata } : {}),
+    ...providerMetaPatch,
+  };
+  const summary = trimForStorage(body || title, 240);
+
+  if (kind === "assistant_text_final") {
+    return {
+      kind: "assistant_text_final" as const,
+      summary,
+      provider: "symphony",
+      payload: { text: body },
+      providerMeta,
+    };
+  }
+  if (kind === "run_start") {
+    return {
+      kind: "run_start" as const,
+      summary,
+      provider: "symphony",
+      payload: { invocationSource: "symphony-command" },
+      providerMeta,
+    };
+  }
+  if (kind === "run_end") {
+    const failed = /fail|error/i.test(title) || /fail|error/i.test(body);
+    return {
+      kind: "run_end" as const,
+      summary,
+      provider: "symphony",
+      payload: { result: failed ? "error" as const : "success" as const },
+      providerMeta,
+    };
+  }
+  if (kind === "provider_error") {
+    return {
+      kind: "run_error" as const,
+      summary,
+      provider: "symphony",
+      payload: { errorMessage: body, recoverable: false },
+      providerMeta,
+    };
+  }
+  return {
+    kind: "provider_stream_event" as const,
+    summary,
+    provider: "symphony",
+    payload: {
+      providerEventType: title || kind,
+      event,
+    },
+    providerMeta,
+  };
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -1037,6 +1104,23 @@ function runCommand(
   const stdinPayload = `${JSON.stringify(payload, null, 2)}\n`;
 
   return new Promise((resolve) => {
+    options?.emitLiveEvent?.({
+      kind: "command_start",
+      summary: `Starting external runner: ${config.displayName}`,
+      provider: "symphony",
+      payload: {
+        command: `${config.command} ${config.args.join(" ")}`.trim(),
+        cwd: config.cwd,
+        argv: [config.command, ...config.args],
+      },
+      providerMeta: {
+        runnerProvider: config.runnerProvider,
+        runnerModel: config.runnerModel,
+        launchCommand: config.launchCommand,
+        launchArgs: config.launchArgs,
+        runtimeSlug: config.runtimeSlug,
+      },
+    });
     const child = spawn(config.launchCommand, config.launchArgs, {
       cwd: config.cwd,
       env: {
@@ -1049,8 +1133,43 @@ function runCommand(
     });
     const pid = child.pid;
     const pgid = processGroupId(pid);
+    options?.emitLiveEvent?.({
+      kind: "process_spawned",
+      summary: pid ? `External runner process spawned (${pid})` : "External runner process spawned",
+      provider: "symphony",
+      payload: {
+        pid,
+        command: path.basename(config.launchCommand),
+        cwd: config.cwd,
+      },
+      providerMeta: {
+        pgid,
+        runnerProvider: config.runnerProvider,
+        argv: [config.launchCommand, ...config.launchArgs],
+      },
+    });
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
+    const stdoutLive = createAdapterLiveChunkEmitter(options?.emitLiveEvent, {
+      kind: "stdout_chunk",
+      provider: "symphony",
+      stream: "stdout",
+      summaryPrefix: "External runner",
+      startedAt,
+      providerMeta: {
+        runnerProvider: config.runnerProvider,
+      },
+    });
+    const stderrLive = createAdapterLiveChunkEmitter(options?.emitLiveEvent, {
+      kind: "stderr_chunk",
+      provider: "symphony",
+      stream: "stderr",
+      summaryPrefix: "External runner",
+      startedAt,
+      providerMeta: {
+        runnerProvider: config.runnerProvider,
+      },
+    });
     let stdoutBytes = 0;
     let stderrBytes = 0;
     let stdoutTail = "";
@@ -1126,6 +1245,23 @@ function runCommand(
       if (!terminationSignalMethod) {
         terminationSignalMethod = terminateChildProcess(child, { pid, pgid, signal: "SIGTERM" });
         options?.emitEvent?.("provider_error", detail);
+        options?.emitLiveEvent?.({
+          kind: "runtime_progress",
+          summary: detail,
+          provider: "symphony",
+          payload: {
+            phase: status,
+            message: detail,
+          },
+          providerMeta: {
+            runnerProvider: config.runnerProvider,
+            pid: pid ?? null,
+            pgid,
+            terminationSignal: "SIGTERM",
+            terminationSignalMethod,
+            durationMs: Date.now() - startedAt,
+          },
+        });
         mergeProgressMetadata(status, {
           terminationSignal: "SIGTERM",
           terminationSignalMethod,
@@ -1135,6 +1271,23 @@ function runCommand(
         forceKillTimer = setTimeout(() => {
           forcedKilled = true;
           terminationSignalMethod = terminateChildProcess(child, { pid, pgid, signal: "SIGKILL" });
+          options?.emitLiveEvent?.({
+            kind: "runtime_progress",
+            summary: "External runner did not exit after SIGTERM; sending SIGKILL.",
+            provider: "symphony",
+            payload: {
+              phase: "force_killed",
+              message: "External runner did not exit after SIGTERM; sending SIGKILL.",
+            },
+            providerMeta: {
+              runnerProvider: config.runnerProvider,
+              pid: pid ?? null,
+              pgid,
+              terminationSignal: "SIGKILL",
+              terminationSignalMethod,
+              durationMs: Date.now() - startedAt,
+            },
+          });
           mergeProgressMetadata("force_killed", {
             forcedKilled: true,
             terminationSignal: "SIGKILL",
@@ -1198,6 +1351,22 @@ function runCommand(
         "waiting",
         `External runner still active after ${formatDuration(Date.now() - startedAt)}; ${formatDuration(silentForMs)} since last stdout/stderr.`,
       );
+      options?.emitLiveEvent?.({
+        kind: "runtime_progress",
+        summary: `External runner still active after ${formatDuration(Date.now() - startedAt)}; ${formatDuration(silentForMs)} since last stdout/stderr.`,
+        provider: "symphony",
+        payload: {
+          phase: lastOutputAt ? "running" : "running_silent",
+          message: `External runner still active after ${formatDuration(Date.now() - startedAt)}; ${formatDuration(silentForMs)} since last stdout/stderr.`,
+        },
+        providerMeta: {
+          runnerProvider: config.runnerProvider,
+          progressUpdateCount,
+          silentForMs,
+          stdoutBytes,
+          stderrBytes,
+        },
+      });
       mergeProgressMetadata(lastOutputAt ? "running" : "running_silent", {}, { touchUpdatedAt: false });
     }, progressIntervalMs);
 
@@ -1208,6 +1377,7 @@ function runCommand(
       stdoutBytes += chunk.length;
       stdoutTail = appendTail(stdoutTail, chunk);
       if (stdoutBytes <= maxBufferBytes) stdoutChunks.push(chunk);
+      stdoutLive.push(chunk);
       if (stdoutHasMeaningfulOutput(chunk)) {
         lastOutputAt = Date.now();
         resetNoOutputTimer();
@@ -1224,6 +1394,7 @@ function runCommand(
       stderrBytes += chunk.length;
       stderrTail = appendTail(stderrTail, chunk);
       if (stderrBytes <= maxBufferBytes) stderrChunks.push(chunk);
+      stderrLive.push(chunk);
       if (stderrHasMeaningfulOutput(chunk)) {
         lastOutputAt = Date.now();
         resetNoOutputTimer();
@@ -1231,10 +1402,22 @@ function runCommand(
     });
     child.on("error", (error) => {
       spawnError = error.message;
+      options?.emitLiveEvent?.({
+        kind: "error",
+        summary: `External runner process error: ${error.message}`,
+        provider: "symphony",
+        payload: { errorMessage: error.message },
+        providerMeta: {
+          runnerProvider: config.runnerProvider,
+          pid: pid ?? null,
+        },
+      });
     });
     child.on("close", (exitCode, signal) => {
       clearTimeout(timer);
       clearRuntimeTimers();
+      stdoutLive.flush();
+      stderrLive.flush();
       const stdout = Buffer.concat(stdoutChunks).toString("utf8");
       const stderr = Buffer.concat(stderrChunks).toString("utf8");
       const compactStderrTail = stderrTail.trim().replace(/\s+/g, " ").slice(-500);
@@ -1275,6 +1458,47 @@ function runCommand(
           });
         } catch {}
       }
+      const durationMs = Date.now() - startedAt;
+      options?.emitLiveEvent?.({
+        kind: "process_exit",
+        summary: `External runner process exited with code ${exitCode ?? "unknown"}`,
+        provider: "symphony",
+        payload: {
+          pid,
+          exitCode,
+          signal,
+          durationMs,
+        },
+        providerMeta: {
+          runnerProvider: config.runnerProvider,
+          timedOut,
+          silentTimedOut,
+          killedForBuffer,
+          forcedKilled,
+          terminationReason: reason,
+          failureClass,
+          spawnError,
+        },
+      });
+      options?.emitLiveEvent?.({
+        kind: "command_exit",
+        summary: `External runner command exited with code ${exitCode ?? "unknown"}`,
+        provider: "symphony",
+        payload: {
+          command: config.command,
+          exitCode,
+          signal,
+          durationMs,
+        },
+        providerMeta: {
+          runnerProvider: config.runnerProvider,
+          runnerModel: config.runnerModel,
+          stdoutBytes,
+          stderrBytes,
+          terminationReason: reason,
+          failureClass,
+        },
+      });
       resolve({
         ok: !errorMessage,
         stdout,
@@ -1292,7 +1516,7 @@ function runCommand(
         terminationReason: reason,
         failureClass,
         errorMessage,
-        durationMs: Date.now() - startedAt,
+        durationMs,
       });
     });
 
@@ -1339,7 +1563,8 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
     executionRunId: input.executionRunId,
     heartbeatRunId: input.runId ?? null,
     emitEvent: input.emitEvent,
-  } : undefined);
+    emitLiveEvent: input.emitLiveEvent,
+  } : { emitLiveEvent: input.emitLiveEvent });
   const workspaceAfter = captureWorkspaceGitSnapshots(trackedRoots);
   const workspaceRunVisibility = buildWorkspaceRunVisibility({
     before: workspaceBefore,
@@ -1366,6 +1591,52 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
     error ? "provider_error" : "provider_event",
     error ? `External runner failed after ${formatDuration(result.durationMs)}: ${error}` : `External runner completed in ${formatDuration(result.durationMs)}`,
   );
+
+  const transcriptEvents = [
+    {
+      kind: "run_start",
+      title: "External runner handoff started",
+      body: `${config.command} ${config.args.join(" ")}`.trim(),
+      metadata: {
+        cwd: config.cwd,
+        companyWorkspaceRoot: config.companyWorkspaceRoot,
+        sourceWorkspaceRoot: config.sourceWorkspaceRoot,
+        additionalWritableDirs: config.additionalWritableDirs,
+        runnerEnv: config.env,
+        runtimeCapabilities: config.capabilities,
+        runtimeSkillCount: Array.isArray(runtimeSkills) ? runtimeSkills.length : 0,
+      },
+    },
+    {
+      kind: "provider_event",
+      title: "Workspace visibility snapshot",
+      body: `${workspaceRunVisibility.totals.changedDuringRunCount} file status change(s) during run; ${workspaceRunVisibility.totals.beforeDirtyCount} dirty before, ${workspaceRunVisibility.totals.afterDirtyCount} dirty after.`,
+      metadata: {
+        readOnlyIntent: workspaceRunVisibility.readOnlyIntent,
+        warnings: workspaceRunVisibility.warnings,
+        totals: workspaceRunVisibility.totals,
+      },
+    },
+    {
+      kind: error ? "provider_error" : "assistant_text_final",
+      role: error ? null : "assistant",
+      title: error ? "External runner command failed" : "External runner result",
+      body: transcript.body || error || "No external runner output captured.",
+      metadata: { truncated: transcript.truncated },
+    },
+    {
+      kind: "run_end",
+      title: error ? "External runner handoff failed" : "External runner handoff completed",
+      body: error ?? `Completed in ${formatDuration(result.durationMs)}`,
+      metadata: { exitCode: result.exitCode, signal: result.signal },
+    },
+  ];
+  for (const event of transcriptEvents) {
+    input.emitLiveEvent?.(liveEventForTranscript(event, {
+      runnerProvider: resultRunnerProvider,
+      runnerModel: resultRunnerModel,
+    }));
+  }
 
   return {
     error: error ?? undefined,
@@ -1417,45 +1688,7 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
       stderrTail: result.stderrTail || trimForStorage(result.stderr),
       resultText,
       assistantSummary: resultText,
-      transcriptEvents: [
-        {
-          kind: "run_start",
-          title: "External runner handoff started",
-          body: `${config.command} ${config.args.join(" ")}`.trim(),
-          metadata: {
-            cwd: config.cwd,
-            companyWorkspaceRoot: config.companyWorkspaceRoot,
-            sourceWorkspaceRoot: config.sourceWorkspaceRoot,
-            additionalWritableDirs: config.additionalWritableDirs,
-            runnerEnv: config.env,
-            runtimeCapabilities: config.capabilities,
-            runtimeSkillCount: Array.isArray(runtimeSkills) ? runtimeSkills.length : 0,
-          },
-        },
-        {
-          kind: "provider_event",
-          title: "Workspace visibility snapshot",
-          body: `${workspaceRunVisibility.totals.changedDuringRunCount} file status change(s) during run; ${workspaceRunVisibility.totals.beforeDirtyCount} dirty before, ${workspaceRunVisibility.totals.afterDirtyCount} dirty after.`,
-          metadata: {
-            readOnlyIntent: workspaceRunVisibility.readOnlyIntent,
-            warnings: workspaceRunVisibility.warnings,
-            totals: workspaceRunVisibility.totals,
-          },
-        },
-        {
-          kind: error ? "provider_error" : "assistant_text_final",
-          role: error ? null : "assistant",
-          title: error ? "External runner command failed" : "External runner result",
-          body: transcript.body || error || "No external runner output captured.",
-          metadata: { truncated: transcript.truncated },
-        },
-        {
-          kind: "run_end",
-          title: error ? "External runner handoff failed" : "External runner handoff completed",
-          body: error ?? `Completed in ${formatDuration(result.durationMs)}`,
-          metadata: { exitCode: result.exitCode, signal: result.signal },
-        },
-      ],
+      transcriptEvents,
     },
   };
 }
