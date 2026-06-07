@@ -553,24 +553,71 @@ function appendTail(current: string, chunk: Buffer, maxChars = 4000): string {
   return next.length <= maxChars ? next : next.slice(-maxChars);
 }
 
-const PROGRESS_DIAGNOSTIC_PREFIXES = [
-  "External runner still active after",
-  "[hiverunner-symphony-runner] Codex still active after",
-];
+const OUTER_PROGRESS_DIAGNOSTIC_PREFIX = "External runner still active after";
+const CODEX_CHILD_PROGRESS_DIAGNOSTIC_PREFIX = "[hiverunner-symphony-runner] Codex still active after";
+
+type CodexChildProgressDiagnostic = {
+  silentForMs: number;
+  stdoutBytes: number;
+  stderrBytes: number;
+};
+
+function parseDiagnosticDurationMs(value: string): number | null {
+  const match = value.trim().match(/^(\d+(?:\.\d+)?)(ms|s)$/);
+  if (!match) return null;
+  const amount = Number.parseFloat(match[1] ?? "");
+  if (!Number.isFinite(amount)) return null;
+  return match[2] === "s" ? amount * 1000 : amount;
+}
+
+function parseCodexChildProgressDiagnostic(line: string): CodexChildProgressDiagnostic | null {
+  const match = line.trim().match(
+    /^\[hiverunner-symphony-runner\] Codex still active after \S+; (\d+(?:\.\d+)?(?:ms|s)) since last stdout\/stderr \((\d+) stdout bytes, (\d+) stderr bytes\)\.$/,
+  );
+  if (!match) return null;
+  const silentForMs = parseDiagnosticDurationMs(match[1] ?? "");
+  const stdoutBytes = Number.parseInt(match[2] ?? "", 10);
+  const stderrBytes = Number.parseInt(match[3] ?? "", 10);
+  if (silentForMs === null || !Number.isFinite(stdoutBytes) || !Number.isFinite(stderrBytes)) return null;
+  return { silentForMs, stdoutBytes, stderrBytes };
+}
 
 function isProgressDiagnosticLine(line: string): boolean {
   const text = line.trim();
-  return Boolean(text) && PROGRESS_DIAGNOSTIC_PREFIXES.some((prefix) => text.startsWith(prefix));
+  return Boolean(text) && text.startsWith(OUTER_PROGRESS_DIAGNOSTIC_PREFIX);
 }
 
 function isProgressDiagnosticPrefix(value: string): boolean {
   const text = value.trimStart();
   if (!text) return false;
-  return PROGRESS_DIAGNOSTIC_PREFIXES.some((prefix) => prefix.startsWith(text) || text.startsWith(prefix));
+  return [
+    OUTER_PROGRESS_DIAGNOSTIC_PREFIX,
+    CODEX_CHILD_PROGRESS_DIAGNOSTIC_PREFIX,
+  ].some((prefix) => prefix.startsWith(text) || text.startsWith(prefix));
 }
 
 function createMeaningfulOutputDetector(): (chunk: Buffer) => boolean {
   let pendingLine = "";
+  let lastCodexChildProgress: CodexChildProgressDiagnostic | null = null;
+  const isMeaningfulLine = (line: string) => {
+    const text = line.trim();
+    if (!text) return false;
+    if (isProgressDiagnosticLine(text)) return false;
+
+    const codexChildProgress = parseCodexChildProgressDiagnostic(text);
+    if (codexChildProgress) {
+      const previous = lastCodexChildProgress;
+      lastCodexChildProgress = codexChildProgress;
+      const childOutputBytes = codexChildProgress.stdoutBytes + codexChildProgress.stderrBytes;
+      if (childOutputBytes <= 0) return false;
+      return !previous ||
+        codexChildProgress.stdoutBytes > previous.stdoutBytes ||
+        codexChildProgress.stderrBytes > previous.stderrBytes ||
+        codexChildProgress.silentForMs < previous.silentForMs;
+    }
+
+    return true;
+  };
   return (chunk: Buffer) => {
     const text = pendingLine + chunk.toString("utf8");
     const lines = text.split(/\r?\n/);
@@ -578,7 +625,7 @@ function createMeaningfulOutputDetector(): (chunk: Buffer) => boolean {
     const completeLines = hasTrailingNewline ? lines.slice(0, -1) : lines.slice(0, -1);
     pendingLine = hasTrailingNewline ? "" : lines.at(-1) ?? "";
 
-    if (completeLines.some((line) => line.trim() && !isProgressDiagnosticLine(line))) {
+    if (completeLines.some(isMeaningfulLine)) {
       pendingLine = "";
       return true;
     }

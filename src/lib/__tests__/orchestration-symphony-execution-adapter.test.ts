@@ -163,6 +163,19 @@ if (process.env.FAKE_SYMPHONY_MODE === "progress-only-sleep") {
   setTimeout(() => process.stdout.write(JSON.stringify({ sessionId: "late-progress-session", resultText: "too late" })), 60_000);
   return;
 }
+if (process.env.FAKE_SYMPHONY_MODE === "codex-child-progress-sleep") {
+  let tick = 0;
+  setInterval(() => {
+    process.stderr.write(
+      "[hiverunner-symphony-runner] Codex still active after 60.0s; " +
+      "940ms since last stdout/stderr " +
+      "(" + (809084 + tick * 1024) + " stdout bytes, 500 stderr bytes).\\n"
+    );
+    tick += 1;
+  }, 50);
+  setTimeout(() => process.stdout.write(JSON.stringify({ sessionId: "late-codex-child-progress-session", resultText: "too late" })), 60_000);
+  return;
+}
 if (process.env.FAKE_SYMPHONY_MODE === "sleep") {
   process.stderr.write("fixture runner sleeping past adapter timeout\\n");
   setTimeout(() => process.stdout.write(JSON.stringify({ sessionId: "late-session", resultText: "too late" })), 60_000);
@@ -1400,7 +1413,7 @@ async function run() {
     await test("adapter timeout diagnostics are distinct from externally signalled runner exits", async () => {
       setActiveHiveDefaultRoute({ runtimeId: "codex", runtimeLabel: "Codex" });
 
-      async function runDiagnosticFixture(mode: "sleep" | "silent-sleep" | "progress-only-sleep" | "self-sigterm", title: string) {
+      async function runDiagnosticFixture(mode: "sleep" | "silent-sleep" | "progress-only-sleep" | "codex-child-progress-sleep" | "self-sigterm", title: string) {
         const diagnosticAgent = createSymphonyAgentFixture({
           name: `Runner Diagnostic ${mode}`,
           emoji: "D",
@@ -1435,6 +1448,12 @@ async function run() {
           process.env.SYMPHONY_EXEC_NO_OUTPUT_TIMEOUT_MS = "250";
           process.env.SYMPHONY_EXEC_PROGRESS_INTERVAL_MS = "50";
           process.env.SYMPHONY_EXEC_TERMINATION_GRACE_MS = "50";
+        }
+        if (mode === "codex-child-progress-sleep") {
+          process.env.SYMPHONY_EXEC_TIMEOUT_MS = "450";
+          process.env.SYMPHONY_EXEC_NO_OUTPUT_TIMEOUT_MS = "150";
+          process.env.SYMPHONY_EXEC_PROGRESS_INTERVAL_MS = "50";
+          process.env.SYMPHONY_EXEC_TERMINATION_GRACE_MS = "25";
         }
         try {
           const queued = await triggerTaskExecution({
@@ -1524,6 +1543,25 @@ async function run() {
       const progressOnlyUsage = JSON.parse(progressOnlyRun.token_usage_json ?? "{}") as Record<string, unknown>;
       assert.strictEqual(progressOnlyUsage.silentTimedOut, true);
       assert.strictEqual(progressOnlyUsage.terminationReason, "silent_timeout");
+
+      const codexChildProgressRun = await runDiagnosticFixture("codex-child-progress-sleep", "Run Codex child progress diagnostic fixture");
+      assert.strictEqual(codexChildProgressRun.status, "failed");
+      assert.strictEqual(codexChildProgressRun.process_pid, null);
+      assert.strictEqual(codexChildProgressRun.failure_class, "adapter_timeout");
+      assert.match(codexChildProgressRun.error_message ?? "", /timed out/i);
+      const codexChildProgressMetadata = JSON.parse(codexChildProgressRun.metadata_json ?? "{}") as Record<string, unknown>;
+      const codexChildProgressRunner = codexChildProgressMetadata.externalRunner as Record<string, unknown>;
+      assert.ok(Number(codexChildProgressRunner.pid) > 0, "Codex child progress metadata should retain the child pid");
+      assert.strictEqual(codexChildProgressRunner.silentTimedOut, false);
+      assert.strictEqual(codexChildProgressRunner.timedOut, true);
+      assert.strictEqual(codexChildProgressRunner.terminationReason, "adapter_timeout");
+      assert.strictEqual(codexChildProgressRunner.noOutputTimeoutMs, 150);
+      assert.strictEqual(typeof codexChildProgressRunner.lastOutputAt, "string");
+      assert.match(String(codexChildProgressRunner.stderrTail), /\[hiverunner-symphony-runner\] Codex still active after 60\.0s; 940ms since last stdout\/stderr \(809/);
+      const codexChildProgressUsage = JSON.parse(codexChildProgressRun.token_usage_json ?? "{}") as Record<string, unknown>;
+      assert.strictEqual(codexChildProgressUsage.silentTimedOut, false);
+      assert.strictEqual(codexChildProgressUsage.timedOut, true);
+      assert.strictEqual(codexChildProgressUsage.terminationReason, "adapter_timeout");
 
       const signalRun = await runDiagnosticFixture("self-sigterm", "Run external signal diagnostic fixture");
       assert.strictEqual(signalRun.status, "failed");
