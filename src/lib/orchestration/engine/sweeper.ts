@@ -113,6 +113,7 @@ const TO_DO_NO_STATUS_ESCALATION_MINUTES_BY_TYPE: Record<string, number> = {
 };
 const DEFAULT_TO_DO_NO_STATUS_ESCALATION_MINUTES = 15;
 const STALE_APPROVAL_WARNING_MS = 60 * 60 * 1000;
+const STALE_APPROVAL_WAKE_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 const STALE_ORPHAN_APPROVAL_SKIP_MS = 24 * 60 * 60 * 1000;
 const STALE_ORPHAN_APPROVAL_CANCEL_MS = 7 * 24 * 60 * 60 * 1000;
 const STUCK_AGENT_WARNING_MS = 60 * 60 * 1000;
@@ -748,10 +749,84 @@ function pickBackoffRecoveryTarget(
   return null;
 }
 
+type StaleApprovalWakeCadence = "ready" | "active" | "cooldown";
+
+function staleApprovalWakeCadence(
+  db: Database.Database,
+  input: {
+    approvalId: string;
+    companyId: string;
+    approverAgentId: string;
+    now: Date;
+  },
+): StaleApprovalWakeCadence {
+  const row = db
+    .prepare(
+      `SELECT
+         awr.status AS wake_status,
+         hr.status AS run_status,
+         COALESCE(awr.finished_at, awr.claimed_at, awr.requested_at, awr.created_at) AS activity_at
+       FROM agent_wakeup_requests awr
+       LEFT JOIN heartbeat_runs hr ON hr.id = awr.run_id
+       WHERE awr.company_id = ?
+         AND awr.agent_id = ?
+         AND awr.reason = 'approval_requested'
+         AND json_extract(awr.payload_json, '$.approvalId') = ?
+         AND json_extract(awr.payload_json, '$.staleApprovalSweep') = 1
+       ORDER BY
+         CASE
+           WHEN awr.status IN ('queued', 'claimed') OR hr.status IN ('queued', 'running') THEN 0
+           ELSE 1
+         END,
+         datetime(COALESCE(awr.finished_at, awr.claimed_at, awr.requested_at, awr.created_at)) DESC,
+         awr.created_at DESC
+       LIMIT 1`,
+    )
+    .get(input.companyId, input.approverAgentId, input.approvalId) as
+    | { wake_status: string; run_status: string | null; activity_at: string | null }
+    | undefined;
+
+  if (!row) return "ready";
+  if (row.wake_status === "queued" || row.wake_status === "claimed" || row.run_status === "queued" || row.run_status === "running") {
+    return "active";
+  }
+
+  const activityAt = timestampMs(row.activity_at);
+  if (activityAt !== null && input.now.getTime() - activityAt < STALE_APPROVAL_WAKE_COOLDOWN_MS) {
+    return "cooldown";
+  }
+  return "ready";
+}
+
+function releaseTerminalStaleApprovalWakeKeys(
+  db: Database.Database,
+  input: {
+    approvalId: string;
+    companyId: string;
+    approverAgentId: string;
+  },
+): void {
+  db.prepare(
+    `UPDATE agent_wakeup_requests
+     SET idempotency_key = NULL
+     WHERE company_id = ?
+       AND agent_id = ?
+       AND reason = 'approval_requested'
+       AND json_extract(payload_json, '$.approvalId') = ?
+       AND json_extract(payload_json, '$.staleApprovalSweep') = 1
+       AND status IN ('finished', 'failed')`,
+  ).run(input.companyId, input.approverAgentId, input.approvalId);
+}
+
+type StaleApprovalWakeSweepResult = {
+  notified: number;
+  cooldownSkipped: number;
+};
+
 function enqueueApprovalWakesForStaleApprovals(
   db: Database.Database,
   input: { now: Date; companySlugs?: string[] | null },
-): number {
+): StaleApprovalWakeSweepResult {
   const cutoff = new Date(input.now.getTime() - STALE_APPROVAL_WARNING_MS).toISOString();
   const orphanSkipCutoff = new Date(input.now.getTime() - STALE_ORPHAN_APPROVAL_SKIP_MS).toISOString();
   const orphanCancelCutoff = new Date(input.now.getTime() - STALE_ORPHAN_APPROVAL_CANCEL_MS).toISOString();
@@ -804,7 +879,8 @@ function enqueueApprovalWakesForStaleApprovals(
     backfillApprovalRoutes({ companyIdOrSlug: companyId, status: "pending", force: true, db });
   }
 
-  let enqueued = 0;
+  let notified = 0;
+  let cooldownSkipped = 0;
   const now = input.now.toISOString();
   for (const row of rows) {
     const routed = db
@@ -812,6 +888,21 @@ function enqueueApprovalWakesForStaleApprovals(
       .get(row.id) as { approver_agent_id: string | null; approval_route_reason: string | null } | undefined;
     const approverAgentId = routed?.approver_agent_id ?? row.approver_agent_id;
     if (!approverAgentId) continue;
+    const cadence = staleApprovalWakeCadence(db, {
+      approvalId: row.id,
+      companyId: row.company_id,
+      approverAgentId,
+      now: input.now,
+    });
+    if (cadence === "cooldown") {
+      releaseTerminalStaleApprovalWakeKeys(db, {
+        approvalId: row.id,
+        companyId: row.company_id,
+        approverAgentId,
+      });
+      cooldownSkipped += 1;
+      continue;
+    }
     const result = enqueueWakeup(
       {
         agentId: approverAgentId,
@@ -824,11 +915,11 @@ function enqueueApprovalWakesForStaleApprovals(
           routeReason: routed?.approval_route_reason ?? row.approval_route_reason ?? null,
           staleApprovalSweep: true,
         },
-        idempotencyKey: `approval:${row.id}:${approverAgentId}`,
+        idempotencyKey: `stale-approval:${row.id}:${approverAgentId}`,
       },
       db,
     );
-    if (result.status === "queued" || result.status === "coalesced") enqueued += 1;
+    if (result.status === "queued" || result.status === "coalesced") notified += 1;
 
     db.prepare(
       `INSERT INTO comments
@@ -852,7 +943,7 @@ function enqueueApprovalWakesForStaleApprovals(
       `approval:stale:${row.id}`,
     );
   }
-  return enqueued;
+  return { notified, cooldownSkipped };
 }
 
 function hasRecentMeaningfulTaskActivity(input: {
@@ -1830,8 +1921,11 @@ export function sweepOpenTasks(
   }
 
   const approvalWakes = enqueueApprovalWakesForStaleApprovals(db, { now, companySlugs });
-  if (approvalWakes > 0) {
-    skippedReasons.stale_approval_wakes = approvalWakes;
+  if (approvalWakes.notified > 0) {
+    skippedReasons.stale_approval_wakes = approvalWakes.notified;
+  }
+  if (approvalWakes.cooldownSkipped > 0) {
+    skippedReasons.stale_approval_wake_cooldown = approvalWakes.cooldownSkipped;
   }
   const approvalCascades = cascadeResolvedApprovalsToLinkedTasks({ db, companySlugs });
   if (approvalCascades.changed > 0) {

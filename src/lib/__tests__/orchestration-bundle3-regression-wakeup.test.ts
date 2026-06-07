@@ -14,7 +14,7 @@ import { createCompany } from "@/lib/orchestration/company-service";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { buildHeartbeatPrompt, executeHeartbeatRun, type TaskSession } from "@/lib/orchestration/engine/engine";
 import { sweepOpenTasks } from "@/lib/orchestration/engine/sweeper";
-import { createApproval } from "@/lib/orchestration/service/approval";
+import { backfillApprovalRoutes, createApproval } from "@/lib/orchestration/service/approval";
 import { createProject, createProjectAgent, createTask } from "@/lib/orchestration/service";
 
 const { finish, test } = createTestRunner({ passLabel: "✓", failLabel: "✗", errorStackLines: 3 });
@@ -161,6 +161,78 @@ async function run() {
     }
     assert.doesNotMatch(runError ?? "", /executionRunId is not defined/);
     if (runError) assert.match(runError, /No active execution hive|Runtime|skipped|blocked/i);
+  });
+
+  await test("stale approval sweep does not repeat no-task owner wakes during cooldown", () => {
+    const approval = createApproval({
+      companyIdOrSlug: company.slug,
+      type: "protected_runtime_command",
+      approverAgentId: approver.id,
+      payload: { command: "release orphan stale runtime command" },
+      db,
+    }).approval;
+    db.prepare("DELETE FROM agent_wakeup_requests").run();
+    db.prepare("DELETE FROM heartbeat_runs").run();
+
+    const base = new Date("2026-06-06T18:00:00.000Z");
+    const staleCreatedAt = new Date(base.getTime() - 2 * 60 * 60 * 1000).toISOString();
+    db.prepare("UPDATE approvals SET created_at = ?, updated_at = ? WHERE id = ?").run(staleCreatedAt, staleCreatedAt, approval.id);
+
+    const firstSweep = sweepOpenTasks(db, { now: base, companySlugs: [company.slug] });
+    assert.equal(firstSweep.skippedReasons.stale_approval_wakes, 1, JSON.stringify(firstSweep.skippedReasons));
+
+    const firstWake = db.prepare(
+      `SELECT id, run_id, idempotency_key
+       FROM agent_wakeup_requests
+       WHERE json_extract(payload_json, '$.approvalId') = ?
+         AND json_extract(payload_json, '$.staleApprovalSweep') = 1
+       LIMIT 1`,
+    ).get(approval.id) as { id: string; run_id: string | null; idempotency_key: string | null } | undefined;
+    assert.ok(firstWake?.run_id);
+    assert.equal(firstWake.idempotency_key, `stale-approval:${approval.id}:${approver.id}`);
+
+    const finishedAt = new Date(base.getTime() + 60_000).toISOString();
+    db.prepare(
+      `UPDATE heartbeat_runs
+       SET status = 'succeeded',
+           finished_at = ?,
+           updated_at = ?
+       WHERE id = ?`,
+    ).run(finishedAt, finishedAt, firstWake.run_id);
+    db.prepare(
+      `UPDATE agent_wakeup_requests
+       SET status = 'finished',
+           finished_at = ?,
+           updated_at = ?
+       WHERE id = ?`,
+    ).run(finishedAt, finishedAt, firstWake.id);
+
+    const secondSweep = sweepOpenTasks(db, {
+      now: new Date(base.getTime() + 5 * 60 * 1000),
+      companySlugs: [company.slug],
+    });
+    assert.equal(secondSweep.skippedReasons.stale_approval_wake_cooldown, 1, JSON.stringify(secondSweep.skippedReasons));
+
+    const staleWakeCount = db.prepare(
+      `SELECT COUNT(*) AS count
+       FROM agent_wakeup_requests
+       WHERE json_extract(payload_json, '$.approvalId') = ?
+         AND json_extract(payload_json, '$.staleApprovalSweep') = 1`,
+    ).get(approval.id) as { count: number };
+    assert.equal(Number(staleWakeCount.count), 1);
+
+    const released = db.prepare("SELECT idempotency_key FROM agent_wakeup_requests WHERE id = ?").get(firstWake.id) as { idempotency_key: string | null };
+    assert.equal(released.idempotency_key, null, "cooldown should not keep the approval idempotency key locked");
+
+    backfillApprovalRoutes({ companyIdOrSlug: company.slug, status: "pending", force: true, db });
+    const explicitRouteWake = db.prepare(
+      `SELECT id
+       FROM agent_wakeup_requests
+       WHERE json_extract(payload_json, '$.approvalId') = ?
+         AND COALESCE(json_extract(payload_json, '$.staleApprovalSweep'), 0) = 0
+       LIMIT 1`,
+    ).get(approval.id) as { id: string } | undefined;
+    assert.ok(explicitRouteWake?.id, "explicit approval routing should still be able to notify the approver");
   });
 
   finish();
