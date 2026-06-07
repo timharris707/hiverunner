@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { fetchLiveRunsCoalesced } from "@/lib/orchestration/live-runs-cache";
 import { useEventStream, type StreamEvent } from "@/lib/orchestration/use-event-stream";
 
 /* ── types ── */
@@ -136,12 +137,8 @@ export function useLiveRuns({ companySlug, enabled }: UseLiveRunsOptions): UseLi
     if (requestInFlightRef.current) return;
     requestInFlightRef.current = true;
     try {
-      const res = await fetch(`/api/orchestration/engine/live-runs?company=${encodeURIComponent(companySlug)}`, {
-        cache: "no-store",
-      });
-      if (!res.ok) return;
-      const data = await res.json();
-      const runs: LiveRun[] = data.runs ?? [];
+      const data = await fetchLiveRunsCoalesced(companySlug);
+      const runs = Array.isArray(data.runs) ? (data.runs as LiveRun[]) : [];
 
       // Build map by agent (most recent run per agent)
       const byAgent = new Map<string, LiveRun>();

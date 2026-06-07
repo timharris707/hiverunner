@@ -159,10 +159,7 @@ function markWakeCoalesced(
   const shouldRefreshQueuedContext =
     isTaskWakeTarget(incomingTarget) &&
     (existing.wake_status === "queued" || existing.run_status === "queued");
-  const shouldRefreshActiveContext =
-    isTaskWakeTarget(incomingTarget) &&
-    isWakeAlreadyExecuting(existing);
-  const shouldRefreshContext = shouldRefreshQueuedContext || shouldRefreshActiveContext;
+  const shouldRefreshContext = shouldRefreshQueuedContext;
 
   db.prepare(
     `UPDATE agent_wakeup_requests

@@ -115,6 +115,8 @@ async function run() {
   const clarityExecId = "live-route-clarity-exec";
   const lensRunId = "live-route-lens-run";
   const lensExecId = "live-route-lens-exec";
+  const progressOnlyRunId = "live-route-progress-only-run";
+  const progressOnlyExecId = "live-route-progress-only-exec";
   const cancelledRunId = "live-route-cancelled-run";
   const cancelledExecId = "live-route-cancelled-exec";
   const packageRunId = "live-route-package-run";
@@ -209,6 +211,47 @@ async function run() {
     `INSERT INTO heartbeat_run_events (id, run_id, agent_id, event_type, detail, created_at)
      VALUES (?, ?, ?, 'waiting', 'Dispatching Gemini execution', ?)`,
   ).run("live-route-lens-event", lensRunId, agent.id, iso(base, 31_000));
+
+  db.prepare(
+    `INSERT INTO execution_runs
+       (id, task_id, agent_id, provider, execution_engine, runner_provider, runner_model,
+        status, started_at, token_usage_json, metadata_json, process_pid, created_at, updated_at)
+     VALUES (?, ?, ?, 'symphony', 'symphony', 'codex', 'gpt-5.5',
+        'running', ?, ?, ?, NULL, ?, ?)`,
+  ).run(
+    progressOnlyExecId,
+    task.id,
+    agent.id,
+    iso(base, 1_000),
+    JSON.stringify({ heartbeatRunId: progressOnlyRunId }),
+    JSON.stringify({ heartbeatRunId: progressOnlyRunId }),
+    iso(base, 1_000),
+    iso(base, 44_000),
+  );
+  db.prepare(
+    `INSERT INTO heartbeat_runs
+       (id, agent_id, company_id, invocation_source, trigger_detail, status,
+        started_at, result_json, context_snapshot_json, created_at, updated_at)
+     VALUES (?, ?, ?, 'issue_assigned', 'progress-only', 'running', ?, '{}', ?, ?, ?)`,
+  ).run(
+    progressOnlyRunId,
+    agent.id,
+    company.id,
+    iso(base, 1_000),
+    JSON.stringify({ taskId: task.id, executionRunId: progressOnlyExecId }),
+    iso(base, 1_000),
+    iso(base, 44_000),
+  );
+  db.prepare(
+    `INSERT INTO heartbeat_run_events (id, run_id, agent_id, event_type, detail, created_at)
+     VALUES (?, ?, ?, 'waiting', ?, ?)`,
+  ).run(
+    "live-route-progress-only-event",
+    progressOnlyRunId,
+    agent.id,
+    "External runner still active after 43.0s; 43.0s since last stdout/stderr.",
+    iso(base, 44_000),
+  );
 
   db.prepare(
     `INSERT INTO execution_runs
@@ -409,6 +452,18 @@ async function run() {
 
     assert.equal(lensRun.latestOutput, null);
     assert.equal(lensRun.transcript.some((entry) => entry.message.includes("Stale prior comment")), false);
+  });
+
+  await test("does not let external runner progress diagnostics refresh live-run liveness", async () => {
+    const body = await fetchLiveRuns(company.slug, getLiveRunsRoute);
+    const progressOnlyRun = runById(body, progressOnlyRunId);
+
+    assert.equal(progressOnlyRun.latestOutput, null);
+    assert.equal(progressOnlyRun.liveness, "quiet");
+    assert.equal(
+      progressOnlyRun.transcript.some((entry) => entry.message.includes("External runner still active after")),
+      true,
+    );
   });
 
   await test("does not count stale no-task approval reminders as live runs", async () => {

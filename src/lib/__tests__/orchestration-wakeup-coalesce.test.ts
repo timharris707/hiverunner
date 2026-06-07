@@ -110,7 +110,7 @@ async function run() {
       assert.equal(rows[0].coalesced_count, 1, "coalesced_count should bump from 0 to 1");
     });
 
-    await test("comment wake and in-progress transition wake for the same claimed task coalesce", async () => {
+    await test("comment wake and in-progress transition wake for the same claimed task do not refresh active context", async () => {
       const { project, agent } = await makeAgent();
       const db = getOrchestrationDb();
       db.prepare("DELETE FROM heartbeat_runs").run();
@@ -174,8 +174,8 @@ async function run() {
       assert.equal(rows[0].run_id, commentWake.heartbeatRunId);
       assert.equal(rows[0].run_status, "running");
       const snapshot = JSON.parse(rows[0].context_snapshot_json) as Record<string, unknown>;
-      assert.equal(snapshot.taskStatus, "in_progress");
-      assert.equal(snapshot.executionRunId, "execution-run-from-transition");
+      assert.equal(snapshot.taskStatus, "to-do");
+      assert.equal(snapshot.executionRunId, undefined);
     });
 
     await test("queued same-task coalesce refreshes the surviving heartbeat context", async () => {

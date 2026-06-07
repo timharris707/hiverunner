@@ -129,6 +129,10 @@ type SymphonyRunCommandOptions = {
   emitEvent?: (eventType: string, detail: string) => void;
 };
 
+type MergeRunnerMetadataOptions = {
+  touchUpdatedAt?: boolean;
+};
+
 const DEFAULT_SYMPHONY_MAX_BUFFER = 10 * 1024 * 1024;
 
 function getDb(): Database.Database {
@@ -512,6 +516,7 @@ function mergeExecutionRunnerMetadata(
   db: Database.Database,
   executionRunId: string,
   patch: Record<string, unknown>,
+  options: MergeRunnerMetadataOptions = {},
 ): void {
   try {
     const row = db
@@ -519,9 +524,11 @@ function mergeExecutionRunnerMetadata(
       .get(executionRunId) as { metadata_json: string | null } | undefined;
     const metadata = parseJson(row?.metadata_json);
     const currentRunner = asRecord(metadata.externalRunner) ?? {};
+    const now = new Date().toISOString();
     db.prepare(
       `UPDATE execution_runs
-       SET metadata_json = ?, updated_at = ?
+       SET metadata_json = ?,
+           updated_at = CASE WHEN ? THEN ? ELSE updated_at END
        WHERE id = ?`,
     ).run(
       JSON.stringify({
@@ -532,7 +539,8 @@ function mergeExecutionRunnerMetadata(
           ...patch,
         },
       }),
-      new Date().toISOString(),
+      options.touchUpdatedAt === false ? 0 : 1,
+      now,
       executionRunId,
     );
   } catch {
@@ -543,6 +551,45 @@ function mergeExecutionRunnerMetadata(
 function appendTail(current: string, chunk: Buffer, maxChars = 4000): string {
   const next = current + chunk.toString("utf8");
   return next.length <= maxChars ? next : next.slice(-maxChars);
+}
+
+const PROGRESS_DIAGNOSTIC_PREFIXES = [
+  "External runner still active after",
+  "[hiverunner-symphony-runner] Codex still active after",
+];
+
+function isProgressDiagnosticLine(line: string): boolean {
+  const text = line.trim();
+  return Boolean(text) && PROGRESS_DIAGNOSTIC_PREFIXES.some((prefix) => text.startsWith(prefix));
+}
+
+function isProgressDiagnosticPrefix(value: string): boolean {
+  const text = value.trimStart();
+  if (!text) return false;
+  return PROGRESS_DIAGNOSTIC_PREFIXES.some((prefix) => prefix.startsWith(text) || text.startsWith(prefix));
+}
+
+function createMeaningfulOutputDetector(): (chunk: Buffer) => boolean {
+  let pendingLine = "";
+  return (chunk: Buffer) => {
+    const text = pendingLine + chunk.toString("utf8");
+    const lines = text.split(/\r?\n/);
+    const hasTrailingNewline = /\r?\n$/.test(text);
+    const completeLines = hasTrailingNewline ? lines.slice(0, -1) : lines.slice(0, -1);
+    pendingLine = hasTrailingNewline ? "" : lines.at(-1) ?? "";
+
+    if (completeLines.some((line) => line.trim() && !isProgressDiagnosticLine(line))) {
+      pendingLine = "";
+      return true;
+    }
+
+    if (pendingLine && !isProgressDiagnosticPrefix(pendingLine)) {
+      pendingLine = "";
+      return true;
+    }
+
+    return false;
+  };
 }
 
 function terminationReason(input: {
@@ -929,17 +976,23 @@ function runCommand(
     let noOutputTimer: ReturnType<typeof setTimeout> | null = null;
     let progressTimer: ReturnType<typeof setInterval> | null = null;
 
-    const mergeProgressMetadata = (status: string, patch: Record<string, unknown> = {}) => {
+    const mergeProgressMetadata = (
+      status: string,
+      patch: Record<string, unknown> = {},
+      metadataOptions: MergeRunnerMetadataOptions = {},
+    ) => {
       if (!options?.executionRunId || !options.db) return;
       const nowMs = Date.now();
       const lastActivityAt = lastOutputAt ?? startedAt;
       try {
-        options.db.prepare(
-          `UPDATE execution_runs
-           SET updated_at = ?
-           WHERE id = ?
-             AND status IN ('pending', 'running')`,
-        ).run(new Date(nowMs).toISOString(), options.executionRunId);
+        if (metadataOptions.touchUpdatedAt !== false) {
+          options.db.prepare(
+            `UPDATE execution_runs
+             SET updated_at = ?
+             WHERE id = ?
+               AND status IN ('pending', 'running')`,
+          ).run(new Date(nowMs).toISOString(), options.executionRunId);
+        }
         mergeExecutionRunnerMetadata(options.db, options.executionRunId, {
           heartbeatRunId: options.heartbeatRunId ?? null,
           status,
@@ -957,7 +1010,7 @@ function runCommand(
           progressIntervalMs,
           terminationGraceMs,
           ...patch,
-        });
+        }, metadataOptions);
       } catch {
         // Progress diagnostics are best effort.
       }
@@ -1052,15 +1105,20 @@ function runCommand(
         "waiting",
         `External runner still active after ${formatDuration(Date.now() - startedAt)}; ${formatDuration(silentForMs)} since last stdout/stderr.`,
       );
-      mergeProgressMetadata(lastOutputAt ? "running" : "running_silent");
+      mergeProgressMetadata(lastOutputAt ? "running" : "running_silent", {}, { touchUpdatedAt: false });
     }, progressIntervalMs);
 
+    const stdoutHasMeaningfulOutput = createMeaningfulOutputDetector();
+    const stderrHasMeaningfulOutput = createMeaningfulOutputDetector();
+
     child.stdout.on("data", (chunk: Buffer) => {
-      lastOutputAt = Date.now();
       stdoutBytes += chunk.length;
       stdoutTail = appendTail(stdoutTail, chunk);
       if (stdoutBytes <= maxBufferBytes) stdoutChunks.push(chunk);
-      resetNoOutputTimer();
+      if (stdoutHasMeaningfulOutput(chunk)) {
+        lastOutputAt = Date.now();
+        resetNoOutputTimer();
+      }
       if (stdoutBytes > maxBufferBytes && !killedForBuffer) {
         killedForBuffer = true;
         requestTermination(
@@ -1070,11 +1128,13 @@ function runCommand(
       }
     });
     child.stderr.on("data", (chunk: Buffer) => {
-      lastOutputAt = Date.now();
       stderrBytes += chunk.length;
       stderrTail = appendTail(stderrTail, chunk);
       if (stderrBytes <= maxBufferBytes) stderrChunks.push(chunk);
-      resetNoOutputTimer();
+      if (stderrHasMeaningfulOutput(chunk)) {
+        lastOutputAt = Date.now();
+        resetNoOutputTimer();
+      }
     });
     child.on("error", (error) => {
       spawnError = error.message;

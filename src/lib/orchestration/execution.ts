@@ -711,6 +711,14 @@ function executionRunStatus(db: Database.Database, executionRunId: string): Exec
   return row?.status ?? null;
 }
 
+function heartbeatRunExecutionRunId(db: Database.Database, heartbeatRunId: string): string | null {
+  const row = db
+    .prepare("SELECT context_snapshot_json FROM heartbeat_runs WHERE id = ? LIMIT 1")
+    .get(heartbeatRunId) as { context_snapshot_json: string | null } | undefined;
+  const context = parseJsonRecord(row?.context_snapshot_json);
+  return asString(context.executionRunId) ?? null;
+}
+
 function isTerminalExecutionStatus(status: ExecutionRunStatus | null | undefined): boolean {
   return status === "completed" || status === "failed" || status === "cancelled";
 }
@@ -2255,6 +2263,36 @@ export async function triggerTaskExecution(
       },
       db
     );
+
+    if (wake.status === "coalesced" && wake.heartbeatRunId) {
+      const coalescedExecutionRunId = heartbeatRunExecutionRunId(db, wake.heartbeatRunId);
+      const activeCoalescedRun = getLatestExecutionRunForTask(
+        task.id,
+        {
+          provider: executionProvider,
+          statuses: ["running"],
+        },
+        db,
+      );
+      const coalescedIntoAnotherRun =
+        (coalescedExecutionRunId && coalescedExecutionRunId !== run.id) ||
+        (activeCoalescedRun && activeCoalescedRun.id !== run.id);
+      if (coalescedIntoAnotherRun) {
+        const completedAt = new Date().toISOString();
+        updateExecutionRun(
+          run.id,
+          {
+            status: "cancelled",
+            completedAt,
+            errorMessage: "Execution wake coalesced into an already active run.",
+            failureClass: "coalesced",
+          },
+          db,
+        );
+        db.prepare("UPDATE execution_runs SET idempotency_key = NULL, updated_at = ? WHERE id = ?")
+          .run(completedAt, run.id);
+      }
+    }
 
     return {
       taskId: task.id,

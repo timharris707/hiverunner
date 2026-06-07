@@ -156,6 +156,13 @@ if (process.env.FAKE_SYMPHONY_MODE === "silent-sleep") {
   setTimeout(() => process.stdout.write(JSON.stringify({ sessionId: "late-silent-session", resultText: "too late" })), 60_000);
   return;
 }
+if (process.env.FAKE_SYMPHONY_MODE === "progress-only-sleep") {
+  setInterval(() => {
+    process.stderr.write("External runner still active after 50ms; 50ms since last stdout/stderr.\\n");
+  }, 50);
+  setTimeout(() => process.stdout.write(JSON.stringify({ sessionId: "late-progress-session", resultText: "too late" })), 60_000);
+  return;
+}
 if (process.env.FAKE_SYMPHONY_MODE === "sleep") {
   process.stderr.write("fixture runner sleeping past adapter timeout\\n");
   setTimeout(() => process.stdout.write(JSON.stringify({ sessionId: "late-session", resultText: "too late" })), 60_000);
@@ -227,7 +234,7 @@ async function run() {
     const { createProject, createProjectAgent, createTask, getTask } = await import("@/lib/orchestration/service");
     const { assignCompanySkillToAgent, createCompanySkill, updateCompanySkill } = await import("@/lib/orchestration/company-skills");
     const { updateDevExecutionTestMode } = await import("@/lib/orchestration/service/dev-execution-test-mode");
-    const { executeHeartbeatRun } = await import("@/lib/orchestration/engine/engine");
+    const { enqueueWakeup, executeHeartbeatRun } = await import("@/lib/orchestration/engine/engine");
     const { cancelTaskExecution, pollTaskExecutionStatus, triggerTaskExecution } = await import("@/lib/orchestration/execution");
     const { upsertCompanyRuntime } = await import("@/lib/orchestration/runtime-registry");
     const { ensureCompanyExecutionHives } = await import("@/lib/orchestration/service/execution-hives");
@@ -646,6 +653,93 @@ async function run() {
         agent.id,
         "default review handoff should not assign stale QA agents with failed registered runtimes",
       );
+    });
+
+    await test("transition execution coalesced into active comment wake cancels orphan execution run", async () => {
+      const coalesceAgent = createSymphonyAgentFixture({
+        name: "Coalesced Active Wake Agent",
+        emoji: "C",
+      });
+      upsertSymphonyRuntimeFixture({
+        agentId: coalesceAgent.id,
+        runtimeSlug: "coalesced-active-wake-agent",
+        displayName: "Coalesced Active Wake Runner",
+      });
+      const coalesceTask = createSymphonyTaskFixture({
+        title: "Run active wake coalesce fixture",
+        description: "Regression for comment wake plus blocked-to-in-progress transition.",
+        assignee: coalesceAgent.id,
+        labels: ["symphony", "coalesce"],
+      });
+
+      const existingExecutionId = "existing-active-comment-execution";
+      const now = new Date().toISOString();
+      db.prepare(
+        `INSERT INTO execution_runs
+           (id, task_id, agent_id, provider, execution_engine, runner_provider, runner_model,
+            status, started_at, token_usage_json, metadata_json, created_at, updated_at)
+         VALUES (?, ?, ?, 'symphony', 'symphony', 'codex', 'gpt-5.5',
+            'running', ?, '{}', '{}', ?, ?)`,
+      ).run(existingExecutionId, coalesceTask.id, coalesceAgent.id, now, now, now);
+
+      const commentWake = enqueueWakeup({
+        agentId: coalesceAgent.id,
+        companyId: company.id,
+        source: "api",
+        reason: "user_comment_on_assigned_task",
+        triggerDetail: "task_comment:active-coalesce-comment",
+        payload: {
+          taskId: coalesceTask.id,
+          taskStatus: "in_progress",
+          commentId: "active-coalesce-comment",
+          executionRunId: existingExecutionId,
+        },
+        idempotencyKey: `task-comment-wake:active-coalesce-comment:${coalesceTask.id}`,
+      });
+      const claimedAt = new Date().toISOString();
+      db.prepare(
+        "UPDATE agent_wakeup_requests SET status = 'claimed', claimed_at = ?, updated_at = ? WHERE id = ?",
+      ).run(claimedAt, claimedAt, commentWake.wakeupRequestId);
+      db.prepare(
+        "UPDATE heartbeat_runs SET status = 'running', started_at = ?, updated_at = ? WHERE id = ?",
+      ).run(claimedAt, claimedAt, commentWake.heartbeatRunId);
+
+      const queued = await triggerTaskExecution({
+        taskId: coalesceTask.id,
+        reason: "task_moved_to_in_progress",
+        idempotencyKey: `mc-task-transition:${coalesceTask.id}:blocked->in-progress:test`,
+      });
+
+      assert.strictEqual(queued.reason, "idempotency_key_reused");
+      assert.strictEqual(queued.runId, commentWake.heartbeatRunId);
+
+      const rows = db.prepare(
+        `SELECT id, status, error_message, idempotency_key
+         FROM execution_runs
+         WHERE task_id = ?
+         ORDER BY created_at ASC`,
+      ).all(coalesceTask.id) as Array<{
+        id: string;
+        status: string;
+        error_message: string | null;
+        idempotency_key: string | null;
+      }>;
+
+      assert.equal(rows.length, 2);
+      const existingRow = rows.find((row) => row.id === existingExecutionId);
+      const orphanRow = rows.find((row) => row.id !== existingExecutionId);
+      assert.ok(existingRow, "existing active execution row should remain");
+      assert.ok(orphanRow, "coalesced transition execution row should be retained as terminal evidence");
+      assert.equal(existingRow!.status, "running");
+      assert.equal(orphanRow!.status, "cancelled");
+      assert.match(orphanRow!.error_message ?? "", /coalesced into an already active run/i);
+      assert.equal(orphanRow!.idempotency_key, null);
+
+      const context = db.prepare(
+        "SELECT context_snapshot_json FROM heartbeat_runs WHERE id = ?",
+      ).get(commentWake.heartbeatRunId) as { context_snapshot_json: string };
+      const snapshot = JSON.parse(context.context_snapshot_json) as Record<string, unknown>;
+      assert.equal(snapshot.executionRunId, existingExecutionId);
     });
 
     await test("active hive default lane overrides Symphony runtime provider metadata", async () => {
@@ -1306,7 +1400,7 @@ async function run() {
     await test("adapter timeout diagnostics are distinct from externally signalled runner exits", async () => {
       setActiveHiveDefaultRoute({ runtimeId: "codex", runtimeLabel: "Codex" });
 
-      async function runDiagnosticFixture(mode: "sleep" | "silent-sleep" | "self-sigterm", title: string) {
+      async function runDiagnosticFixture(mode: "sleep" | "silent-sleep" | "progress-only-sleep" | "self-sigterm", title: string) {
         const diagnosticAgent = createSymphonyAgentFixture({
           name: `Runner Diagnostic ${mode}`,
           emoji: "D",
@@ -1336,7 +1430,7 @@ async function run() {
         const previousProgressInterval = process.env.SYMPHONY_EXEC_PROGRESS_INTERVAL_MS;
         const previousTerminationGrace = process.env.SYMPHONY_EXEC_TERMINATION_GRACE_MS;
         if (mode === "sleep") process.env.SYMPHONY_EXEC_TIMEOUT_MS = "100";
-        if (mode === "silent-sleep") {
+        if (mode === "silent-sleep" || mode === "progress-only-sleep") {
           process.env.SYMPHONY_EXEC_TIMEOUT_MS = "2000";
           process.env.SYMPHONY_EXEC_NO_OUTPUT_TIMEOUT_MS = "250";
           process.env.SYMPHONY_EXEC_PROGRESS_INTERVAL_MS = "50";
@@ -1412,6 +1506,24 @@ async function run() {
       const silentUsage = JSON.parse(silentRun.token_usage_json ?? "{}") as Record<string, unknown>;
       assert.strictEqual(silentUsage.silentTimedOut, true);
       assert.strictEqual(silentUsage.terminationReason, "silent_timeout");
+
+      const progressOnlyRun = await runDiagnosticFixture("progress-only-sleep", "Run progress-only runner diagnostic fixture");
+      assert.strictEqual(progressOnlyRun.status, "failed");
+      assert.strictEqual(progressOnlyRun.process_pid, null);
+      assert.strictEqual(progressOnlyRun.failure_class, "silent_timeout");
+      assert.match(progressOnlyRun.error_message ?? "", /no stdout\/stderr/i);
+      const progressOnlyMetadata = JSON.parse(progressOnlyRun.metadata_json ?? "{}") as Record<string, unknown>;
+      const progressOnlyRunner = progressOnlyMetadata.externalRunner as Record<string, unknown>;
+      assert.ok(Number(progressOnlyRunner.pid) > 0, "progress-only metadata should retain the child pid");
+      assert.strictEqual(progressOnlyRunner.silentTimedOut, true);
+      assert.strictEqual(progressOnlyRunner.timedOut, false);
+      assert.strictEqual(progressOnlyRunner.terminationReason, "silent_timeout");
+      assert.strictEqual(progressOnlyRunner.noOutputTimeoutMs, 250);
+      assert.strictEqual(progressOnlyRunner.lastOutputAt, null);
+      assert.match(String(progressOnlyRunner.stderrTail), /External runner still active after/);
+      const progressOnlyUsage = JSON.parse(progressOnlyRun.token_usage_json ?? "{}") as Record<string, unknown>;
+      assert.strictEqual(progressOnlyUsage.silentTimedOut, true);
+      assert.strictEqual(progressOnlyUsage.terminationReason, "silent_timeout");
 
       const signalRun = await runDiagnosticFixture("self-sigterm", "Run external signal diagnostic fixture");
       assert.strictEqual(signalRun.status, "failed");

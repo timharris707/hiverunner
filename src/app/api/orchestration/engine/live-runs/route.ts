@@ -203,8 +203,14 @@ function latestReadableOutput(transcript: TranscriptEntry[]): string | null {
   return entry?.message?.slice(0, 1200) ?? null;
 }
 
+function isProgressOnlyDiagnostic(entry: TranscriptEntry): boolean {
+  return entry.type === "waiting" &&
+    entry.message.trim().startsWith("External runner still active after");
+}
+
 function latestTranscriptSignalMs(transcript: TranscriptEntry[]): number | null {
   return transcript.reduce<number | null>((acc, entry) => {
+    if (isProgressOnlyDiagnostic(entry)) return acc;
     const ms = new Date(entry.ts).getTime();
     if (!Number.isFinite(ms)) return acc;
     return acc == null || ms > acc ? ms : acc;
