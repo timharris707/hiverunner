@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -46,6 +46,7 @@ function mergeUsage(base, next) {
   return {
     inputTokens: mergeUsageValue(base.inputTokens, next.inputTokens),
     outputTokens: mergeUsageValue(base.outputTokens, next.outputTokens),
+    reasoningOutputTokens: mergeUsageValue(base.reasoningOutputTokens, next.reasoningOutputTokens),
     cacheReadInputTokens: mergeUsageValue(base.cacheReadInputTokens, next.cacheReadInputTokens),
     cacheCreationInputTokens: mergeUsageValue(base.cacheCreationInputTokens, next.cacheCreationInputTokens),
     totalTokens: mergeUsageValue(base.totalTokens, next.totalTokens),
@@ -71,6 +72,10 @@ function usageSnapshotFromRecord(record) {
       "completion_tokens",
       "totalOutputTokens",
       "total_output_tokens",
+    ]),
+    reasoningOutputTokens: firstNumberFromRecord(record, [
+      "reasoningOutputTokens",
+      "reasoning_output_tokens",
     ]),
     cacheReadInputTokens: firstNumberFromRecord(record, [
       "cacheReadInputTokens",
@@ -521,6 +526,122 @@ function collectUsage(records) {
   return usage;
 }
 
+function hasUsage(usage) {
+  return [
+    "inputTokens",
+    "outputTokens",
+    "cacheReadInputTokens",
+    "cacheCreationInputTokens",
+    "totalTokens",
+    "totalCostUsd",
+    "totalCostCents",
+  ].some((key) => {
+    const value = usage?.[key];
+    return typeof value === "number" && Number.isFinite(value) && value > 0;
+  });
+}
+
+function codexTotalTokenUsageRecord(record) {
+  const payload = asRecord(record?.payload);
+  if (stringFrom(record?.type) !== "event_msg" || stringFrom(payload?.type) !== "token_count") {
+    return null;
+  }
+  const info = asRecord(payload?.info);
+  return asRecord(info?.total_token_usage);
+}
+
+function usageFromCodexTokenCountRecord(record) {
+  const total = codexTotalTokenUsageRecord(record);
+  if (!total) return {};
+  return usageWithDerivedTotal({
+    inputTokens: firstNumberFromRecord(total, ["input_tokens", "inputTokens"]),
+    outputTokens: firstNumberFromRecord(total, ["output_tokens", "outputTokens"]),
+    reasoningOutputTokens: firstNumberFromRecord(total, ["reasoning_output_tokens", "reasoningOutputTokens"]),
+    cacheReadInputTokens: firstNumberFromRecord(total, [
+      "cached_input_tokens",
+      "cache_read_input_tokens",
+      "cacheReadInputTokens",
+      "cachedInputTokens",
+    ]),
+    cacheCreationInputTokens: firstNumberFromRecord(total, [
+      "cache_write_input_tokens",
+      "cache_creation_input_tokens",
+      "cacheCreationInputTokens",
+    ]),
+    totalTokens: firstNumberFromRecord(total, ["total_tokens", "totalTokens"]),
+  });
+}
+
+function normalizeCodexSessionId(value) {
+  const sessionId = stringFrom(value);
+  if (!sessionId || sessionId.length > 200) return "";
+  if (!/^[A-Za-z0-9._:-]+$/.test(sessionId)) return "";
+  return sessionId;
+}
+
+function formatCodexSessionDateDir(date, utc) {
+  const year = utc ? date.getUTCFullYear() : date.getFullYear();
+  const month = String((utc ? date.getUTCMonth() : date.getMonth()) + 1).padStart(2, "0");
+  const day = String(utc ? date.getUTCDate() : date.getDate()).padStart(2, "0");
+  return path.join(String(year), month, day);
+}
+
+function codexSessionDateDirs(now = new Date()) {
+  const dirs = new Set();
+  for (const offsetDays of [-1, 0, 1]) {
+    const date = new Date(now.getTime() + offsetDays * 24 * 60 * 60 * 1000);
+    dirs.add(formatCodexSessionDateDir(date, false));
+    dirs.add(formatCodexSessionDateDir(date, true));
+  }
+  return [...dirs];
+}
+
+async function findCodexSessionFile(sessionId) {
+  const safeSessionId = normalizeCodexSessionId(sessionId);
+  if (!safeSessionId) return "";
+  const codexHomes = [
+    process.env.CODEX_HOME,
+    path.join(os.homedir(), ".codex"),
+  ].filter(Boolean);
+  const seenHomes = new Set();
+
+  for (const codexHome of codexHomes) {
+    if (seenHomes.has(codexHome)) continue;
+    seenHomes.add(codexHome);
+    const sessionsRoot = path.join(codexHome, "sessions");
+    for (const dateDir of codexSessionDateDirs()) {
+      const dir = path.join(sessionsRoot, dateDir);
+      let entries;
+      try {
+        entries = await readdir(dir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      const match = entries.find((entry) =>
+        entry.isFile() &&
+        entry.name.endsWith(".jsonl") &&
+        entry.name.endsWith(`${safeSessionId}.jsonl`)
+      );
+      if (match) return path.join(dir, match.name);
+    }
+  }
+  return "";
+}
+
+async function collectUsageFromCodexSessionLog(sessionId) {
+  const sessionFile = await findCodexSessionFile(sessionId);
+  if (!sessionFile) return {};
+  let usage = {};
+  const text = await readFile(sessionFile, "utf8");
+  for (const line of text.split(/\r?\n/)) {
+    const record = parseJsonLine(line.trim());
+    if (!record) continue;
+    const tokenUsage = usageFromCodexTokenCountRecord(record);
+    if (hasUsage(tokenUsage)) usage = tokenUsage;
+  }
+  return usage;
+}
+
 function collectTranscriptEvents(records, finalMessage) {
   const events = [];
   for (const record of records) {
@@ -762,7 +883,18 @@ async function main() {
       .filter(Boolean)
       .map(parseJsonLine)
       .filter(Boolean);
-    const usage = collectUsage(records);
+    const sessionId = codexSessionId(records.find((record) => codexSessionId(record))) ||
+      `codex-${payload.runId ?? Date.now()}`;
+    const stdoutUsage = collectUsage(records);
+    const sessionLogUsage = await collectUsageFromCodexSessionLog(sessionId);
+    const usage = mergeUsage(stdoutUsage, sessionLogUsage);
+    const usageSource = hasUsage(stdoutUsage)
+      ? hasUsage(sessionLogUsage)
+        ? "codex-jsonl+session-log"
+        : "codex-jsonl"
+      : hasUsage(sessionLogUsage)
+        ? "codex-session-log"
+        : "missing";
     const assistantSummary = finalMessage || result.stdout.trim() || result.stderr.trim() || stringFrom(result.error);
     const recoveredNoOutputTimeout = isRecoveredNoOutputTimeout(result, finalMessage, records);
     const effectiveError = recoveredNoOutputTimeout ? undefined : result.error;
@@ -771,8 +903,7 @@ async function main() {
       ? null
       : result.terminationReason;
     process.stdout.write(JSON.stringify({
-      sessionId: codexSessionId(records.find((record) => codexSessionId(record))) ||
-        `codex-${payload.runId ?? Date.now()}`,
+      sessionId,
       resultText: assistantSummary,
       assistantSummary,
       error: effectiveError ?? undefined,
@@ -780,6 +911,7 @@ async function main() {
       runnerModel: runnerModel || null,
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
+      reasoningOutputTokens: usage.reasoningOutputTokens,
       cacheReadInputTokens: usage.cacheReadInputTokens,
       cacheCreationInputTokens: usage.cacheCreationInputTokens,
       totalTokens: usage.totalTokens,
@@ -802,6 +934,9 @@ async function main() {
         runnerProvider: "codex",
         runnerModel: runnerModel || null,
         model: runnerModel || null,
+        usageSource,
+        usageSessionId: sessionId,
+        usageMissing: usageSource === "missing",
         timedOut: result.timedOut,
         noOutputTimedOut: effectiveNoOutputTimedOut,
         killedForBuffer: result.killedForBuffer,

@@ -187,6 +187,7 @@ function writeFakeCodex(file: string) {
     file,
     `#!${process.execPath}
 const fs = require("fs");
+const path = require("path");
 const args = process.argv.slice(2);
 const outputIndex = args.indexOf("-o");
 const outputFile = outputIndex >= 0 ? args[outputIndex + 1] : null;
@@ -281,6 +282,55 @@ if (process.env.FAKE_CODEX_MODE === "nested-usage-shape") {
       }
     }
   }) + "\\n");
+  return;
+}
+if (process.env.FAKE_CODEX_MODE === "session-log-usage-only") {
+  const sessionId = "fixture-session-log-thread";
+  if (outputFile) {
+    fs.writeFileSync(outputFile, "Session log usage final message.", "utf8");
+  }
+  process.stdout.write(JSON.stringify({ type: "thread.started", thread_id: sessionId }) + "\\n");
+  process.stdout.write(JSON.stringify({ type: "turn.started" }) + "\\n");
+  process.stdout.write(JSON.stringify({
+    type: "item.completed",
+    item: { id: "msg-1", type: "agent_message", text: "Session log only usage completed." },
+  }) + "\\n");
+  if (process.env.CODEX_HOME) {
+    const now = new Date();
+    const dir = path.join(
+      process.env.CODEX_HOME,
+      "sessions",
+      String(now.getFullYear()),
+      String(now.getMonth() + 1).padStart(2, "0"),
+      String(now.getDate()).padStart(2, "0"),
+    );
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, \`rollout-test-\${sessionId}.jsonl\`), [
+      JSON.stringify({ type: "session_meta", payload: { id: sessionId } }),
+      JSON.stringify({
+        type: "event_msg",
+        payload: {
+          type: "token_count",
+          info: {
+            total_token_usage: {
+              input_tokens: 1234,
+              cached_input_tokens: 900,
+              output_tokens: 56,
+              reasoning_output_tokens: 12,
+              total_tokens: 1290,
+            },
+            last_token_usage: {
+              input_tokens: 99,
+              cached_input_tokens: 50,
+              output_tokens: 5,
+              reasoning_output_tokens: 1,
+              total_tokens: 104,
+            },
+          },
+        },
+      }),
+    ].join("\\n") + "\\n", "utf8");
+  }
   return;
 }
 if (outputFile) {
@@ -625,6 +675,36 @@ async function run() {
       assert.strictEqual(output.outputTokens, 13);
       assert.strictEqual(output.cacheReadInputTokens, 8);
       assert.strictEqual(output.totalTokens, 34);
+    });
+
+    await test("runner recovers Codex usage from the local subscription session log", () => {
+      const result = spawnSync(process.execPath, ["scripts/hiverunner-symphony-runner.mjs"], {
+        cwd: process.cwd(),
+        input: JSON.stringify(payload),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          CODEX_HOME: codexHome,
+          HIVERUNNER_SYMPHONY_CODEX_COMMAND: fakeCodex,
+          HIVERUNNER_SYMPHONY_MODEL: "",
+          FAKE_CODEX_ARGS_FILE: argsFile,
+          FAKE_CODEX_PROMPT_FILE: promptFile,
+          FAKE_CODEX_MODE: "session-log-usage-only",
+        },
+      });
+
+      assert.strictEqual(result.status, 0, result.stderr || String(result.error));
+      const output = JSON.parse(result.stdout) as Record<string, unknown>;
+      assert.strictEqual(output.sessionId, "fixture-session-log-thread");
+      assert.strictEqual(output.inputTokens, 1234);
+      assert.strictEqual(output.cacheReadInputTokens, 900);
+      assert.strictEqual(output.outputTokens, 56);
+      assert.strictEqual(output.reasoningOutputTokens, 12);
+      assert.strictEqual(output.totalTokens, 1290);
+      const usage = output.usage as Record<string, unknown>;
+      assert.strictEqual(usage.usageSource, "codex-session-log");
+      assert.strictEqual(usage.usageSessionId, "fixture-session-log-thread");
+      assert.strictEqual(usage.usageMissing, false);
     });
 
     await test("runner reports the Codex configured default when the CLI owns model selection", () => {
