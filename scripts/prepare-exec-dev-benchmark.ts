@@ -250,6 +250,17 @@ function selectedFixtureTaskKeys(db: Database.Database, rootSprintId: string, re
   return requestedTaskKeys;
 }
 
+function parseJsonStringList(value: string | null): string[] {
+  try {
+    const parsed = JSON.parse(value ?? "[]") as unknown;
+    return Array.isArray(parsed)
+      ? parsed.map((item) => String(item).trim()).filter(Boolean)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 function resetSelectedTasks(db: Database.Database, taskKeys: string[], status: "to-do"): void {
   if (taskKeys.length === 0) return;
   const now = new Date().toISOString();
@@ -266,6 +277,23 @@ function resetSelectedTasks(db: Database.Database, taskKeys: string[], status: "
         WHERE task_key IN (${placeholders(taskKeys.length)})`,
     )
     .run(status, now, ...taskKeys);
+
+  if (!columnExists(db, "tasks", "eligible_assignee_ids")) return;
+  const selected = db
+    .prepare(
+      `SELECT id, assignee_agent_id, eligible_assignee_ids
+         FROM tasks
+        WHERE task_key IN (${placeholders(taskKeys.length)})
+        ORDER BY task_key`,
+    )
+    .all(...taskKeys) as Array<{ id: string; assignee_agent_id: string | null; eligible_assignee_ids: string | null }>;
+  const updateAssignee = db.prepare("UPDATE tasks SET assignee_agent_id = ?, assigned_at = COALESCE(assigned_at, ?), updated_at = ? WHERE id = ?");
+  for (const task of selected) {
+    const eligible = parseJsonStringList(task.eligible_assignee_ids);
+    const producerAssigneeId = eligible[0] ?? null;
+    if (!producerAssigneeId || producerAssigneeId === task.assignee_agent_id) continue;
+    updateAssignee.run(producerAssigneeId, now, now, task.id);
+  }
 }
 
 function tableExists(db: Database.Database, tableName: string): boolean {
