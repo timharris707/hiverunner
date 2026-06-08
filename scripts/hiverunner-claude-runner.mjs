@@ -151,6 +151,7 @@ function buildClaudeInvocation(payload) {
         "text",
         "--output-format",
         "stream-json",
+        "--include-partial-messages",
         "--verbose",
       ];
 

@@ -288,6 +288,7 @@ function runProviderProcess(input: {
         "text",
         "--output-format",
         "stream-json",
+        "--include-partial-messages",
         "--permission-mode",
         "plan",
         ...(input.runtimeSessionId ? ["--resume", input.runtimeSessionId] : ["--session-id", input.sessionId]),

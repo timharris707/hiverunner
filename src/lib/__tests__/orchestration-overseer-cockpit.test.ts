@@ -100,6 +100,7 @@ if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
   printf '%s\\n' 'Claude logged in'
   exit 0
 fi
+printf '%s\\n' "$*" >> "$FAKE_OVERSEER_ARGS_LOG"
 /bin/cat >/dev/null
 printf '%s\\n' '{"type":"system","subtype":"init","session_id":"claude-overseer-fixture","model":"claude-opus-4.8"}'
 printf '%s\\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"Claude Overseer answer."},{"type":"tool_use","id":"tool-1","name":"Bash","input":{"command":"pwd"}}]}}'
@@ -112,6 +113,7 @@ if [ "$1" = "--version" ]; then
   printf '%s\\n' 'gemini-cli 9.9.9'
   exit 0
 fi
+printf '%s\\n' "$*" >> "$FAKE_OVERSEER_ARGS_LOG"
 printf '%s\\n' '{"type":"thread.started","session_id":"gemini-overseer-fixture","model":"gemini-3-pro-preview"}'
 printf '%s\\n' '{"type":"assistant.final","text":"Gemini Overseer answer.","usage":{"input_tokens":11,"output_tokens":7,"total_tokens":18}}'
 exit 0
@@ -1416,6 +1418,13 @@ async function run() {
         provider,
       });
       assert.strictEqual(result.ok, true);
+      if (provider === "anthropic") {
+        const providerArgs = readFileSync(argsLog, "utf8").trim().split(/\r?\n/).at(-1) ?? "";
+        assert.ok(
+          providerArgs.includes("--output-format stream-json --include-partial-messages --permission-mode plan"),
+          `Claude Overseer CLI should request partial stream-json messages: ${providerArgs}`,
+        );
+      }
       const exported = buildRawOverseerTranscriptExport({
         companyIdOrSlug: company.slug,
         sessionId: providerSession.id,

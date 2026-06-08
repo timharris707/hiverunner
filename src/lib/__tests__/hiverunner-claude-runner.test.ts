@@ -107,6 +107,7 @@ async function run() {
       assert.ok(args.includes("claude-sonnet-4-6"));
       assert.ok(args.includes("--output-format"));
       assert.ok(args.includes("stream-json"));
+      assert.ok(args.includes("--include-partial-messages"));
 
       const prompt = readFileSync(promptFile, "utf8");
       assert.ok(prompt.includes("HiveRunner external runner contract"));

@@ -542,6 +542,7 @@ function buildClaudeConfig(input: {
     "text",
     "--output-format",
     "stream-json",
+    "--include-partial-messages",
     "--verbose",
   ];
   if (input.reasoningEffort) {

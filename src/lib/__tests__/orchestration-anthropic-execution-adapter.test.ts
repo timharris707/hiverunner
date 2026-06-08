@@ -271,7 +271,7 @@ async function run() {
     const args = readFileSync(argsFile, "utf8");
     assert.ok(args.includes("--permission-mode bypassPermissions"), `unexpected args: ${args}`);
     assert.ok(args.includes("--model claude-sonnet-4-6"), `unexpected args: ${args}`);
-    assert.ok(args.includes("--print --input-format text --output-format stream-json --verbose"), `unexpected args: ${args}`);
+    assert.ok(args.includes("--print --input-format text --output-format stream-json --include-partial-messages --verbose"), `unexpected args: ${args}`);
     assert.ok(!args.includes("Run Claude adapter fixture"), "prompt should not be passed through argv");
     assert.ok(!args.includes("Agent Instructions"), "prompt body should not be passed through argv");
     const stdinPrompt = readFileSync(stdinFile, "utf8");
