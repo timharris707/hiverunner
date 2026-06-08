@@ -410,17 +410,19 @@ async function run() {
     assert.match(precreatedResult.error ?? "", /Runtime budget threshold exceeded/);
 
     const terminalized = db.prepare(
-      `SELECT status, terminalized_by, retry_decision_reason, session_id
+      `SELECT status, failure_class, terminalized_by, retry_decision_reason, session_id
        FROM execution_runs
        WHERE id = ?
        LIMIT 1`,
     ).get(precreatedExecutionRunId) as {
       status: string;
+      failure_class: string | null;
       terminalized_by: string | null;
       retry_decision_reason: string | null;
       session_id: string | null;
     };
     assert.equal(terminalized.status, "cancelled");
+    assert.equal(terminalized.failure_class, "budget_threshold_blocked");
     assert.equal(terminalized.terminalized_by, "budget_gate");
     assert.equal(terminalized.retry_decision_reason, "budget_threshold_blocked");
     assert.equal(terminalized.session_id, null);

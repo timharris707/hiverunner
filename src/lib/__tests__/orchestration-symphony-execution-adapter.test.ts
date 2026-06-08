@@ -1029,7 +1029,7 @@ async function run() {
       }
     });
 
-    await test("runner-reported no-output timeout persists silent timeout failure class", async () => {
+    await test("runner-reported no-output timeout persists canonical no-output failure class", async () => {
       const timeoutAgent = createSymphonyAgentFixture({
         name: "Runner Timeout Agent",
         emoji: "T",
@@ -1076,18 +1076,18 @@ async function run() {
         assert.ok(executionRun, "execution_run should be created");
         assert.strictEqual(executionRun!.status, "failed");
         assert.match(executionRun!.error_message ?? "", /no stdout\/stderr/i);
-        assert.strictEqual(executionRun!.failure_class, "silent_timeout");
+        assert.strictEqual(executionRun!.failure_class, "no_output_timeout");
 
         const usage = JSON.parse(executionRun!.token_usage_json ?? "{}") as Record<string, unknown>;
         assert.strictEqual(usage.runnerIgnoredNoOutputTimeout, false);
-        assert.strictEqual(usage.runnerReportedFailureClass, "silent_timeout");
-        assert.strictEqual(usage.failureClass, "silent_timeout");
+        assert.strictEqual(usage.runnerReportedFailureClass, "no_output_timeout");
+        assert.strictEqual(usage.failureClass, "no_output_timeout");
       } finally {
         delete process.env.FAKE_SYMPHONY_MODE;
       }
     });
 
-    await test("transition execution coalesced into active comment wake cancels orphan execution run", async () => {
+    await test("transition execution is blocked while an active comment wake owns the task", async () => {
       const coalesceAgent = createSymphonyAgentFixture({
         name: "Coalesced Active Wake Agent",
         emoji: "C",
@@ -1142,8 +1142,9 @@ async function run() {
         idempotencyKey: `mc-task-transition:${coalesceTask.id}:blocked->in-progress:test`,
       });
 
-      assert.strictEqual(queued.reason, "idempotency_key_reused");
-      assert.strictEqual(queued.runId, commentWake.heartbeatRunId);
+      assert.strictEqual(queued.queued, false);
+      assert.strictEqual(queued.reason, "execution_run_already_active");
+      assert.strictEqual(queued.runId, undefined);
 
       const rows = db.prepare(
         `SELECT id, status, error_message, idempotency_key
@@ -1157,15 +1158,10 @@ async function run() {
         idempotency_key: string | null;
       }>;
 
-      assert.equal(rows.length, 2);
+      assert.equal(rows.length, 1);
       const existingRow = rows.find((row) => row.id === existingExecutionId);
-      const orphanRow = rows.find((row) => row.id !== existingExecutionId);
       assert.ok(existingRow, "existing active execution row should remain");
-      assert.ok(orphanRow, "coalesced transition execution row should be retained as terminal evidence");
       assert.equal(existingRow!.status, "running");
-      assert.equal(orphanRow!.status, "cancelled");
-      assert.match(orphanRow!.error_message ?? "", /coalesced into an already active run/i);
-      assert.equal(orphanRow!.idempotency_key, null);
 
       const context = db.prepare(
         "SELECT context_snapshot_json FROM heartbeat_runs WHERE id = ?",
@@ -1942,7 +1938,7 @@ async function run() {
       const silentRun = await runDiagnosticFixture("silent-sleep", "Run silent runner diagnostic fixture");
       assert.strictEqual(silentRun.status, "failed");
       assert.strictEqual(silentRun.process_pid, null);
-      assert.strictEqual(silentRun.failure_class, "silent_timeout");
+      assert.strictEqual(silentRun.failure_class, "no_output_timeout");
       assert.match(silentRun.error_message ?? "", /no stdout\/stderr/i);
       const silentMetadata = JSON.parse(silentRun.metadata_json ?? "{}") as Record<string, unknown>;
       const silentRunner = silentMetadata.externalRunner as Record<string, unknown>;
@@ -1959,7 +1955,7 @@ async function run() {
       const progressOnlyRun = await runDiagnosticFixture("progress-only-sleep", "Run progress-only runner diagnostic fixture");
       assert.strictEqual(progressOnlyRun.status, "failed");
       assert.strictEqual(progressOnlyRun.process_pid, null);
-      assert.strictEqual(progressOnlyRun.failure_class, "silent_timeout");
+      assert.strictEqual(progressOnlyRun.failure_class, "no_output_timeout");
       assert.match(progressOnlyRun.error_message ?? "", /no stdout\/stderr/i);
       const progressOnlyMetadata = JSON.parse(progressOnlyRun.metadata_json ?? "{}") as Record<string, unknown>;
       const progressOnlyRunner = progressOnlyMetadata.externalRunner as Record<string, unknown>;
@@ -1997,7 +1993,7 @@ async function run() {
       const claudeWrapperProgressRun = await runDiagnosticFixture("claude-wrapper-progress-sleep", "Run Claude wrapper progress diagnostic fixture");
       assert.strictEqual(claudeWrapperProgressRun.status, "failed");
       assert.strictEqual(claudeWrapperProgressRun.process_pid, null);
-      assert.strictEqual(claudeWrapperProgressRun.failure_class, "silent_timeout");
+      assert.strictEqual(claudeWrapperProgressRun.failure_class, "no_output_timeout");
       assert.match(claudeWrapperProgressRun.error_message ?? "", /no stdout\/stderr/i);
       const claudeWrapperProgressMetadata = JSON.parse(claudeWrapperProgressRun.metadata_json ?? "{}") as Record<string, unknown>;
       const claudeWrapperProgressRunner = claudeWrapperProgressMetadata.externalRunner as Record<string, unknown>;
@@ -2035,7 +2031,7 @@ async function run() {
       const geminiWrapperProgressRun = await runDiagnosticFixture("gemini-wrapper-progress-sleep", "Run Gemini wrapper progress diagnostic fixture");
       assert.strictEqual(geminiWrapperProgressRun.status, "failed");
       assert.strictEqual(geminiWrapperProgressRun.process_pid, null);
-      assert.strictEqual(geminiWrapperProgressRun.failure_class, "silent_timeout");
+      assert.strictEqual(geminiWrapperProgressRun.failure_class, "no_output_timeout");
       assert.match(geminiWrapperProgressRun.error_message ?? "", /no stdout\/stderr/i);
       const geminiWrapperProgressMetadata = JSON.parse(geminiWrapperProgressRun.metadata_json ?? "{}") as Record<string, unknown>;
       const geminiWrapperProgressRunner = geminiWrapperProgressMetadata.externalRunner as Record<string, unknown>;
@@ -2054,7 +2050,7 @@ async function run() {
       const signalRun = await runDiagnosticFixture("self-sigterm", "Run external signal diagnostic fixture");
       assert.strictEqual(signalRun.status, "failed");
       assert.strictEqual(signalRun.process_pid, null);
-      assert.strictEqual(signalRun.failure_class, "external_signal");
+      assert.strictEqual(signalRun.failure_class, "provider_exit");
       assert.match(signalRun.error_message ?? "", /SIGTERM/);
       const signalMetadata = JSON.parse(signalRun.metadata_json ?? "{}") as Record<string, unknown>;
       const signalRunner = signalMetadata.externalRunner as Record<string, unknown>;

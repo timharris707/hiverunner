@@ -88,10 +88,10 @@ function createFixtureDb(): Database.Database {
     INSERT INTO execution_runs
       (id, task_id, status, failure_class, error_message, token_usage_json, duration_ms, created_at, started_at, completed_at, updated_at)
     VALUES
-      ('run-1', 'task-1', 'failed', 'runtime_error', 'External runner command exited with code 127: env: node: No such file or directory', '{}', 1000, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:01.000Z', '2026-01-01T00:00:01.000Z'),
+      ('run-1', 'task-1', 'failed', 'deterministic_preflight', 'External runner command exited with code 127: env: node: No such file or directory', '{}', 1000, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:01.000Z', '2026-01-01T00:00:01.000Z'),
       ('run-2', 'task-1', 'completed', NULL, NULL, '{"inputTokens":100,"cacheReadInputTokens":80,"outputTokens":20,"totalTokens":120}', 2000, '2026-01-01T00:00:02.000Z', '2026-01-01T00:00:02.000Z', '2026-01-01T00:00:04.000Z', '2026-01-01T00:00:04.000Z'),
       ('run-3', 'task-2', 'cancelled', 'coalesced', 'Execution wake coalesced into an already active run.', '{}', 3000, '2026-01-01T00:00:05.000Z', '2026-01-01T00:00:05.000Z', '2026-01-01T00:00:08.000Z', '2026-01-01T00:00:08.000Z'),
-      ('run-4', 'task-2', 'failed', 'silent_timeout', 'External runner command produced no stdout/stderr for 600000ms', '{}', 4000, '2026-01-01T00:00:09.000Z', '2026-01-01T00:00:09.000Z', '2026-01-01T00:00:13.000Z', '2026-01-01T00:00:13.000Z')
+      ('run-4', 'task-2', 'failed', 'no_output_timeout', 'External runner command produced no stdout/stderr for 600000ms', '{}', 4000, '2026-01-01T00:00:09.000Z', '2026-01-01T00:00:09.000Z', '2026-01-01T00:00:13.000Z', '2026-01-01T00:00:13.000Z')
   `).run();
   db.prepare(`
     INSERT INTO overseer_turns (id, company_id, usage_json, created_at)
@@ -242,7 +242,7 @@ async function run() {
 
   await test("failure classifier separates deterministic, intentional, and runtime failures", () => {
     assert.equal(
-      classifyRunFailure({ status: "failed", failure_class: "runtime_error", error_message: "env: node: No such file or directory" }),
+      classifyRunFailure({ status: "failed", failure_class: "deterministic_preflight", error_message: "env: node: No such file or directory" }),
       "deterministicPreflight",
     );
     assert.equal(
@@ -250,7 +250,7 @@ async function run() {
       "intentionalCancellation",
     );
     assert.equal(
-      classifyRunFailure({ status: "failed", failure_class: "silent_timeout", error_message: "No stdout" }),
+      classifyRunFailure({ status: "failed", failure_class: "no_output_timeout", error_message: "No stdout" }),
       "runtimeQuality",
     );
   });

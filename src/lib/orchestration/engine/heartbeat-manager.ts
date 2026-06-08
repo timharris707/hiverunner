@@ -29,6 +29,7 @@ import {
 } from "./cost-recorder";
 export type { ExecutionRunProvider } from "./cost-recorder";
 import { getHeartbeatRunTimeoutMs } from "@/lib/orchestration/execution-timeouts";
+import { EXECUTION_FAILURE_CLASS, type ExecutionFailureClass } from "@/lib/orchestration/execution-failure-class";
 import { recordRuntimeSkillAvailabilityForRun } from "@/lib/orchestration/skill-effectiveness";
 import { linkTemplateGeneratedExecutionRun } from "@/lib/orchestration/template-persistence";
 import { normalizeTaskModelLane, resolveTaskModelRouting } from "@/lib/orchestration/task-model-routing";
@@ -322,6 +323,9 @@ function finishRuntimePreflightFailure(input: {
     input.executionRunId,
     {
       terminalizedBy: "preflight",
+      failureClass: input.preflight.status === "blocked"
+        ? EXECUTION_FAILURE_CLASS.circuitBlocked
+        : EXECUTION_FAILURE_CLASS.deterministicPreflight,
       failureReason: input.preflight.message,
       retryAllowed: false,
       retryDecisionReason: input.preflight.failureCode,
@@ -372,7 +376,7 @@ function finishRuntimeBudgetAdmissionBlock(input: {
        SET status = 'cancelled',
            completed_at = ?,
            error_message = ?,
-           failure_class = COALESCE(failure_class, 'cancelled'),
+           failure_class = COALESCE(failure_class, ?),
            terminalized_by = COALESCE(terminalized_by, 'budget_gate'),
            failure_reason = COALESCE(failure_reason, ?),
            retry_allowed = 0,
@@ -382,6 +386,9 @@ function finishRuntimeBudgetAdmissionBlock(input: {
     ).run(
       idleAt,
       input.admission.message,
+      input.admission.approvalId
+        ? EXECUTION_FAILURE_CLASS.budgetOverrideRequired
+        : EXECUTION_FAILURE_CLASS.budgetThresholdBlocked,
       input.admission.message,
       input.admission.approvalId ? "budget_override_required" : "budget_threshold_blocked",
       idleAt,
@@ -460,6 +467,7 @@ function finishProtectedRuntimeApprovalBlock(input: {
     input.executionRunId ?? null,
     {
       terminalizedBy: "approval_gate",
+      failureClass: EXECUTION_FAILURE_CLASS.protectedRuntimeApprovalRequired,
       failureReason: input.message,
       retryAllowed: false,
       retryDecisionReason: "protected_runtime_approval_required",
@@ -2425,7 +2433,7 @@ export function recoverStaleRuns(db: Database.Database): number {
              completed_at = ?,
              duration_ms = ?,
              error_message = ?,
-             failure_class = COALESCE(failure_class, 'timeout'),
+             failure_class = COALESCE(failure_class, ?),
              terminalized_by = COALESCE(terminalized_by, 'watchdog'),
              failure_reason = COALESCE(failure_reason, ?),
              retry_allowed = 1,
@@ -2439,7 +2447,18 @@ export function recoverStaleRuns(db: Database.Database): number {
 	         WHERE task_id = ?
 	           AND agent_id = ?
 	           AND status IN ('pending', 'running')`
-      ).run(now, durationMs, timeoutMessage, timeoutMessage, timeoutMessage, JSON.stringify(cancellationRequest), now, taskId, run.agent_id);
+      ).run(
+        now,
+        durationMs,
+        timeoutMessage,
+        EXECUTION_FAILURE_CLASS.adapterTimeout,
+        timeoutMessage,
+        timeoutMessage,
+        JSON.stringify(cancellationRequest),
+        now,
+        taskId,
+        run.agent_id,
+      );
 
       for (const { id } of staleExecRuns) {
         recordExecutionRunAttemptEvent(db, {
@@ -2528,7 +2547,7 @@ export function recoverStalePendingExecutionRuns(db: Database.Database): number 
        SET status = 'cancelled',
            completed_at = ?,
            error_message = ?,
-           failure_class = COALESCE(failure_class, 'cancelled'),
+           failure_class = COALESCE(failure_class, ?),
            terminalized_by = COALESCE(terminalized_by, 'watchdog'),
            failure_reason = COALESCE(failure_reason, ?),
            retry_allowed = 0,
@@ -2544,7 +2563,13 @@ export function recoverStalePendingExecutionRuns(db: Database.Database): number 
               OR archived_at IS NOT NULL
          )`,
     )
-    .run(now, terminalTaskMessage, terminalTaskMessage, now);
+    .run(
+      now,
+      terminalTaskMessage,
+      EXECUTION_FAILURE_CLASS.taskTransitionCancellation,
+      terminalTaskMessage,
+      now,
+    );
 
   const result = db
     .prepare(
@@ -2552,7 +2577,7 @@ export function recoverStalePendingExecutionRuns(db: Database.Database): number 
        SET status = 'cancelled',
            completed_at = ?,
            error_message = ?,
-           failure_class = COALESCE(failure_class, 'timeout'),
+           failure_class = COALESCE(failure_class, ?),
            terminalized_by = COALESCE(terminalized_by, 'watchdog'),
            failure_reason = COALESCE(failure_reason, ?),
            retry_allowed = 0,
@@ -2563,13 +2588,21 @@ export function recoverStalePendingExecutionRuns(db: Database.Database): number 
        WHERE status = 'pending'
          AND created_at < ?`
     )
-    .run(now, timeoutMessage, timeoutMessage, now, cutoff);
+    .run(
+      now,
+      timeoutMessage,
+      EXECUTION_FAILURE_CLASS.queueStartTimeout,
+      timeoutMessage,
+      now,
+      cutoff,
+    );
 
   return terminalResult.changes + result.changes;
 }
 
 type FinishRunExecutionOptions = {
   terminalizedBy?: string;
+  failureClass?: ExecutionFailureClass | null;
   failureReason?: string | null;
   retryAllowed?: boolean;
   retryDecisionReason?: string | null;
@@ -2612,9 +2645,11 @@ export function finishRun(
   // reflects completion. Without this, execution_runs stay stuck at 'running'.
   if (executionRunId) {
     const execStatus = status === "succeeded" ? "completed" : "failed";
-    const failureClass = execStatus === "failed" && error
-      ? (/timed?\s*out/i.test(error) ? "timeout" : null)
-      : null;
+    const failureClass = executionOptions.failureClass ?? (
+      execStatus === "failed" && error
+        ? (/timed?\s*out/i.test(error) ? EXECUTION_FAILURE_CLASS.adapterTimeout : null)
+        : null
+    );
     const retryAllowed = executionOptions.retryAllowed === undefined
       ? (execStatus === "failed" ? 0 : 0)
       : executionOptions.retryAllowed ? 1 : 0;

@@ -10,7 +10,7 @@
  *  2. Cancel kills a SIGTERM-ignoring process (SIGKILL path)
  *  3. Process is verifiably gone from ps after cancel
  *  4. Orphan GC deletes artifacts for runs finished 24h+ ago
- *  5. failure_class='timeout' — engine sets it when finishRun() error message matches timeout pattern
+ *  5. failure_class='adapter_timeout' — engine sets it when finishRun() error message matches timeout pattern
  */
 
 import assert from "node:assert";
@@ -26,7 +26,6 @@ import { createCompany } from "@/lib/orchestration/company-service";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import {
   cleanupOrphanedRunArtifacts,
-  cleanupRunArtifacts,
 } from "@/lib/orchestration/execution/cleanup";
 import {
   configureCompanyExecutionHive,
@@ -131,7 +130,7 @@ async function run() {
         .prepare("SELECT process_pid, failure_class FROM execution_runs WHERE id = ?")
         .get(runId) as { process_pid: number | null; failure_class: string | null };
       assert.strictEqual(row.process_pid, null, "process_pid cleared after cancel");
-      assert.strictEqual(row.failure_class, "cancelled", "failure_class='cancelled' set after cancel");
+      assert.strictEqual(row.failure_class, "operator_cancellation", "failure_class='operator_cancellation' set after cancel");
     });
 
     // ── Test 3: process verifiably absent from ps after cancel ─────────────
@@ -223,8 +222,8 @@ async function run() {
       assert.ok(!threw, "cleanupOrphanedRunArtifacts must not throw when files are already absent");
     });
 
-    // ── Test 6: failure_class='timeout' is set for timeout errors ─────────────
-    await test("failure_class='timeout' is set when a run times out", async () => {
+    // ── Test 6: failure_class='adapter_timeout' is set for timeout errors ───
+    await test("failure_class='adapter_timeout' is set when a run times out", async () => {
       const db = getOrchestrationDb();
 
       // Simulate what finishRun() in engine.ts does for a timed-out run.
@@ -244,7 +243,7 @@ async function run() {
 
       // Mirror what the fixed finishRun() writes: failure_class derived from error_message.
       const errorMessage = "Claude Code CLI timed out after 5000ms";
-      const failureClass = /timed?\s*out/i.test(errorMessage) ? "timeout" : null;
+      const failureClass = /timed?\s*out/i.test(errorMessage) ? "adapter_timeout" : null;
       const durationMs = 5000;
       const completedAt = new Date().toISOString();
       db.prepare(
@@ -259,8 +258,8 @@ async function run() {
         .get(runId) as { status: string; failure_class: string | null };
 
       assert.strictEqual(row.status, "failed");
-      assert.strictEqual(row.failure_class, "timeout",
-        "finishRun() must set failure_class='timeout' when error_message matches timeout pattern"
+      assert.strictEqual(row.failure_class, "adapter_timeout",
+        "finishRun() must set failure_class='adapter_timeout' when error_message matches timeout pattern"
       );
     });
 

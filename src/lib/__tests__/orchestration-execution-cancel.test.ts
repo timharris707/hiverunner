@@ -137,7 +137,7 @@ function assertExecutionRunCancelled(db: ReturnType<typeof getOrchestrationDb>, 
     .get(runId) as ExecutionRunCancellationRow | undefined;
   assert.ok(row, "expected execution run row");
   assert.strictEqual(row.status, "cancelled");
-  assert.strictEqual(row.failure_class, "cancelled");
+  assert.strictEqual(row.failure_class, "operator_cancellation");
   assert.strictEqual(row.process_pid, null);
 }
 

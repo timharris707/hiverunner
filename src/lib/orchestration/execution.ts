@@ -28,6 +28,7 @@ import { emitHarnessWarningComment } from "@/lib/orchestration/engine/harness-wa
 import { recordRuntimeActionLedgerEntry, requireRuntimeActionLedgerEntry } from "@/lib/orchestration/runtime-action-ledger";
 import { cleanupRunArtifacts } from "@/lib/orchestration/execution/cleanup";
 import { recordExecutionRunCancellationSignalResult } from "@/lib/orchestration/execution-run-cancellation";
+import { EXECUTION_FAILURE_CLASS } from "@/lib/orchestration/execution-failure-class";
 import { getExecutionAdapter } from "@/lib/orchestration/execution/adapters";
 import type { CancelAdapterResult } from "@/lib/orchestration/execution/adapters/types";
 import { buildTaskGoalContextSection } from "@/lib/orchestration/goal-context";
@@ -2686,7 +2687,7 @@ export async function triggerTaskExecution(
             status: "cancelled",
             completedAt,
             errorMessage: "Execution wake coalesced into an already active run.",
-            failureClass: "coalesced",
+            failureClass: EXECUTION_FAILURE_CLASS.coalesced,
             terminalizedBy: "coalescer",
             failureReason: "Execution wake coalesced into an already active run.",
             retryAllowed: false,
@@ -2907,7 +2908,7 @@ export async function cancelTaskExecution(input: {
       {
         status: "cancelled",
         completedAt,
-        failureClass: "cancelled",
+        failureClass: EXECUTION_FAILURE_CLASS.operatorCancellation,
         terminalizedBy: "operator",
         failureReason: input.note?.trim() || "Execution cancellation requested by operator.",
         retryAllowed: false,

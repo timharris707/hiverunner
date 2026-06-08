@@ -1,5 +1,7 @@
 import type Database from "better-sqlite3";
 
+import { EXECUTION_FAILURE_CLASS } from "@/lib/orchestration/execution-failure-class";
+
 export type RuntimeBenchmarkScope = {
   goalKey: string;
   goalSprintId: string;
@@ -485,6 +487,8 @@ export function classifyRunFailure(run: Pick<RunRow, "status" | "failure_class" 
   const combined = `${failureClass} ${message}`;
 
   if (
+    failureClass === EXECUTION_FAILURE_CLASS.deterministicPreflight ||
+    failureClass === EXECUTION_FAILURE_CLASS.circuitBlocked ||
     failureClass === "runtime_error" ||
     combined.includes("env: node: no such file") ||
     combined.includes("err_module_not_found") ||
@@ -499,6 +503,12 @@ export function classifyRunFailure(run: Pick<RunRow, "status" | "failure_class" 
     run.status === "cancelled" &&
     (
       failureClass === "coalesced" ||
+      failureClass === EXECUTION_FAILURE_CLASS.coalesced ||
+      failureClass === EXECUTION_FAILURE_CLASS.operatorCancellation ||
+      failureClass === EXECUTION_FAILURE_CLASS.taskTransitionCancellation ||
+      failureClass === EXECUTION_FAILURE_CLASS.budgetThresholdBlocked ||
+      failureClass === EXECUTION_FAILURE_CLASS.budgetOverrideRequired ||
+      failureClass === EXECUTION_FAILURE_CLASS.protectedRuntimeApprovalRequired ||
       combined.includes("task transitioned") ||
       combined.includes("requires approval") ||
       combined.includes("coalesced") ||

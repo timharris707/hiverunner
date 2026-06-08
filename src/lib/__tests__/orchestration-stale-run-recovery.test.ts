@@ -380,7 +380,7 @@ async function run() {
           }
         | undefined;
       assert.strictEqual(oldExecution?.status, "failed");
-      assert.strictEqual(oldExecution?.failure_class, "timeout");
+      assert.strictEqual(oldExecution?.failure_class, "adapter_timeout");
       assert.strictEqual(oldExecution?.idempotency_key, null);
       assert.strictEqual(oldExecution?.terminalized_by, "watchdog");
       assert.strictEqual(oldExecution?.retry_allowed, 1);

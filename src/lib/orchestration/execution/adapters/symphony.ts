@@ -25,6 +25,7 @@ import {
   resolveCompanyWorkspaceRoot,
 } from "@/lib/workspaces/company-paths";
 import { listRuntimeAgentSkills } from "@/lib/orchestration/company-skills";
+import { EXECUTION_FAILURE_CLASS } from "@/lib/orchestration/execution-failure-class";
 import { readProjectSourceWorkspaceRoot, resolveTaskExecutionRouting } from "@/lib/orchestration/service/shared";
 import {
   mapTaskRowToSymphonyIssue,
@@ -1001,16 +1002,16 @@ function terminationReason(input: {
 function failureClassForTermination(reason: string | null): string | null {
   switch (reason) {
     case "silent_timeout":
-      return "silent_timeout";
+      return EXECUTION_FAILURE_CLASS.noOutputTimeout;
     case "adapter_timeout":
-      return "adapter_timeout";
+      return EXECUTION_FAILURE_CLASS.adapterTimeout;
     case "stdout_buffer_exceeded":
-      return "buffer_limit";
+      return EXECUTION_FAILURE_CLASS.bufferLimit;
     case "external_signal":
-      return "external_signal";
+      return EXECUTION_FAILURE_CLASS.providerExit;
     case "spawn_error":
     case "exit_code":
-      return "runtime_error";
+      return EXECUTION_FAILURE_CLASS.providerExit;
     default:
       return null;
   }
@@ -1069,7 +1070,7 @@ function runnerFailureClass(parsed: Record<string, unknown>, parsedError: string
     termination === "silent_timeout" ||
     isNoOutputTimeoutMessage(parsedError)
   ) {
-    return "silent_timeout";
+    return EXECUTION_FAILURE_CLASS.noOutputTimeout;
   }
   if (
     booleanParsedResultValue(parsed, "timedOut") ||
@@ -1077,18 +1078,18 @@ function runnerFailureClass(parsed: Record<string, unknown>, parsedError: string
     termination === "adapter_timeout" ||
     /timed?\s*out|timeout/i.test(parsedError)
   ) {
-    return "adapter_timeout";
+    return EXECUTION_FAILURE_CLASS.adapterTimeout;
   }
   if (booleanParsedResultValue(parsed, "killedForBuffer") || termination === "buffer_limit") {
-    return "buffer_limit";
+    return EXECUTION_FAILURE_CLASS.bufferLimit;
   }
   if (signal || termination === "external_signal") {
-    return "external_signal";
+    return EXECUTION_FAILURE_CLASS.providerExit;
   }
   if (exitCode !== null && exitCode !== 0) {
-    return "runtime_error";
+    return EXECUTION_FAILURE_CLASS.providerExit;
   }
-  return "runtime_error";
+  return EXECUTION_FAILURE_CLASS.providerExit;
 }
 
 function runnerParsedFailure(

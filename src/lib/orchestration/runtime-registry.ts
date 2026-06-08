@@ -194,6 +194,8 @@ const LOCAL_RUNTIME_PROBES = [
   { provider: "multica", displayName: "Multica", command: "multica", versionArgs: ["--version"] },
 ] as const;
 
+const SUBSCRIPTION_CLI_PROVIDERS = new Set(["codex", "anthropic"]);
+
 const RUNTIME_DEPENDENCY_CATALOG: Array<{
   id: string;
   provider: string;
@@ -1067,6 +1069,17 @@ function authReadiness(
 ): { ready: boolean | null; detail: string | null } {
   if (provider === "codex" && commandPath) {
     const result = runLightweightProbe(commandPath, ["login", "status"], env);
+    const lower = result.output.toLowerCase();
+    const apiKeyMode =
+      lower.includes("api key") ||
+      lower.includes("api-key") ||
+      lower.includes("openai api");
+    if (apiKeyMode) {
+      return {
+        ready: false,
+        detail: "Codex CLI is using API-key auth; sign in with ChatGPT/subscription auth for Codex runtime lanes.",
+      };
+    }
     return {
       ready: result.ok,
       detail: result.output.split(/\r?\n/)[0]?.trim() || result.error || null,
@@ -1075,6 +1088,18 @@ function authReadiness(
 
   if (provider === "anthropic" && commandPath) {
     const result = runLightweightProbe(commandPath, ["auth", "status"], env);
+    const lower = result.output.toLowerCase();
+    const apiKeyMode =
+      lower.includes("api key") ||
+      lower.includes("api-key") ||
+      lower.includes("anthropic_api_key") ||
+      lower.includes("claude_api_key");
+    if (apiKeyMode) {
+      return {
+        ready: false,
+        detail: "Claude Code CLI is using API-key auth; sign in with Claude subscription auth for Claude Code runtime lanes.",
+      };
+    }
     return {
       ready: result.ok,
       detail: result.output.split(/\r?\n/)[0]?.trim() || result.error || null,
@@ -1153,7 +1178,7 @@ export function listRuntimeDependencyReadiness(
       const auth = authReadiness(dependency.provider, commandPath, env);
       authReady = auth.ready;
       if (auth.ready === false) status = "needs_login";
-    } else if (envConfigured) {
+    } else if (envConfigured && !SUBSCRIPTION_CLI_PROVIDERS.has(dependency.provider)) {
       authReady = true;
     }
 

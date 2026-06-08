@@ -4,6 +4,7 @@ import { recordExecutionRunAttemptEvent } from "@/lib/orchestration/db";
 import { getExecutionAdapter } from "@/lib/orchestration/execution/adapters";
 import type { CancelAdapterResult } from "@/lib/orchestration/execution/adapters/types";
 import { cleanupRunArtifacts } from "@/lib/orchestration/execution/cleanup";
+import { EXECUTION_FAILURE_CLASS } from "@/lib/orchestration/execution-failure-class";
 import type { DbTaskStatus } from "@/lib/orchestration/service/shared";
 
 export type ExecutionRunToCancel = {
@@ -227,7 +228,7 @@ export function cancelRunningExecutionRunsForTask(
            completed_at = ?,
            duration_ms = COALESCE(?, duration_ms),
            error_message = ?,
-           failure_class = 'cancelled',
+           failure_class = ?,
            terminalized_by = COALESCE(terminalized_by, 'task_status_transition'),
            failure_reason = COALESCE(failure_reason, ?),
            retry_allowed = 0,
@@ -244,6 +245,7 @@ export function cancelRunningExecutionRunsForTask(
       input.now,
       Number.isFinite(durationMs) ? durationMs : null,
       cancellationReason,
+      EXECUTION_FAILURE_CLASS.taskTransitionCancellation,
       cancellationReason,
       cancellationReason,
       JSON.stringify(cancellationRequest),

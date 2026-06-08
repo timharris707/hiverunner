@@ -7,11 +7,14 @@ import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 
 const { finish, test } = createTestRunner({ passLabel: "pass", failLabel: "fail" });
 
-function writeFakeCli(binDir: string, name: string, version: string): void {
+function writeFakeCli(binDir: string, name: string, version: string, authOutput?: string): void {
   const file = path.join(binDir, name);
+  const authScript = authOutput
+    ? `if [ "$1" = "login" ] && [ "$2" = "status" ]; then\n  printf '%s\\n' "${authOutput}"\n  exit 0\nfi\nif [ "$1" = "auth" ] && [ "$2" = "status" ]; then\n  printf '%s\\n' "${authOutput}"\n  exit 0\nfi\n`
+    : "";
   writeFileSync(
     file,
-    `#!/bin/sh\nif [ "$1" = "--version" ]; then\n  printf '%s\\n' "${version}"\n  exit 0\nfi\nexit 0\n`,
+    `#!/bin/sh\nif [ "$1" = "--version" ]; then\n  printf '%s\\n' "${version}"\n  exit 0\nfi\n${authScript}exit 0\n`,
     "utf8",
   );
   chmodSync(file, 0o755);
@@ -30,14 +33,18 @@ async function run() {
   mkdirSync(binDir, { recursive: true });
   mkdirSync(homeLocalBinDir, { recursive: true });
   mkdirSync(workspaceRoot, { recursive: true });
-  writeFakeCli(binDir, "codex", "codex 9.9.9");
-  writeFakeCli(binDir, "claude", "claude 8.8.8");
+  writeFakeCli(binDir, "codex", "codex 9.9.9", "Logged in with ChatGPT");
+  writeFakeCli(binDir, "claude", "claude 8.8.8", "Claude subscription ready");
+  writeFakeCli(binDir, "api-key-codex", "codex 9.9.8", "Logged in with OpenAI API key");
   writeFakeCli(homeLocalBinDir, "hermes", "Hermes Agent v0.11.0");
 
   process.env.HOME = homeDir;
   process.env.ORCHESTRATION_DB_PATH = dbPath;
   process.env.MC_WORKSPACE_ROOT = workspaceRoot;
   process.env.PATH = binDir;
+  delete process.env.OPENAI_API_KEY;
+  delete process.env.ANTHROPIC_API_KEY;
+  delete process.env.CLAUDE_API_KEY;
   (process.env as Record<string, string | undefined>).NODE_ENV = "development";
 
   const { createCompany } = await import("@/lib/orchestration/company-service");
@@ -82,6 +89,24 @@ async function run() {
     assert.strictEqual(byId.get("openai-api-key")?.optionality, "optional_provider_key");
     assert.strictEqual(byId.get("openai-api-key")?.status, "missing_optional");
     assert.strictEqual(byId.get("openrouter-api-key")?.optionality, "optional_provider_key");
+  });
+
+  await test("does not treat API keys as subscription CLI readiness", () => {
+    const env = {
+      ...process.env,
+      PATH: path.join(tempRoot, "empty-bin"),
+      OPENAI_API_KEY: "sk-test-runtime-registry",
+      ANTHROPIC_API_KEY: "sk-ant-runtime-registry",
+    };
+    mkdirSync(env.PATH, { recursive: true });
+
+    const readiness = listRuntimeDependencyReadiness(env, { fast: true });
+    const byId = new Map(readiness.map((item) => [item.id, item]));
+
+    assert.notStrictEqual(byId.get("codex-cli")?.authReady, true);
+    assert.notStrictEqual(byId.get("claude-code-cli")?.authReady, true);
+    assert.strictEqual(byId.get("openai-api-key")?.status, "ready");
+    assert.strictEqual(byId.get("anthropic-api-key")?.status, "ready");
   });
 
   await test("upserts a company-scoped Codex runtime without OpenClaw fields", () => {
@@ -199,6 +224,30 @@ async function run() {
     assert.strictEqual(runtime!.health?.authReady, true);
     assert.strictEqual(runtime!.health?.version, "codex 9.9.9");
     assert.ok(runtime!.metadata.health, "probe result should be stored in metadata");
+  });
+
+  await test("runtime health probe rejects API-key auth for Codex CLI lanes", () => {
+    upsertCompanyRuntime({
+      companyIdOrSlug: company.id,
+      provider: "codex",
+      runtimeSlug: "api-key-codex",
+      displayName: "API Key Codex",
+      runtimeKind: "cli",
+      scope: "company",
+      command: "api-key-codex",
+      status: "unknown",
+      workspaceRoot: company.workspace.root,
+      metadata: { detectedBy: "api-key-auth-test" },
+    });
+
+    const { runtimes } = probeCompanyRuntimes(company.id, process.env);
+    const runtime = runtimes.find((row) => row.runtimeSlug === "api-key-codex");
+
+    assert.ok(runtime, "api-key runtime should be present");
+    assert.strictEqual(runtime!.status, "error");
+    assert.strictEqual(runtime!.health?.status, "needs_login");
+    assert.strictEqual(runtime!.health?.authReady, false);
+    assert.match(runtime!.health?.error ?? "", /API-key auth/);
   });
 
   await test("runtime health probe marks a missing CLI offline", () => {
