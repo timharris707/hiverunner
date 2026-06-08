@@ -18,6 +18,7 @@ const runTaskExecutionSchema = z.object({
   actorUserId: z.string().trim().min(1).max(100).optional(),
   forceFreshSession: z.boolean().optional().default(true),
   reason: z.string().trim().min(1).max(200).optional(),
+  resumeOfExecutionRunId: z.string().trim().min(1).max(100).optional(),
 });
 
 function resolveTaskCompanyId(taskId: string): string | null {
@@ -131,6 +132,7 @@ export async function POST(
       taskId: moved.task.id,
       forceFreshSession: parsed.forceFreshSession,
       reason: parsed.reason ?? "ui_run_now",
+      resumeOfExecutionRunId: parsed.resumeOfExecutionRunId,
       idempotencyKey: parsed.forceFreshSession
         ? undefined
         : `mc-task-run-now:${moved.task.id}:${moved.task.updated}`,

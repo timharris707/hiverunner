@@ -4395,6 +4395,7 @@ export async function runTaskExecution(input: {
   actorUserId?: string;
   reason?: string;
   forceFreshSession?: boolean;
+  resumeOfExecutionRunId?: string;
 }): Promise<{
   task: OrchestrationTask;
   transition: {
@@ -4421,6 +4422,7 @@ export async function runTaskExecution(input: {
         actorUserId: input.actorUserId,
         reason: input.reason,
         forceFreshSession: input.forceFreshSession ?? true,
+        resumeOfExecutionRunId: input.resumeOfExecutionRunId,
       }),
     }
   ).catch(() => null);

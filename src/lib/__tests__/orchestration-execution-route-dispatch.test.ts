@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -99,6 +100,24 @@ function latestRun(taskId: string) {
 
 type RouteRunRow = ReturnType<typeof latestRun>;
 type RouteAttempt = { status: string; runtimeProvider: string; error?: string | null };
+
+function executionRowsForTask(taskId: string) {
+  const db = getOrchestrationDb();
+  return db
+    .prepare(
+      `SELECT id, status, resume_of_execution_run_id, retry_allowed, retry_decision_reason
+       FROM execution_runs
+       WHERE task_id = ?
+       ORDER BY created_at DESC, id DESC`,
+    )
+    .all(taskId) as Array<{
+      id: string;
+      status: string;
+      resume_of_execution_run_id: string | null;
+      retry_allowed: number | null;
+      retry_decision_reason: string | null;
+    }>;
+}
 
 function expectRunRow(runRow: RouteRunRow, expected: Partial<RouteRunRow>) {
   for (const [key, value] of Object.entries(expected) as Array<[keyof RouteRunRow, RouteRunRow[keyof RouteRunRow]]>) {
@@ -260,6 +279,111 @@ async function run() {
     assert.ok(route.queued.runId);
     assert.equal(route.result.status, "succeeded", route.result.error ?? undefined);
   }
+
+  await test("triggerTaskExecution does not create a duplicate attempt while a run is active", async () => {
+    const task = createTask({
+      projectId: project.id,
+      title: "Active run admission guard",
+      description: "Existing running execution should block a duplicate attempt.",
+      priority: "P2",
+      type: "feature",
+      status: "in-progress",
+      assignee: agent.id,
+      labels: ["route"],
+      modelLane: "deep",
+      executionEngine: "symphony",
+      createdBy: "test",
+    }).task;
+    const now = new Date().toISOString();
+    const activeRunId = randomUUID();
+    db.prepare(
+      `INSERT INTO execution_runs
+         (id, task_id, agent_id, provider, execution_engine, status, token_usage_json, created_at, updated_at)
+       VALUES (?, ?, ?, 'symphony', 'symphony', 'running', '{}', ?, ?)`,
+    ).run(activeRunId, task.id, agent.id, now, now);
+
+    const queued = await triggerTaskExecution({ taskId: task.id, reason: "duplicate_active_guard" });
+
+    assert.equal(queued.status, "running");
+    assert.equal(queued.queued, false);
+    assert.equal(queued.reason, "execution_run_already_active");
+    assert.deepEqual(executionRowsForTask(task.id).map((row) => row.id), [activeRunId]);
+  });
+
+  await test("triggerTaskExecution resumes a terminal run when retry policy allows it", async () => {
+    const task = createTask({
+      projectId: project.id,
+      title: "Retry allowed admission",
+      description: "A retry-eligible terminal run should become the lineage parent.",
+      priority: "P2",
+      type: "feature",
+      status: "in-progress",
+      assignee: agent.id,
+      labels: ["route"],
+      modelLane: "deep",
+      executionEngine: "symphony",
+      createdBy: "test",
+    }).task;
+    const previousRunId = randomUUID();
+    const oldNow = new Date(Date.now() - 1000).toISOString();
+    db.prepare(
+      `INSERT INTO execution_runs
+         (id, task_id, agent_id, provider, execution_engine, status, token_usage_json,
+          retry_allowed, retry_decision_reason, created_at, updated_at)
+       VALUES (?, ?, ?, 'symphony', 'symphony', 'failed', '{}', 1, 'stale_run_recovery_evaluated', ?, ?)`,
+    ).run(previousRunId, task.id, agent.id, oldNow, oldNow);
+
+    const queued = await triggerTaskExecution({ taskId: task.id, reason: "retry_allowed_admission" });
+    const rows = executionRowsForTask(task.id);
+
+    assert.equal(queued.status, "queued");
+    assert.equal(rows.length, 2);
+    assert.equal(rows[0]?.resume_of_execution_run_id, previousRunId);
+    assert.equal(rows[0]?.retry_allowed, 1);
+    assert.equal(rows[0]?.retry_decision_reason, "retry_policy_allowed:stale_run_recovery_evaluated");
+  });
+
+  await test("triggerTaskExecution blocks retry-disallowed reruns unless explicit resume is provided", async () => {
+    const task = createTask({
+      projectId: project.id,
+      title: "Retry blocked admission",
+      description: "A retry-disallowed terminal run needs explicit resume intent.",
+      priority: "P2",
+      type: "feature",
+      status: "in-progress",
+      assignee: agent.id,
+      labels: ["route"],
+      modelLane: "deep",
+      executionEngine: "symphony",
+      createdBy: "test",
+    }).task;
+    const previousRunId = randomUUID();
+    const oldNow = new Date(Date.now() - 1000).toISOString();
+    db.prepare(
+      `INSERT INTO execution_runs
+         (id, task_id, agent_id, provider, execution_engine, status, token_usage_json,
+          retry_allowed, retry_decision_reason, created_at, updated_at)
+       VALUES (?, ?, ?, 'symphony', 'symphony', 'completed', '{}', 0, 'terminal_success', ?, ?)`,
+    ).run(previousRunId, task.id, agent.id, oldNow, oldNow);
+
+    const blocked = await triggerTaskExecution({ taskId: task.id, reason: "retry_blocked_admission" });
+    assert.equal(blocked.status, "skipped");
+    assert.equal(blocked.queued, false);
+    assert.equal(blocked.reason, "retry_admission_required");
+    assert.equal(executionRowsForTask(task.id).length, 1);
+
+    const resumed = await triggerTaskExecution({
+      taskId: task.id,
+      reason: "operator_resume_retry_blocked",
+      resumeOfExecutionRunId: previousRunId,
+    });
+    const rows = executionRowsForTask(task.id);
+
+    assert.equal(resumed.status, "queued");
+    assert.equal(rows.length, 2);
+    assert.equal(rows[0]?.resume_of_execution_run_id, previousRunId);
+    assert.equal(rows[0]?.retry_decision_reason, "explicit_resume:operator_resume_retry_blocked");
+  });
 
   await test("task Symphony engine is preserved in execution run metadata when active hive mode is HiveRunner", async () => {
     db.prepare(

@@ -106,6 +106,18 @@ export type TriggerTaskExecutionResult = {
 
 export type TriggerTaskNudgeResult = TriggerTaskExecutionResult;
 
+type TriggerExecutionAttemptAdmission =
+  | {
+      allowed: true;
+      resumeOfExecutionRunId: string | null;
+      retryAllowed: boolean;
+      retryDecisionReason: string;
+    }
+  | {
+      allowed: false;
+      result: TriggerTaskExecutionResult;
+    };
+
 export type PollTaskExecutionResult = {
   taskId: string;
   mode: BridgeRuntimeProvider;
@@ -678,6 +690,27 @@ function getExecutionRunById(runId: string, db = getOrchestrationDb()): Executio
   return mapExecutionRunRow(row);
 }
 
+function getExecutionRunByIdOptional(runId: string, db = getOrchestrationDb()): ExecutionRunRecord | undefined {
+  const row = db
+    .prepare(
+      `SELECT
+         id, task_id, agent_id, provider, execution_engine, runner_provider, runner_model,
+         model_lane, fallback_used, fallback_index, fallback_from_provider, route_attempts_json,
+         session_id, status, started_at, completed_at, error_message,
+         token_usage_json, duration_ms, idempotency_key, created_at, updated_at,
+         process_pid, failure_class, attempt_number, resume_of_execution_run_id,
+         retry_policy, retry_allowed, retry_decision_reason, preflight_result_id,
+         terminalized_by, failure_reason, cancellation_actor, cancellation_reason,
+         cancellation_result_json, process_group_id, child_exit_code, child_signal
+       FROM execution_runs
+       WHERE id = ?
+       LIMIT 1`
+    )
+    .get(runId) as ExecutionRunRow | undefined;
+
+  return row ? mapExecutionRunRow(row) : undefined;
+}
+
 function getExecutionRunByIdempotencyKey(
   idempotencyKey: string,
   db = getOrchestrationDb()
@@ -741,6 +774,108 @@ function getLatestExecutionRunForTask(
     .get(...params) as ExecutionRunRow | undefined;
 
   return row ? mapExecutionRunRow(row) : undefined;
+}
+
+function resolveTriggerExecutionAttemptAdmission(
+  db: Database.Database,
+  input: {
+    taskId: string;
+    mode: BridgeRuntimeProvider;
+    provider: ExecutionProvider;
+    requestedResumeOfExecutionRunId?: string | null;
+    reason?: string | null;
+  },
+): TriggerExecutionAttemptAdmission {
+  const requestedResumeId = input.requestedResumeOfExecutionRunId?.trim() || null;
+  if (requestedResumeId) {
+    const resumeRun = getExecutionRunByIdOptional(requestedResumeId, db);
+    if (!resumeRun) {
+      throw new OrchestrationApiError(404, "resume_execution_run_not_found", "Resume execution run not found");
+    }
+    if (resumeRun.taskId !== input.taskId) {
+      throw new OrchestrationApiError(409, "resume_execution_run_task_mismatch", "Resume execution run belongs to a different task");
+    }
+    if (resumeRun.provider !== input.provider) {
+      throw new OrchestrationApiError(409, "resume_execution_run_provider_mismatch", "Resume execution run belongs to a different provider");
+    }
+    if (resumeRun.status === "pending" || resumeRun.status === "running") {
+      return {
+        allowed: false,
+        result: {
+          taskId: input.taskId,
+          mode: input.mode,
+          queued: false,
+          status: "skipped",
+          sessionId: resumeRun.sessionId,
+          runId: executionRunIdFromUsage(resumeRun),
+          reason: "resume_execution_run_still_active",
+        },
+      };
+    }
+    return {
+      allowed: true,
+      resumeOfExecutionRunId: resumeRun.id,
+      retryAllowed: true,
+      retryDecisionReason: input.reason ? `explicit_resume:${input.reason}` : "explicit_resume",
+    };
+  }
+
+  const activeRun = getLatestExecutionRunForTask(
+    input.taskId,
+    { provider: input.provider, statuses: ["pending", "running"] },
+    db,
+  );
+  if (activeRun) {
+    return {
+      allowed: false,
+      result: {
+        taskId: input.taskId,
+        mode: input.mode,
+        queued: false,
+        status: mapRunToTriggerStatus(activeRun),
+        sessionId: activeRun.sessionId,
+        runId: executionRunIdFromUsage(activeRun),
+        reason: "execution_run_already_active",
+      },
+    };
+  }
+
+  const latestRun = getLatestExecutionRunForTask(
+    input.taskId,
+    { provider: input.provider },
+    db,
+  );
+  if (!latestRun) {
+    return {
+      allowed: true,
+      resumeOfExecutionRunId: null,
+      retryAllowed: true,
+      retryDecisionReason: input.reason ?? "initial_attempt",
+    };
+  }
+
+  if (latestRun.retryAllowed === true) {
+    return {
+      allowed: true,
+      resumeOfExecutionRunId: latestRun.id,
+      retryAllowed: true,
+      retryDecisionReason: latestRun.retryDecisionReason
+        ? `retry_policy_allowed:${latestRun.retryDecisionReason}`
+        : "retry_policy_allowed",
+    };
+  }
+
+  return {
+    allowed: false,
+    result: {
+      taskId: input.taskId,
+      mode: input.mode,
+      queued: false,
+      status: "skipped",
+      sessionId: latestRun.sessionId,
+      reason: "retry_admission_required",
+    },
+  };
 }
 
 function updateExecutionRun(
@@ -2308,6 +2443,7 @@ export async function triggerTaskExecution(
     idempotencyKey?: string;
     reason?: string;
     forceFreshSession?: boolean;
+    resumeOfExecutionRunId?: string | null;
   }
 ): Promise<TriggerTaskExecutionResult> {
   const db = getOrchestrationDb();
@@ -2461,6 +2597,16 @@ export async function triggerTaskExecution(
 
   if (isExecutionRunProvider(executionProvider)) {
     const runnerProvider = route.primary.runtimeProvider;
+    const admission = resolveTriggerExecutionAttemptAdmission(db, {
+      taskId: task.id,
+      mode,
+      provider: executionProvider,
+      requestedResumeOfExecutionRunId: input.resumeOfExecutionRunId,
+      reason: input.reason ?? null,
+    });
+    if (!admission.allowed) {
+      return admission.result;
+    }
     const { run, reused } = createExecutionRunWithIdempotencyRecovery(
       {
         taskId: task.id,
@@ -2472,6 +2618,9 @@ export async function triggerTaskExecution(
         modelLane: route.laneId,
         status: "pending",
         idempotencyKey: normalizedIdempotencyKey,
+        resumeOfExecutionRunId: admission.resumeOfExecutionRunId,
+        retryAllowed: admission.retryAllowed,
+        retryDecisionReason: admission.retryDecisionReason,
       },
       db
     );
@@ -2503,6 +2652,8 @@ export async function triggerTaskExecution(
           executionEngine: route.executionEngine,
           modelLane: route.laneId,
           executionRunId: run.id,
+          resumeOfExecutionRunId: admission.resumeOfExecutionRunId,
+          retryDecisionReason: admission.retryDecisionReason,
           executionProvider,
           runnerProvider,
           runnerModel: route.primary.model,
