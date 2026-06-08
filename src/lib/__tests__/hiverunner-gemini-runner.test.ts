@@ -27,6 +27,25 @@ const delayMs = Number.parseInt(process.env.FAKE_GEMINI_DELAY_MS || "0", 10);
 if (Number.isFinite(delayMs) && delayMs > 0) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
 }
+if (process.env.FAKE_GEMINI_MODE === "spinner-sleep") {
+  setInterval(() => {
+    process.stdout.write("\\r- Generating");
+  }, 25);
+  setTimeout(() => process.stdout.write("too late\\n"), 60_000);
+  return;
+}
+if (process.env.FAKE_GEMINI_MODE === "json-live") {
+  process.stdout.write(JSON.stringify({ type: "message", role: "assistant", text: "Gemini streamed a live update." }) + "\\n");
+  process.stdout.write(JSON.stringify({ type: "function_call", name: "npm test", args: { command: "npm test" } }) + "\\n");
+  process.stdout.write(JSON.stringify({ type: "function_response", name: "npm test", response: "tests passed" }) + "\\n");
+  process.stdout.write(JSON.stringify({
+    type: "response.completed",
+    role: "assistant",
+    text: "Gemini final summary.",
+    usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 7, totalTokenCount: 12 }
+  }) + "\\n");
+  return;
+}
 process.stdout.write("Fixture Gemini completed the external runner task.\\n");
 `,
     "utf8",
@@ -226,10 +245,68 @@ async function run() {
 
       assert.strictEqual(output.status, 0, output.stderr);
       assert.match(output.stderr, /\[hiverunner-gemini-runner\] Gemini still active after /);
-      assert.match(output.stderr, /since last stdout\/stderr/);
+      assert.match(output.stderr, /since last meaningful stdout\/stderr/);
       const parsed = JSON.parse(output.stdout) as Record<string, unknown>;
       assert.strictEqual(parsed.runnerProvider, "gemini");
       assert.strictEqual(parsed.resultText, "Fixture Gemini completed the external runner task.");
+    });
+
+    await test("Gemini runner does not count spinner-only stdout as meaningful activity", () => {
+      const output = runGeminiRunnerResult(payload, {
+        FAKE_GEMINI_MODE: "spinner-sleep",
+        HIVERUNNER_GEMINI_TIMEOUT_MS: "5000",
+        HIVERUNNER_GEMINI_NO_OUTPUT_TIMEOUT_MS: "120",
+        HIVERUNNER_GEMINI_PROGRESS_INTERVAL_MS: "25",
+        HIVERUNNER_GEMINI_TERMINATION_GRACE_MS: "25",
+      });
+
+      assert.strictEqual(output.status, 0, output.stderr || String(output.error));
+      const parsed = JSON.parse(output.stdout) as Record<string, unknown>;
+      assert.match(String(parsed.error), /no meaningful stdout\/stderr/i);
+      assert.strictEqual(parsed.noOutputTimedOut, true);
+      assert.strictEqual(parsed.timedOut, false);
+      assert.strictEqual(parsed.terminationReason, "no_output_timeout");
+      assert.ok(Number(parsed.durationMs) < 5000, `spinner-only subprocess should fail before full timeout, got ${String(parsed.durationMs)}ms`);
+      assert.ok(Number(parsed.stdoutBytes) > 0, "spinner fixture should produce raw stdout bytes");
+      assert.ok(!String(parsed.resultText).includes("Generating"), "spinner noise should not become result text");
+      const usage = parsed.usage as Record<string, unknown>;
+      assert.strictEqual(usage.noOutputTimedOut, true);
+      assert.strictEqual(usage.terminationReason, "no_output_timeout");
+      const liveLines = output.stderr
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith("::hiverunner-live-event "));
+      assert.strictEqual(liveLines.length, 0, "spinner-only output should not emit transcript live frames");
+    });
+
+    await test("Gemini runner normalizes Gemini CLI JSON output into transcript and live events", () => {
+      const output = runGeminiRunnerResult(payload, {
+        FAKE_GEMINI_MODE: "json-live",
+      });
+
+      assert.strictEqual(output.status, 0, output.stderr || String(output.error));
+      assert.ok(!output.stdout.includes("::hiverunner-live-event"), "live frames must stay out of final stdout JSON");
+      const parsed = JSON.parse(output.stdout) as Record<string, unknown>;
+      assert.strictEqual(parsed.runnerProvider, "gemini");
+      assert.strictEqual(parsed.resultText, "Gemini final summary.");
+      assert.strictEqual(parsed.inputTokens, 5);
+      assert.strictEqual(parsed.outputTokens, 7);
+      assert.strictEqual(parsed.totalTokens, 12);
+
+      const liveEvents = output.stderr
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith("::hiverunner-live-event "))
+        .map((line) => JSON.parse(line.slice("::hiverunner-live-event ".length)) as Record<string, unknown>)
+        .map((frame) => frame.event as Record<string, unknown>);
+      assert.ok(liveEvents.some((event) => event.kind === "assistant_text_delta" && /live update/.test(String(event.body))));
+      assert.ok(liveEvents.some((event) => event.kind === "tool_call_start" && event.title === "npm test"));
+      assert.ok(liveEvents.some((event) => event.kind === "tool_result" && /tests passed/.test(String(event.body))));
+      assert.ok(liveEvents.some((event) => event.kind === "assistant_text_final" && /final summary/.test(String(event.body))));
+
+      const transcriptEvents = parsed.transcriptEvents as Array<Record<string, unknown>>;
+      assert.ok(transcriptEvents.some((event) => event.kind === "assistant_text_delta"));
+      assert.ok(transcriptEvents.some((event) => event.kind === "tool_call_start"));
+      assert.ok(transcriptEvents.some((event) => event.kind === "tool_result"));
+      assert.ok(transcriptEvents.some((event) => event.kind === "assistant_text_final"));
     });
 
     await test("Gemini 3.5 Flash benchmark cells run through direct API after no-generation preflight", () => {

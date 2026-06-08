@@ -189,6 +189,7 @@ export function runBufferedCommand({
   describeNoOutputTimeout,
   describeBufferLimit,
   describeExit,
+  isMeaningfulOutput,
   onProgress,
   onStdout,
   onStderr,
@@ -216,6 +217,7 @@ export function runBufferedCommand({
     let lastOutputAt = null;
     let terminationReason = null;
     let terminationSignalMethod = null;
+    let lastMeaningfulOutputAt = null;
     const timer = setTimeout(() => {
       timedOut = true;
       requestTermination("timeout");
@@ -269,23 +271,45 @@ export function runBufferedCommand({
         onProgress({
           durationMs: Date.now() - startedAt,
           silentForMs: Date.now() - (lastOutputAt ?? startedAt),
+          meaningfulSilentForMs: Date.now() - (lastMeaningfulOutputAt ?? startedAt),
           lastOutputAt,
+          lastMeaningfulOutputAt,
           stdoutBytes,
           stderrBytes,
         });
       }, progressIntervalMs);
     }
 
+    const outputCountsForNoOutput = (stream, chunk) => {
+      if (!isMeaningfulOutput) return true;
+      try {
+        return isMeaningfulOutput({
+          stream,
+          chunk,
+          stdoutBytes,
+          stderrBytes,
+          lastOutputAt,
+          lastMeaningfulOutputAt,
+        }) === true;
+      } catch {
+        return true;
+      }
+    };
+
     child.stdout?.on("data", (chunk) => {
       lastOutputAt = Date.now();
       stdoutBytes += chunk.length;
+      const isMeaningful = outputCountsForNoOutput("stdout", chunk);
       try {
         onStdout?.(chunk);
       } catch {
         // Output taps are observational and must not break command execution.
       }
       if (stdoutBytes <= maxBufferBytes) stdoutChunks.push(chunk);
-      resetNoOutputTimer();
+      if (isMeaningful) {
+        lastMeaningfulOutputAt = lastOutputAt;
+        resetNoOutputTimer();
+      }
       if (stdoutBytes > maxBufferBytes && !killedForBuffer) {
         killedForBuffer = true;
         requestTermination("buffer_limit");
@@ -294,13 +318,17 @@ export function runBufferedCommand({
     child.stderr?.on("data", (chunk) => {
       lastOutputAt = Date.now();
       stderrBytes += chunk.length;
+      const isMeaningful = outputCountsForNoOutput("stderr", chunk);
       try {
         onStderr?.(chunk);
       } catch {
         // Output taps are observational and must not break command execution.
       }
       if (stderrBytes <= maxBufferBytes) stderrChunks.push(chunk);
-      resetNoOutputTimer();
+      if (isMeaningful) {
+        lastMeaningfulOutputAt = lastOutputAt;
+        resetNoOutputTimer();
+      }
     });
     child.on("error", (error) => {
       spawnError = error.message;
@@ -338,6 +366,8 @@ export function runBufferedCommand({
         terminationSignalMethod,
         stdoutBytes,
         stderrBytes,
+        lastOutputAt,
+        lastMeaningfulOutputAt,
         durationMs: Date.now() - startedAt,
       });
     });
