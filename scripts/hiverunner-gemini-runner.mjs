@@ -376,11 +376,11 @@ function createGeminiLiveStdoutForwarder() {
   };
 }
 
-function hasMeaningfulGeminiOutput(stream, chunk) {
+function hasMeaningfulGeminiOutput(stream) {
   if (stream === "stdout") return false;
-  const text = meaningfulPlainTextFromOutput(chunk.toString("utf8"));
-  if (!text) return false;
-  return /\b(error|exception|failed|failure|unauthorized|permission|forbidden|auth|not found|model not found|quota|rate limit|timeout)\b/i.test(text);
+  // Gemini CLI writes credential, progress, and status chatter to stderr. Keep
+  // stderr available for final diagnostics, but never let it satisfy liveness.
+  return false;
 }
 
 function createGeminiOutputTracker() {
@@ -1094,10 +1094,11 @@ async function main() {
   const usage = collectUsage(records);
   const costTelemetry = benchmarkCostTelemetry(payload, invocation.model, usage);
   const commandTelemetry = commandResultTelemetry(result);
+  const stderrSummary = result.noOutputTimedOut ? "" : meaningfulPlainTextFromOutput(result.stderr);
   const assistantSummary =
     records.map(extractText).filter(Boolean).at(-1) ||
     meaningfulPlainTextFromOutput(result.stdout) ||
-    meaningfulPlainTextFromOutput(result.stderr) ||
+    stderrSummary ||
     result.error ||
     "";
 
