@@ -147,6 +147,19 @@ function terminateChildProcess(child, { pid, pgid, signal, terminateProcessTree 
   return descendantCount > 0 ? "process_tree" : "process";
 }
 
+function signalExitCode(signal) {
+  switch (signal) {
+    case "SIGINT":
+      return 130;
+    case "SIGTERM":
+      return 143;
+    case "SIGHUP":
+      return 129;
+    default:
+      return 1;
+  }
+}
+
 function noOutputError({ noOutputTimedOut, noOutputTimeoutMs, describeNoOutputTimeout }) {
   if (!noOutputTimedOut) return null;
   return describeNoOutputTimeout?.({ noOutputTimeoutMs }) ?? `Command produced no stdout/stderr for ${noOutputTimeoutMs}ms`;
@@ -225,12 +238,23 @@ export function runBufferedCommand({
     let noOutputTimer = null;
     let progressTimer = null;
     let forceKillTimer = null;
+    let parentExitTimer = null;
+    let parentTerminationSignal = null;
+    const parentSignalHandlers = new Map();
 
     const clearRuntimeTimers = () => {
       clearTimeout(timer);
       if (noOutputTimer) clearTimeout(noOutputTimer);
       if (progressTimer) clearInterval(progressTimer);
       if (forceKillTimer) clearTimeout(forceKillTimer);
+      if (parentExitTimer) clearTimeout(parentExitTimer);
+    };
+
+    const removeParentSignalHandlers = () => {
+      for (const [signal, handler] of parentSignalHandlers) {
+        process.off(signal, handler);
+      }
+      parentSignalHandlers.clear();
     };
 
     function requestTermination(reason) {
@@ -253,6 +277,24 @@ export function runBufferedCommand({
             terminateProcessTree,
           });
         }, terminationGraceMs);
+      }
+    }
+
+    const requestParentSignalTermination = (signal) => {
+      parentTerminationSignal = signal;
+      requestTermination(`parent_signal:${signal}`);
+      if (!parentExitTimer) {
+        parentExitTimer = setTimeout(() => {
+          process.exit(signalExitCode(signal));
+        }, Math.max(terminationGraceMs, 0) + 250);
+      }
+    };
+
+    if (terminateProcessTree) {
+      for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"]) {
+        const handler = () => requestParentSignalTermination(signal);
+        parentSignalHandlers.set(signal, handler);
+        process.once(signal, handler);
       }
     }
 
@@ -335,6 +377,10 @@ export function runBufferedCommand({
     });
     child.on("close", (exitCode, signal) => {
       clearRuntimeTimers();
+      removeParentSignalHandlers();
+      if (parentTerminationSignal) {
+        process.exit(signalExitCode(parentTerminationSignal));
+      }
       const stdout = Buffer.concat(stdoutChunks).toString("utf8");
       const stderr = Buffer.concat(stderrChunks).toString("utf8");
       const error = commandError({

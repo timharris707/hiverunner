@@ -1,8 +1,8 @@
 import assert from "node:assert";
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 
 import { createTestRunner } from "./helpers/simple-test-runner";
 
@@ -203,8 +203,19 @@ if (process.env.FAKE_CODEX_ENV_FILE) {
     PORT: process.env.PORT || null,
   }), "utf8");
 }
+if (process.env.FAKE_CODEX_PID_FILE) {
+  fs.writeFileSync(process.env.FAKE_CODEX_PID_FILE, String(process.pid), "utf8");
+}
 if (process.env.FAKE_CODEX_MODE === "silent-sleep") {
   setTimeout(() => {}, 60_000);
+  return;
+}
+if (process.env.FAKE_CODEX_MODE === "record-sigterm-sleep") {
+  process.on("SIGTERM", () => {
+    fs.writeFileSync(process.env.FAKE_CODEX_TERM_FILE, "SIGTERM", "utf8");
+    process.exit(0);
+  });
+  setInterval(() => {}, 1_000);
   return;
 }
 if (process.env.FAKE_CODEX_MODE === "sigterm-success-after-silence") {
@@ -262,6 +273,32 @@ process.stdout.write(JSON.stringify({ type: "usage", input_tokens: 13, output_to
     "utf8",
   );
   chmodSync(file, 0o755);
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitFor(predicate: () => boolean, timeoutMs: number, description: string) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (predicate()) return;
+    await wait(25);
+  }
+  assert.fail(`Timed out waiting for ${description}`);
+}
+
+function waitForChildExit(child: ReturnType<typeof spawn>, timeoutMs: number) {
+  return new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error("Timed out waiting for child process exit"));
+    }, timeoutMs);
+    child.once("exit", (code, signal) => {
+      clearTimeout(timer);
+      resolve({ code, signal });
+    });
+  });
 }
 
 async function run() {
@@ -389,6 +426,46 @@ async function run() {
       assert.strictEqual(usage.terminationReason, "no_output_timeout");
       const prompt = readFileSync(promptFile, "utf8");
       assert.ok(prompt.includes("Implement the fixture task."));
+    });
+
+    await test("runner propagates parent SIGTERM to the Codex subprocess tree", async () => {
+      const pidFile = path.join(tempRoot, "codex-child.pid");
+      const termFile = path.join(tempRoot, "codex-child.term");
+      const child = spawn(process.execPath, ["scripts/hiverunner-symphony-runner.mjs"], {
+        cwd: process.cwd(),
+        stdio: ["pipe", "pipe", "pipe"],
+        env: {
+          ...process.env,
+          HIVERUNNER_SYMPHONY_CODEX_COMMAND: fakeCodex,
+          HIVERUNNER_SYMPHONY_MODEL: "",
+          HIVERUNNER_SYMPHONY_CODEX_TERMINATION_GRACE_MS: "100",
+          FAKE_CODEX_ARGS_FILE: argsFile,
+          FAKE_CODEX_PROMPT_FILE: promptFile,
+          FAKE_CODEX_MODE: "record-sigterm-sleep",
+          FAKE_CODEX_PID_FILE: pidFile,
+          FAKE_CODEX_TERM_FILE: termFile,
+        },
+      });
+      let stderr = "";
+      child.stderr?.setEncoding("utf8");
+      child.stderr?.on("data", (chunk) => {
+        stderr += chunk;
+      });
+      child.stdin.end(JSON.stringify(payload));
+
+      try {
+        await waitFor(() => existsSync(pidFile), 1_000, "fake Codex pid file");
+        const childPid = Number.parseInt(readFileSync(pidFile, "utf8"), 10);
+        assert.ok(Number.isFinite(childPid) && childPid > 0, "fake Codex pid should be recorded");
+        process.kill(child.pid!, "SIGTERM");
+        const exit = await waitForChildExit(child, 3_000);
+        assert.strictEqual(exit.code, 143, stderr);
+        assert.strictEqual(exit.signal, null);
+        await waitFor(() => existsSync(termFile), 1_000, "fake Codex SIGTERM marker");
+        assert.strictEqual(readFileSync(termFile, "utf8"), "SIGTERM");
+      } finally {
+        if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+      }
     });
 
     await test("runner treats a clean child exit with final output as recovered from no-output", () => {

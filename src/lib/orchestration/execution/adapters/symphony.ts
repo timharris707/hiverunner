@@ -762,6 +762,52 @@ function terminateChildProcess(
   return "process";
 }
 
+const activeRunnerTerminators = new Set<(signal: NodeJS.Signals) => void>();
+let activeRunnerSignalHandlersAttached = false;
+let activeRunnerExitTimer: ReturnType<typeof setTimeout> | null = null;
+
+function signalExitCode(signal: NodeJS.Signals): number {
+  switch (signal) {
+    case "SIGINT":
+      return 130;
+    case "SIGTERM":
+      return 143;
+    case "SIGHUP":
+      return 129;
+    default:
+      return 1;
+  }
+}
+
+function ensureActiveRunnerSignalHandlers(): void {
+  if (activeRunnerSignalHandlersAttached) return;
+  activeRunnerSignalHandlersAttached = true;
+  for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"] as NodeJS.Signals[]) {
+    process.once(signal, () => {
+      for (const terminate of Array.from(activeRunnerTerminators)) {
+        try {
+          terminate(signal);
+        } catch {
+          // Best-effort shutdown cleanup must not block process termination.
+        }
+      }
+      if (!activeRunnerExitTimer) {
+        activeRunnerExitTimer = setTimeout(() => {
+          process.exit(signalExitCode(signal));
+        }, DEFAULT_SYMPHONY_TERMINATION_GRACE_MS + 250);
+      }
+    });
+  }
+}
+
+function registerActiveRunnerTerminator(terminate: (signal: NodeJS.Signals) => void): () => void {
+  ensureActiveRunnerSignalHandlers();
+  activeRunnerTerminators.add(terminate);
+  return () => {
+    activeRunnerTerminators.delete(terminate);
+  };
+}
+
 async function cancel(_runId: string, pid: number | null): Promise<CancelAdapterResult> {
   if (pid === null) return { killed: false, method: "no-op:pid-null" };
   if (!isPidAlive(pid)) return { killed: false, method: "no-op:already-exited" };
@@ -1735,6 +1781,12 @@ function runCommand(
         }, terminationGraceMs);
       }
     };
+    const unregisterActiveRunnerTerminator = registerActiveRunnerTerminator((signal) => {
+      requestTermination(
+        "parent_signal",
+        `HiveRunner process received ${signal}; terminating external runner before shutdown.`,
+      );
+    });
 
     const resetNoOutputTimer = () => {
       if (noOutputTimer) clearTimeout(noOutputTimer);
@@ -1887,6 +1939,7 @@ function runCommand(
     child.on("close", (exitCode, signal) => {
       clearTimeout(timer);
       clearRuntimeTimers();
+      unregisterActiveRunnerTerminator();
       runnerLiveProtocol.flush();
       stdoutLive.flush();
       const remainingCleanStderrChunk = runnerLiveProtocolStripper.flush();

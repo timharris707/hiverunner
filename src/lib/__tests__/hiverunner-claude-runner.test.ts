@@ -153,6 +153,30 @@ async function run() {
       assert.strictEqual(output.runnerProvider, "anthropic");
       assert.strictEqual(output.resultText, "Fixture Claude completed the external runner task.");
     });
+
+    await test("Claude runner terminates a silent Claude Code subprocess", () => {
+      const result = runClaudeRunnerResult(payload, {
+        FAKE_CLAUDE_DELAY_MS: "60000",
+        HIVERUNNER_CLAUDE_TIMEOUT_MS: "5000",
+        HIVERUNNER_CLAUDE_NO_OUTPUT_TIMEOUT_MS: "120",
+        HIVERUNNER_CLAUDE_PROGRESS_INTERVAL_MS: "25",
+        HIVERUNNER_CLAUDE_TERMINATION_GRACE_MS: "25",
+      });
+
+      assert.strictEqual(result.status, 0, result.stderr || String(result.error));
+      const output = JSON.parse(result.stdout) as Record<string, unknown>;
+      assert.match(String(output.error), /produced no stdout\/stderr/i);
+      assert.strictEqual(output.noOutputTimedOut, true);
+      assert.strictEqual(output.timedOut, false);
+      assert.strictEqual(output.terminationReason, "no_output_timeout");
+      assert.ok(Number(output.durationMs) < 5000, `silent subprocess should fail before spawnSync timeout, got ${String(output.durationMs)}ms`);
+      assert.match(result.stderr, /\[hiverunner-claude-runner\] Claude still active after /);
+
+      const usage = output.usage as Record<string, unknown>;
+      assert.strictEqual(usage.runnerProvider, "anthropic");
+      assert.strictEqual(usage.noOutputTimedOut, true);
+      assert.strictEqual(usage.terminationReason, "no_output_timeout");
+    });
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }

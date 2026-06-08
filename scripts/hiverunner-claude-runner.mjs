@@ -13,7 +13,9 @@ import {
 
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
 const DEFAULT_MAX_BUFFER_BYTES = 20 * 1024 * 1024;
+const DEFAULT_NO_OUTPUT_TIMEOUT_MS = 2 * 60 * 1000;
 const DEFAULT_PROGRESS_INTERVAL_MS = 30 * 1000;
+const DEFAULT_TERMINATION_GRACE_MS = 5 * 1000;
 const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6";
 const RUNNER_VERSION = "hiverunner-claude-runner 0.1.0";
 
@@ -169,7 +171,12 @@ function buildClaudeInvocation(payload) {
 function runClaude({ command, args, cwd, prompt }) {
   const timeoutMs = numberFromEnv("HIVERUNNER_CLAUDE_TIMEOUT_MS", DEFAULT_TIMEOUT_MS);
   const maxBufferBytes = numberFromEnv("HIVERUNNER_CLAUDE_MAX_BUFFER", DEFAULT_MAX_BUFFER_BYTES);
+  const noOutputTimeoutMs = Math.min(
+    numberFromEnv("HIVERUNNER_CLAUDE_NO_OUTPUT_TIMEOUT_MS", DEFAULT_NO_OUTPUT_TIMEOUT_MS),
+    timeoutMs,
+  );
   const progressIntervalMs = numberFromEnv("HIVERUNNER_CLAUDE_PROGRESS_INTERVAL_MS", DEFAULT_PROGRESS_INTERVAL_MS);
+  const terminationGraceMs = numberFromEnv("HIVERUNNER_CLAUDE_TERMINATION_GRACE_MS", DEFAULT_TERMINATION_GRACE_MS);
 
   return runBufferedCommand({
     command,
@@ -183,8 +190,12 @@ function runClaude({ command, args, cwd, prompt }) {
     stdin: prompt,
     timeoutMs,
     maxBufferBytes,
+    noOutputTimeoutMs,
     progressIntervalMs,
+    terminationGraceMs,
+    terminateProcessTree: true,
     describeTimeout: () => `Claude command timed out after ${timeoutMs}ms`,
+    describeNoOutputTimeout: () => `Claude command produced no stdout/stderr for ${noOutputTimeoutMs}ms`,
     describeBufferLimit: () => `Claude command exceeded ${maxBufferBytes} bytes of stdout`,
     describeExit: ({ exitCode, signal }) => `Claude command exited with code ${exitCode}${signal ? ` (${signal})` : ""}`,
     onProgress: ({ durationMs, silentForMs, stdoutBytes, stderrBytes }) => {
@@ -244,7 +255,8 @@ async function main() {
   const assistantSummary =
     records.map(extractText).filter(Boolean).at(-1) ||
     result.stdout.trim() ||
-    result.stderr.trim();
+    (result.error ? "" : result.stderr.trim()) ||
+    stringFrom(result.error);
   const sessionId =
     stringFrom(records.find((record) => stringFrom(record.session_id))?.session_id) ||
     stringFrom(records.find((record) => stringFrom(record.sessionId))?.sessionId) ||
@@ -261,6 +273,32 @@ async function main() {
     outputTokens: usage.outputTokens,
     totalTokens: usage.totalTokens,
     durationMs: result.durationMs,
+    timedOut: result.timedOut,
+    noOutputTimedOut: result.noOutputTimedOut,
+    killedForBuffer: result.killedForBuffer,
+    forcedKilled: result.forcedKilled,
+    terminationReason: result.terminationReason,
+    terminationSignalMethod: result.terminationSignalMethod,
+    exitCode: result.exitCode,
+    signal: result.signal,
+    stdoutBytes: result.stdoutBytes,
+    stderrBytes: result.stderrBytes,
+    usage: {
+      ...usage,
+      runnerProvider: "anthropic",
+      runnerModel: invocation.model,
+      model: invocation.model,
+      timedOut: result.timedOut,
+      noOutputTimedOut: result.noOutputTimedOut,
+      killedForBuffer: result.killedForBuffer,
+      forcedKilled: result.forcedKilled,
+      terminationReason: result.terminationReason,
+      terminationSignalMethod: result.terminationSignalMethod,
+      exitCode: result.exitCode,
+      signal: result.signal,
+      stdoutBytes: result.stdoutBytes,
+      stderrBytes: result.stderrBytes,
+    },
     transcriptEvents: collectTranscriptEvents(records, assistantSummary),
   }) + "\n");
 }
