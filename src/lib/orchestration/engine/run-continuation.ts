@@ -3,6 +3,7 @@ import type Database from "better-sqlite3";
 
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { parseJson } from "@/lib/orchestration/engine/persistence";
+import { taskRequiresAutonomousReviewHandoff } from "@/lib/orchestration/engine/review-handler";
 import type { HeartbeatRunStatus } from "@/lib/orchestration/engine/wakeup-queue";
 
 export type ActionResults = {
@@ -359,42 +360,62 @@ export function autoFlipTaskToReviewAfterMissingEndDeclaration(
   input: { taskId: string; agentId: string; runId: string; runWindowStart?: string | null; now: string }
 ): boolean {
   const task = db
-    .prepare("SELECT id, project_id, status FROM tasks WHERE id = ? AND archived_at IS NULL LIMIT 1")
-    .get(input.taskId) as { id: string; project_id: string | null; status: string } | undefined;
+    .prepare("SELECT id, project_id, status, type, labels_json FROM tasks WHERE id = ? AND archived_at IS NULL LIMIT 1")
+    .get(input.taskId) as { id: string; project_id: string | null; status: string; type?: string | null; labels_json?: string | null } | undefined;
   if (!task || !["in_progress", "to-do"].includes(task.status)) return false;
   if (runHasExplicitReviewOrDoneDeclaration(db, input)) return false;
   if (runHasExplicitReviewReturnDeclaration(db, input)) return false;
   if (!runHasSubstantiveTaskWork(db, input)) return false;
 
+  const requiresReview = taskRequiresAutonomousReviewHandoff(task);
+  const terminalStatus = requiresReview ? "review" : "done";
+  const reviewNotes = requiresReview
+    ? "Engine auto-moved to review after completed work without an explicit end-of-run declaration."
+    : null;
+  const commentBody = requiresReview
+    ? "Agent completed substantive work but did not emit update_task to declare review/done. Engine auto-moved this task to review to unblock dependent work. Future runs should explicitly emit update_task at end of work."
+    : "Agent completed substantive work but did not emit update_task to declare review/done. Engine marked this ungated task done to avoid an unnecessary autonomous review run. Future runs should explicitly emit update_task at end of work.";
+
   const changed = db
     .prepare(
       `UPDATE tasks
-       SET status = 'review',
-           review_notes = COALESCE(review_notes, 'Engine auto-moved to review after completed work without an explicit end-of-run declaration.'),
+       SET status = ?,
+           review_notes = CASE WHEN ? THEN COALESCE(review_notes, ?) ELSE review_notes END,
+           completed_at = CASE WHEN ? THEN COALESCE(completed_at, ?) ELSE completed_at END,
            updated_at = ?
        WHERE id = ?
          AND status IN ('in_progress', 'to-do')
          AND archived_at IS NULL`
     )
-    .run(input.now, task.id);
+    .run(
+      terminalStatus,
+      requiresReview ? 1 : 0,
+      reviewNotes,
+      requiresReview ? 0 : 1,
+      input.now,
+      input.now,
+      task.id,
+    );
   if (changed.changes === 0) return false;
-  const reviewNotes = "Engine auto-moved to review after completed work without an explicit end-of-run declaration.";
 
   db.prepare(
     `INSERT INTO task_events
       (id, project_id, task_id, agent_id, event_type, from_status, to_status, metadata_json, created_at)
-     VALUES (?, ?, ?, ?, 'task.status_changed', ?, 'review', ?, ?)`
+     VALUES (?, ?, ?, ?, 'task.status_changed', ?, ?, ?, ?)`
   ).run(
     randomUUID(),
     task.project_id,
     task.id,
     input.agentId,
     task.status,
+    terminalStatus,
     JSON.stringify({
       source: "engine_end_of_run_autoflip",
       runId: input.runId,
       reason: "agent_did_work_without_declaring_terminal_status",
       review_notes: reviewNotes,
+      terminalStatus,
+      reviewRequired: requiresReview,
     }),
     input.now,
   );
@@ -404,7 +425,7 @@ export function autoFlipTaskToReviewAfterMissingEndDeclaration(
   ).run(
     randomUUID(),
     task.id,
-    "Agent completed substantive work but did not emit update_task to declare review/done. Engine auto-moved this task to review to unblock dependent work. Future runs should explicitly emit update_task at end of work.",
+    commentBody,
     `engine:end-of-run-autoflip:${input.runId}`,
     input.now,
     input.now,
