@@ -402,6 +402,10 @@ async function run() {
       assert.ok(prompt.includes("Symphony-compatible task handoff"));
       assert.ok(prompt.includes("INS-1 - Run fixture task"));
       assert.ok(prompt.includes("Implement the fixture task."));
+      assert.ok(prompt.includes("Validation policy"));
+      assert.ok(prompt.includes("broad fallow changed audit"));
+      assert.ok(prompt.includes("Blocked policy"));
+      assert.ok(prompt.includes("blocker and exit condition"));
 
       const childEnv = JSON.parse(readFileSync(envFile, "utf8")) as Record<string, unknown>;
       assert.strictEqual(childEnv.HIVERUNNER_SYMPHONY_RUNNER, "1");

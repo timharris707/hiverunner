@@ -564,6 +564,8 @@ function buildPrompt(payload) {
     "",
     "HiveRunner is the source of truth for task state. If you need to update HiveRunner task state, include a fenced mc-action block in your final response.",
     "Make product code changes in the source workspace. Use the company workspace only for HiveRunner artifacts, notes, or task outputs when requested.",
+    "Validation policy: task-specific failing checks are blockers. Branch-wide or inherited hygiene findings, such as a broad fallow changed audit against many unrelated files, are caveats unless you can tie them directly to this task's changed files or acceptance criteria. If focused validation passes and only unrelated branch-wide hygiene remains, report the caveat and move the task to done.",
+    "Blocked policy: only move a task to blocked when a concrete external blocker prevents completion, and include an update_task comment that states the blocker and exit condition.",
   ].join("\n");
 
   return [context, stringFrom(payload.prompt)].filter(Boolean).join("\n\n");

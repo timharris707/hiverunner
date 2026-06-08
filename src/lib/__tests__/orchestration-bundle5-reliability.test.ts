@@ -290,6 +290,59 @@ async function run() {
     assert.match(warning?.body ?? "", /update_task/);
   });
 
+  await test("blocked update_task actions require an explicit blocker comment", () => {
+    const task = createTask({
+      projectId: project.id,
+      title: "Blocked comment required task",
+      description: "Blocked status must not land without an exit condition.",
+      priority: "P1",
+      type: "feature",
+      status: "in-progress",
+      assignee: agent.id,
+      labels: ["bundle-5"],
+      createdBy: "bundle-5-test",
+    }).task;
+
+    const result = executeUpdateTask(
+      { action: "update_task", taskKey: task.key, status: "blocked" },
+      { agentId: agent.id, companyId: company.id, runId: randomUUID() },
+      db,
+    );
+    assert.equal(result.statusApplied, false);
+    assert.equal(result.statusRejectedReason, "blocked_requires_comment");
+
+    const row = db.prepare("SELECT status, blocked_reason FROM tasks WHERE id = ?").get(task.id) as { status: string; blocked_reason: string | null };
+    assert.equal(row.status, "in_progress");
+    assert.equal(row.blocked_reason, null);
+  });
+
+  await test("blocked update_task comments persist as blocked_reason", () => {
+    const task = createTask({
+      projectId: project.id,
+      title: "Blocked reason persistence task",
+      description: "Blocked status should carry a durable reason.",
+      priority: "P1",
+      type: "feature",
+      status: "in-progress",
+      assignee: agent.id,
+      labels: ["bundle-5"],
+      createdBy: "bundle-5-test",
+    }).task;
+    const blocker = "Blocked by unavailable fixture service until the fixture endpoint responds.";
+
+    const result = executeUpdateTask(
+      { action: "update_task", taskKey: task.key, status: "blocked", comment: blocker },
+      { agentId: agent.id, companyId: company.id, runId: randomUUID() },
+      db,
+    );
+    assert.equal(result.statusApplied, true, result.statusRejectedReason);
+    assert.equal(result.commentApplied, true);
+
+    const row = db.prepare("SELECT status, blocked_reason FROM tasks WHERE id = ?").get(task.id) as { status: string; blocked_reason: string | null };
+    assert.equal(row.status, "blocked");
+    assert.equal(row.blocked_reason, blocker);
+  });
+
   await test("mc-action execution is blocked when durable action ledger reservation is unavailable", async () => {
     const task = createTask({
       projectId: project.id,

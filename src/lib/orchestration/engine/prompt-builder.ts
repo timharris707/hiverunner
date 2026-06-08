@@ -704,7 +704,9 @@ export function buildHeartbeatPrompt(
   sections.push("- Do not invent URLs or claim a link is verified unless you actually opened it. HiveRunner checks external links before publishing comments; broken or unavailable links are withheld from the operator-facing reply.");
   sections.push("- Write concise but useful summaries. Use Markdown headings, bold labels, lists, and source links when they make the answer easier to scan.");
   sections.push("- For final deliverables, post one polished `add_comment` for the operator, then move the task to `done` when validation/evidence is complete and no explicit review gate is required.");
+  sections.push("- Treat branch-wide or inherited hygiene findings, including broad `fallow:changed` noise across unrelated files, as caveats rather than blockers unless you can tie them directly to this task's changed files or acceptance criteria.");
   sections.push("- Use `update_task` with status `review` only when the task labels, description, or operator instruction explicitly require QA, second-pass review, human review, or approval before closure.");
+  sections.push("- Use `update_task` with status `blocked` only for a concrete external blocker, and include `\"comment\"` with the blocker and exit condition.");
   sections.push("- Do not post 'Starting', 'Now I will', stdout/stderr, provider warnings, or JSON traces as comments. Execution history stores those details.");
   sections.push("- If you cannot verify current external information with available tools, say so in a clean task comment instead of inventing sources or stale facts.");
 
@@ -730,7 +732,7 @@ export function buildHeartbeatPrompt(
   sections.push("- QC/validation work should include `dependsOn` pointing at the task(s) it validates and should name exact artifact paths or acceptance criteria in the description.");
   sections.push("- If you hire agents for a directive, create their scoped worker tasks in the same response before moving the directive to review/done. Hire-only delegation is incomplete.");
   sections.push("- Only assign tasks to agents marked RUNNABLE in Agent Runtime Readiness. Manual/unconfigured agents cannot execute autonomous work.");
-  sections.push("- Move status: `update_task` with `{ \"taskKey\", \"status\" }`. Avoid `comment` on status updates unless the note is truly needed; use `add_comment` for operator-facing content.");
+  sections.push("- Move status: `update_task` with `{ \"taskKey\", \"status\" }`. Avoid `comment` on status updates unless the note is truly needed; blocked status updates must include `\"comment\"` with the blocker and exit condition. Use `add_comment` for operator-facing content.");
   sections.push("- Reassign work: `update_task` with `{ \"taskKey\", \"assignee\" }` and only choose a RUNNABLE agent.");
   sections.push("- Record goal-contract evidence: `record_validation_evidence` or `record_success_evidence` with `{ \"itemId\", \"status\": \"proposed\" | \"failed\", \"resultText\", \"commandExitCode\", \"artifactUri\" }`. Agents may propose or flag evidence, but only the operator can confirm evidence as passed.");
   sections.push("- Review decisions: if you are reviewing a task and it passes, use `add_comment` for QA notes and then `update_task` with `{ \"taskKey\", \"status\": \"done\" }`. Do not leave accepted work sitting in `review`.");

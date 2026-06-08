@@ -3427,7 +3427,8 @@ export type UpdateTaskResult = {
     | "in_progress_assignee_not_found"
     | "in_progress_requires_assignee"
     | "no_op_resubmission"
-    | "planning_draft_required";
+    | "planning_draft_required"
+    | "blocked_requires_comment";
   assigneeRequested: boolean;
   assigneeApplied: boolean;
   assigneeRejectedReason?: "not_found" | "not_executable_runtime";
@@ -3606,6 +3607,20 @@ export function executeUpdateTask(
   // performs the status write, then we fan out the downstream cascades that
   // depend on the new status.
   if (action.status) {
+    const requestedStatus = action.status.trim().toLowerCase().replace(/[\s-]+/g, "_");
+    const blockedComment = action.comment?.trim() ?? "";
+    if (requestedStatus === "blocked" && !blockedComment) {
+      result.statusRejectedReason = "blocked_requires_comment";
+      emitRunEvent(
+        input.runId,
+        input.agentId,
+        "action_error",
+        `update_task ${action.taskKey}: blocked status requires a comment with the blocker and exit condition.`,
+        db,
+      );
+      return result;
+    }
+
     const transition = applyStatusTransition(
       {
         id: task.id,
@@ -3640,6 +3655,12 @@ export function executeUpdateTask(
       let normalized = transition.normalizedStatus as string;
       appliedTaskStatus = normalized;
       const implicitInProgressOwner = transition.implicitInProgressOwner ?? null;
+
+      if (normalized === "blocked") {
+        db.prepare("UPDATE tasks SET blocked_reason = ?, updated_at = ? WHERE id = ?")
+          .run(blockedComment, now, task.id);
+        task.status = "blocked";
+      }
 
       if (implicitInProgressOwner && implicitInProgressOwner.id !== task.assignee_agent_id) {
         db.prepare(

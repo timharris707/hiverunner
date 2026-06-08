@@ -47,7 +47,7 @@ Execution Context below. Decide which of these outcomes applies:
    {"action":"add_comment","taskKey":"<TASK-KEY>","body":"Blocked by <specific thing>. Needs <specific action from whom>."}
    ```
    ```mc-action
-   {"action":"update_task","taskKey":"<TASK-KEY>","status":"blocked"}
+   {"action":"update_task","taskKey":"<TASK-KEY>","status":"blocked","comment":"Blocked by <specific external blocker> until <exit condition>."}
    ```
 
 Never end a work ritual with only narrative. If you thought about the task
@@ -109,6 +109,7 @@ Plain prose outside an action block is imported as a passive report and does
 {"action":"update_task","taskKey":"WEA-42","status":"review"}
 ```
 - `status` (optional): `backlog`, `to-do`, `in_progress`, `review`, `done`, `blocked`
+- Blocked status updates must include `comment` with the blocker and exit condition.
 - `assignee` (optional): exact agent name — use only when explicitly delegating
 - `comment` (optional): short status note. Prefer leaving it out and using
   `add_comment` for anything the operator should read.
