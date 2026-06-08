@@ -227,6 +227,7 @@ async function run() {
       const tickResult = await tick(db);
       assert.strictEqual(tickResult.staleRunsRecovered, 1);
       assert.strictEqual(tickResult.claimed, false);
+      await new Promise((resolve) => setImmediate(resolve));
 
       const heartbeatRow = db.prepare(
         `SELECT status, error FROM heartbeat_runs WHERE id = ? LIMIT 1`
@@ -236,7 +237,7 @@ async function run() {
 
       const execRow = db.prepare(
         `SELECT status, error_message, completed_at, terminalized_by, retry_allowed,
-                retry_decision_reason, cancellation_actor
+                retry_decision_reason, cancellation_actor, cancellation_result_json
          FROM execution_runs WHERE id = ? LIMIT 1`
       ).get(executionRunId) as
         | {
@@ -247,6 +248,7 @@ async function run() {
             retry_allowed: number | null;
             retry_decision_reason: string | null;
             cancellation_actor: string | null;
+            cancellation_result_json: string | null;
           }
         | undefined;
       assert.strictEqual(execRow?.status, "failed");
@@ -256,14 +258,17 @@ async function run() {
       assert.strictEqual(execRow?.retry_allowed, 1);
       assert.strictEqual(execRow?.retry_decision_reason, "stale_run_recovery_evaluated");
       assert.strictEqual(execRow?.cancellation_actor, "watchdog");
+      const cancellationResult = JSON.parse(execRow?.cancellation_result_json ?? "{}") as Record<string, unknown>;
+      assert.strictEqual(cancellationResult.signalStatus, "completed");
+      assert.strictEqual(cancellationResult.method, "watchdog_timeout");
 
-      const eventRow = db.prepare(
+      const eventRows = db.prepare(
         `SELECT event_type FROM execution_run_attempt_events
          WHERE execution_run_id = ?
-         ORDER BY created_at DESC
-         LIMIT 1`
-      ).get(executionRunId) as { event_type: string } | undefined;
-      assert.strictEqual(eventRow?.event_type, "watchdog_timeout");
+         ORDER BY created_at ASC`
+      ).all(executionRunId) as Array<{ event_type: string }>;
+      assert.ok(eventRows.some((event) => event.event_type === "watchdog_timeout"));
+      assert.ok(eventRows.some((event) => event.event_type === "cancel_signal_completed"));
 
       const taskRow = db.prepare(
         `SELECT execution_session_id FROM tasks WHERE id = ? LIMIT 1`
@@ -917,12 +922,18 @@ async function run() {
       assert.strictEqual(result.skippedReasons.stale_process_missing, 1);
 
       const execRow = db.prepare(
-        `SELECT status, error_message, failure_class, process_pid, completed_at, idempotency_key, metadata_json
+        `SELECT status, error_message, failure_class, terminalized_by, failure_reason,
+                retry_allowed, retry_decision_reason, process_pid, completed_at,
+                idempotency_key, metadata_json
          FROM execution_runs WHERE id = ? LIMIT 1`
       ).get(executionRunId) as {
         status: string;
         error_message: string | null;
         failure_class: string | null;
+        terminalized_by: string | null;
+        failure_reason: string | null;
+        retry_allowed: number | null;
+        retry_decision_reason: string | null;
         process_pid: number | null;
         completed_at: string | null;
         idempotency_key: string | null;
@@ -931,6 +942,10 @@ async function run() {
       assert.strictEqual(execRow?.status, "failed");
       assert.match(execRow?.error_message ?? "", /process is no longer alive/);
       assert.strictEqual(execRow?.failure_class, "stale_process_missing");
+      assert.strictEqual(execRow?.terminalized_by, "process_watchdog");
+      assert.match(execRow?.failure_reason ?? "", /process is no longer alive/);
+      assert.strictEqual(execRow?.retry_allowed, 1);
+      assert.strictEqual(execRow?.retry_decision_reason, "stale_process_repair_evaluated");
       assert.strictEqual(execRow?.process_pid, null);
       assert.ok(execRow?.completed_at);
       assert.strictEqual(execRow?.idempotency_key, null);
@@ -948,6 +963,21 @@ async function run() {
       assert.strictEqual(execMetadata.staleProcessRepair?.recordedPid, missingPid);
       assert.strictEqual(execMetadata.staleProcessRepair?.heartbeatRunId, heartbeatRunId);
       assert.strictEqual(execMetadata.staleProcessRepair?.likelyAppRestart, true);
+
+      const attemptEvent = db.prepare(
+        `SELECT event_type, metadata_json
+         FROM execution_run_attempt_events
+         WHERE execution_run_id = ?
+         ORDER BY created_at DESC
+         LIMIT 1`
+      ).get(executionRunId) as { event_type: string; metadata_json: string | null } | undefined;
+      assert.strictEqual(attemptEvent?.event_type, "stale_process_missing");
+      const attemptMetadata = JSON.parse(attemptEvent?.metadata_json ?? "{}") as {
+        recordedPid?: number | null;
+        retryDecisionReason?: string;
+      };
+      assert.strictEqual(attemptMetadata.recordedPid, missingPid);
+      assert.strictEqual(attemptMetadata.retryDecisionReason, "stale_process_repair_evaluated");
 
       const heartbeatRow = db.prepare(
         `SELECT status, error, finished_at FROM heartbeat_runs WHERE id = ? LIMIT 1`

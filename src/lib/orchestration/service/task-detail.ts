@@ -53,6 +53,19 @@ type ExecutionTaskRunRow = {
   error_message: string | null;
   created_at: string;
   token_usage_json: string | null;
+  attempt_number: number | null;
+  resume_of_execution_run_id: string | null;
+  retry_policy: string | null;
+  retry_allowed: number | null;
+  retry_decision_reason: string | null;
+  terminalized_by: string | null;
+  failure_reason: string | null;
+  cancellation_actor: string | null;
+  cancellation_reason: string | null;
+  cancellation_result_json: string | null;
+  process_group_id: number | null;
+  child_exit_code: number | null;
+  child_signal: string | null;
 };
 
 type UserFacingTaskRunRow = HeartbeatTaskRunRow | ExecutionTaskRunRow;
@@ -360,7 +373,26 @@ function summarizeTaskRun(run: UserFacingTaskRunRow, fallbackEngine: TaskExecuti
     startedAt: run.started_at ?? run.created_at,
     finishedAt: "completed_at" in run ? run.completed_at : run.finished_at,
     error: "error_message" in run ? run.error_message : run.error,
+    ...("attempt_number" in run ? executionRunVisibilityFields(run) : {}),
     resolvedExecution: resolvedExecutionFromUsage(run, fallbackEngine),
+  };
+}
+
+function executionRunVisibilityFields(run: ExecutionTaskRunRow): Record<string, unknown> {
+  return {
+    attemptNumber: run.attempt_number,
+    resumeOfExecutionRunId: run.resume_of_execution_run_id,
+    retryPolicy: run.retry_policy,
+    retryAllowed: run.retry_allowed === null ? null : run.retry_allowed === 1,
+    retryDecisionReason: run.retry_decision_reason,
+    terminalizedBy: run.terminalized_by,
+    failureReason: run.failure_reason,
+    cancellationActor: run.cancellation_actor,
+    cancellationReason: run.cancellation_reason,
+    cancellationResultJson: run.cancellation_result_json,
+    processGroupId: run.process_group_id,
+    childExitCode: run.child_exit_code,
+    childSignal: run.child_signal,
   };
 }
 
@@ -798,7 +830,11 @@ export function getTaskDetail(taskId: string): { task: OrchestrationTask; detail
               er.model_lane, er.fallback_used, er.fallback_index, er.fallback_from_provider,
               er.route_attempts_json,
               er.status, er.session_id, er.started_at, er.completed_at, er.error_message,
-              er.created_at, er.token_usage_json
+              er.created_at, er.token_usage_json,
+              er.attempt_number, er.resume_of_execution_run_id, er.retry_policy, er.retry_allowed,
+              er.retry_decision_reason, er.terminalized_by, er.failure_reason,
+              er.cancellation_actor, er.cancellation_reason, er.cancellation_result_json,
+              er.process_group_id, er.child_exit_code, er.child_signal
          FROM execution_runs er
         WHERE er.task_id = ?
         ORDER BY COALESCE(er.started_at, er.created_at) DESC, er.created_at DESC`
@@ -853,6 +889,7 @@ export function getTaskDetail(taskId: string): { task: OrchestrationTask; detail
         sessionId: run.session_id,
         finishedAt: run.completed_at,
         error: run.error_message,
+        ...executionRunVisibilityFields(run),
         usage: cloneWithoutHeavyTelemetry(usage),
       },
       linkedRunId: run.id,

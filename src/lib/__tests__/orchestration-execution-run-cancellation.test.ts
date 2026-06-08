@@ -20,6 +20,15 @@ import type { TaskStatus } from "@/lib/orchestration/types";
 let passed = 0;
 let failed = 0;
 
+function parseJsonRecord(raw: string | null): Record<string, unknown> {
+  assert.ok(raw);
+  const parsed = JSON.parse(raw);
+  assert.equal(typeof parsed, "object");
+  assert.ok(parsed);
+  assert.equal(Array.isArray(parsed), false);
+  return parsed as Record<string, unknown>;
+}
+
 function test(name: string, fn: () => void | Promise<void>) {
   return Promise.resolve()
     .then(fn)
@@ -123,15 +132,46 @@ async function run() {
       assert.equal(row.cancellation_actor, "task_status_transition");
       assert.match(row.cancellation_reason ?? "", new RegExp(`task transitioned to ${status}`));
       assert.equal(row.idempotency_key, null);
-      assert.match(row.cancellation_result_json ?? "", /task_status_transition/);
+      const cancellationResult = parseJsonRecord(row.cancellation_result_json);
+      assert.equal(cancellationResult.method, "task_status_transition");
+      assert.equal(cancellationResult.signalStatus, "completed");
 
-      const eventRow = getOrchestrationDb()
-        .prepare("SELECT event_type FROM execution_run_attempt_events WHERE execution_run_id = ? ORDER BY created_at DESC LIMIT 1")
-        .get(runId) as { event_type: string } | undefined;
-      assert.equal(eventRow?.event_type, "cancelled");
+      const eventRows = getOrchestrationDb()
+        .prepare("SELECT event_type FROM execution_run_attempt_events WHERE execution_run_id = ? ORDER BY created_at ASC")
+        .all(runId) as Array<{ event_type: string }>;
+      assert.deepEqual(eventRows.map((event) => event.event_type), ["cancelled", "cancel_signal_completed"]);
       assert.deepEqual(terminated, [runId]);
     });
   }
+
+  await test("task-status cancellation records failed terminate signal evidence", () => {
+    const { task, runId } = createRunningTaskFixture();
+    moveTask({
+      taskId: task.id,
+      status: "done",
+      actorUserId: "test-suite",
+      terminateExecutionRun: () => {
+        throw new Error("process group refused SIGTERM");
+      },
+    });
+
+    const row = getOrchestrationDb()
+      .prepare(
+        `SELECT status, cancellation_result_json
+         FROM execution_runs
+         WHERE id = ?`
+      )
+      .get(runId) as { status: string; cancellation_result_json: string | null };
+    assert.equal(row.status, "cancelled");
+    const cancellationResult = parseJsonRecord(row.cancellation_result_json);
+    assert.equal(cancellationResult.signalStatus, "failed");
+    assert.match(String(cancellationResult.error), /process group refused SIGTERM/);
+
+    const eventRows = getOrchestrationDb()
+      .prepare("SELECT event_type FROM execution_run_attempt_events WHERE execution_run_id = ? ORDER BY created_at ASC")
+      .all(runId) as Array<{ event_type: string }>;
+    assert.deepEqual(eventRows.map((event) => event.event_type), ["cancelled", "cancel_signal_failed"]);
+  });
 
   if (failed > 0) {
     console.error(`\n${failed} failed, ${passed} passed`);

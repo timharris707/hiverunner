@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import { randomUUID } from "crypto";
 
+import { recordExecutionRunAttemptEvent } from "@/lib/orchestration/db";
 import { findCompanyCeo } from "@/lib/orchestration/engine/engine-queries";
 import { enqueueWakeup } from "@/lib/orchestration/engine/wakeup-queue";
 import { cleanupRunArtifacts } from "@/lib/orchestration/execution/cleanup";
@@ -89,6 +90,7 @@ type RunningProcessExecutionRow = {
   session_id: string | null;
   started_at: string | null;
   process_pid: number | null;
+  attempt_number: number | null;
   token_usage_json: string | null;
   metadata_json: string | null;
 };
@@ -406,7 +408,7 @@ function recoverMissingProcessExecutionRuns(
   const running = db
     .prepare(
       `SELECT er.id, er.task_id, er.agent_id, er.provider, er.session_id, er.started_at,
-              er.process_pid, er.token_usage_json, er.metadata_json
+              er.process_pid, er.attempt_number, er.token_usage_json, er.metadata_json
        FROM execution_runs er
        WHERE er.status = 'running'
          AND er.process_pid IS NOT NULL${companyFilter}
@@ -445,6 +447,10 @@ function recoverMissingProcessExecutionRuns(
              duration_ms = COALESCE(?, duration_ms),
              error_message = ?,
              failure_class = ?,
+             terminalized_by = COALESCE(terminalized_by, 'process_watchdog'),
+             failure_reason = COALESCE(failure_reason, ?),
+             retry_allowed = 1,
+             retry_decision_reason = 'stale_process_repair_evaluated',
              process_pid = NULL,
              idempotency_key = NULL,
              metadata_json = ?,
@@ -457,6 +463,7 @@ function recoverMissingProcessExecutionRuns(
         durationMs,
         STALE_PROCESS_ERROR_MESSAGE,
         STALE_PROCESS_FAILURE_CLASS,
+        STALE_PROCESS_ERROR_MESSAGE,
         JSON.stringify(repairMetadata),
         now,
         run.id,
@@ -464,6 +471,22 @@ function recoverMissingProcessExecutionRuns(
       );
 
       if (result.changes === 0) return false;
+      recordExecutionRunAttemptEvent(db, {
+        executionRunId: run.id,
+        attemptNumber: run.attempt_number,
+        eventType: "stale_process_missing",
+        metadata: {
+          taskId: run.task_id,
+          agentId: run.agent_id,
+          provider: run.provider,
+          recordedPid: run.process_pid,
+          heartbeatRunId: heartbeat?.id ?? null,
+          retryAllowed: true,
+          retryDecisionReason: "stale_process_repair_evaluated",
+          durationMs,
+        },
+        createdAt: now,
+      });
 
       if (heartbeat) {
         db.prepare(

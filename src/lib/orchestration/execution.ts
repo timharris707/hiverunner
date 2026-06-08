@@ -27,7 +27,9 @@ import {
 import { emitHarnessWarningComment } from "@/lib/orchestration/engine/harness-warning";
 import { recordRuntimeActionLedgerEntry, requireRuntimeActionLedgerEntry } from "@/lib/orchestration/runtime-action-ledger";
 import { cleanupRunArtifacts } from "@/lib/orchestration/execution/cleanup";
+import { recordExecutionRunCancellationSignalResult } from "@/lib/orchestration/execution-run-cancellation";
 import { getExecutionAdapter } from "@/lib/orchestration/execution/adapters";
+import type { CancelAdapterResult } from "@/lib/orchestration/execution/adapters/types";
 import { buildTaskGoalContextSection } from "@/lib/orchestration/goal-context";
 import { createTaskComment, getTask, moveTask } from "@/lib/orchestration/service";
 import { canAutonomouslyExecuteCompany } from "@/lib/orchestration/service/dev-execution-test-mode";
@@ -2674,14 +2676,39 @@ export async function cancelTaskExecution(input: {
   }
 
   const adapter = getExecutionAdapter(run.provider);
-  const cancellation = adapter.cancel
-    ? await adapter.cancel(run.id, run.processPid ?? null, run.sessionId ?? null)
-    : {
-        killed: false,
-        method: "no-op:adapter-cancel-missing",
-      };
-  const cancellationAcknowledged = !cancellation.error;
   const actorUserId = input.actorUserId?.trim() || "hiverunner:execution-cancel";
+  const cancellationReason = input.note?.trim() || `Manual cancellation requested; target status ${targetStatus}.`;
+  const cancellationRequestedAt = new Date().toISOString();
+  let cancellation: CancelAdapterResult;
+  if (adapter.cancel) {
+    try {
+      cancellation = await adapter.cancel(run.id, run.processPid ?? null, run.sessionId ?? null);
+    } catch (error) {
+      cancellation = {
+        killed: false,
+        method: "adapter.cancel",
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  } else {
+    cancellation = {
+      killed: false,
+      method: "adapter_cancel_unavailable",
+      error: `Execution adapter '${run.provider}' does not implement cancellation.`,
+    };
+  }
+  recordExecutionRunCancellationSignalResult(db, {
+    executionRunId: run.id,
+    attemptNumber: run.attemptNumber,
+    actor: actorUserId,
+    method: "manual_cancellation",
+    reason: cancellationReason,
+    requestedAt: cancellationRequestedAt,
+    result: cancellation.error ? undefined : cancellation,
+    error: cancellation.error,
+    extra: { targetStatus, provider: run.provider },
+  });
+  const cancellationAcknowledged = !cancellation.error;
   const cancellationRef = `execution:run:${run.id}:cancelled`;
 
   const commentLines = [
@@ -2735,7 +2762,7 @@ export async function cancelTaskExecution(input: {
         retryAllowed: false,
         retryDecisionReason: "manual_cancellation",
         cancellationActor: actorUserId,
-        cancellationReason: input.note?.trim() || `Manual cancellation requested; target status ${targetStatus}.`,
+        cancellationReason,
         cancellationResult: cancellation,
         clearProcessPid: true,
         durationMs: run.startedAt

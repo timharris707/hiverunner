@@ -8,6 +8,10 @@ import {
   recordExecutionRunAttemptEvent,
 } from "@/lib/orchestration/db";
 import { recordRuntimeContextManifest } from "@/lib/orchestration/context-manifest";
+import {
+  buildCancellationRequestResult,
+  recordExecutionRunCancellationSignalResult,
+} from "@/lib/orchestration/execution-run-cancellation";
 import { getExecutionAdapter } from "@/lib/orchestration/execution/adapters";
 import type { ExecutionLiveEventInput } from "@/lib/orchestration/execution/adapters/types";
 import { cleanupRunArtifacts } from "@/lib/orchestration/execution/cleanup";
@@ -2332,7 +2336,7 @@ export function recoverStaleRuns(db: Database.Database): number {
       const durationMs = Number.isFinite(startedAt) ? Math.max(0, Date.now() - startedAt) : getHeartbeatRunTimeoutMs();
 
       const staleExecRuns = db.prepare(
-        `SELECT id, provider, session_id, process_pid
+        `SELECT id, provider, session_id, process_pid, attempt_number
          FROM execution_runs
          WHERE task_id = ?
            AND agent_id = ?
@@ -2342,20 +2346,79 @@ export function recoverStaleRuns(db: Database.Database): number {
         provider: string;
         session_id: string | null;
         process_pid: number | null;
+        attempt_number: number | null;
       }>;
 
       for (const staleRun of staleExecRuns) {
         const adapter = getExecutionAdapter(staleRun.provider);
-        if (!adapter.cancel) continue;
-        adapter.cancel(staleRun.id, staleRun.process_pid, staleRun.session_id).catch((error) => {
-          console.warn("[heartbeat] stale-run process termination failed", {
+        if (!adapter.cancel) {
+          recordExecutionRunCancellationSignalResult(db, {
+            executionRunId: staleRun.id,
+            attemptNumber: staleRun.attempt_number,
+            actor: "watchdog",
+            method: "watchdog_timeout",
+            reason: timeoutMessage,
+            requestedAt: now,
+            result: { killed: false, method: "adapter_cancel_unavailable" },
+            extra: { heartbeatRunId: run.id, taskId, agentId: run.agent_id },
+          });
+          continue;
+        }
+        try {
+          adapter.cancel(staleRun.id, staleRun.process_pid, staleRun.session_id).then((cancelResult) => {
+            recordExecutionRunCancellationSignalResult(db, {
+              executionRunId: staleRun.id,
+              attemptNumber: staleRun.attempt_number,
+              actor: "watchdog",
+              method: "watchdog_timeout",
+              reason: timeoutMessage,
+              requestedAt: now,
+              result: cancelResult,
+              extra: { heartbeatRunId: run.id, taskId, agentId: run.agent_id },
+            });
+          }).catch((error) => {
+            console.warn("[heartbeat] stale-run process termination failed", {
+              runId: staleRun.id,
+              provider: staleRun.provider,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            recordExecutionRunCancellationSignalResult(db, {
+              executionRunId: staleRun.id,
+              attemptNumber: staleRun.attempt_number,
+              actor: "watchdog",
+              method: "watchdog_timeout",
+              reason: timeoutMessage,
+              requestedAt: now,
+              error,
+              extra: { heartbeatRunId: run.id, taskId, agentId: run.agent_id },
+            });
+          });
+        } catch (error) {
+          console.warn("[heartbeat] stale-run process termination threw", {
             runId: staleRun.id,
             provider: staleRun.provider,
             error: error instanceof Error ? error.message : String(error),
           });
-        });
+          recordExecutionRunCancellationSignalResult(db, {
+            executionRunId: staleRun.id,
+            attemptNumber: staleRun.attempt_number,
+            actor: "watchdog",
+            method: "watchdog_timeout",
+            reason: timeoutMessage,
+            requestedAt: now,
+            error,
+            extra: { heartbeatRunId: run.id, taskId, agentId: run.agent_id },
+          });
+        }
       }
 
+      const cancellationRequest = buildCancellationRequestResult({
+        method: "watchdog_timeout",
+        actor: "watchdog",
+        reason: timeoutMessage,
+        requestedAt: now,
+        extra: { heartbeatRunId: run.id, taskId, agentId: run.agent_id },
+      });
       db.prepare(
         `UPDATE execution_runs
          SET status = 'failed',
@@ -2369,13 +2432,14 @@ export function recoverStaleRuns(db: Database.Database): number {
              retry_decision_reason = 'stale_run_recovery_evaluated',
              cancellation_actor = COALESCE(cancellation_actor, 'watchdog'),
              cancellation_reason = COALESCE(cancellation_reason, ?),
+             cancellation_result_json = COALESCE(cancellation_result_json, ?),
              process_pid = NULL,
              idempotency_key = NULL,
              updated_at = ?
 	         WHERE task_id = ?
 	           AND agent_id = ?
 	           AND status IN ('pending', 'running')`
-      ).run(now, durationMs, timeoutMessage, timeoutMessage, timeoutMessage, now, taskId, run.agent_id);
+      ).run(now, durationMs, timeoutMessage, timeoutMessage, timeoutMessage, JSON.stringify(cancellationRequest), now, taskId, run.agent_id);
 
       for (const { id } of staleExecRuns) {
         recordExecutionRunAttemptEvent(db, {

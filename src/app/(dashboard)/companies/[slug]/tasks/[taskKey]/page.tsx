@@ -89,6 +89,39 @@ type RunSkillEffectiveness = {
     unknownCount: number;
   };
 };
+type RunMemoryEvidence = {
+  injectionSource: "vault_index" | "memory_registry_fallback" | "none" | string;
+  run?: { injectedMemorySha256?: string | null };
+  evidence: Array<{
+    recordId: string;
+    title: string;
+    sourcePath: string | null;
+    layer: string;
+    reason: string;
+    source?: {
+      type?: string;
+      tags?: string[];
+      status?: string;
+      kind?: string;
+      scope?: string;
+    };
+  }>;
+};
+type ExecutionRunVisibility = {
+  attemptNumber?: number | null;
+  resumeOfExecutionRunId?: string | null;
+  retryPolicy?: string | null;
+  retryAllowed?: boolean | null;
+  retryDecisionReason?: string | null;
+  terminalizedBy?: string | null;
+  failureReason?: string | null;
+  cancellationActor?: string | null;
+  cancellationReason?: string | null;
+  cancellationResultJson?: string | null;
+  processGroupId?: number | null;
+  childExitCode?: number | null;
+  childSignal?: string | null;
+};
 type TaskExecutionOverridePatch = {
   executionEngine?: OrchestrationTask["executionEngine"] | null;
   executionRuntimeProvider?: string | null;
@@ -121,7 +154,7 @@ type CreatorDisplay = {
   title: string;
   kind: "agent" | "system" | "user";
 };
-type RunHistory = {
+type RunHistory = ExecutionRunVisibility & {
   id: string;
   providerId: string;
   executionEngine?: string | null;
@@ -147,23 +180,18 @@ type RunHistory = {
   skillEffectiveness?: RunSkillEffectiveness;
   memoryEvidence?: RunMemoryEvidence;
 };
-type RunMemoryEvidence = {
-  injectionSource: "vault_index" | "memory_registry_fallback" | "none" | string;
-  run?: { injectedMemorySha256?: string | null };
-  evidence: Array<{
-    recordId: string;
-    title: string;
-    sourcePath: string | null;
-    layer: string;
-    reason: string;
-    source?: {
-      type?: string;
-      tags?: string[];
-      status?: string;
-      kind?: string;
-      scope?: string;
-    };
-  }>;
+type RunHistorySeed = ExecutionRunVisibility & {
+  providerId: string;
+  executionEngine?: string | null;
+  runnerProvider?: string | null;
+  runnerModel?: string | null;
+  fallbackUsed?: boolean;
+  fallbackIndex?: number | null;
+  fallbackFromProvider?: string | null;
+  routeAttempts?: unknown[];
+  status: string;
+  startedAt?: string | null;
+  finishedAt?: string | null;
 };
 type ExecutionSnapshot = {
   state: "running" | "completed" | "failed" | "cancelled" | "unknown" | "skipped";
@@ -669,6 +697,90 @@ function formatUsd(value?: number | null): string {
   return `$${value.toFixed(value < 1 ? 3 : 2)}`;
 }
 
+function stringOrNull(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function booleanOrNull(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  if (value === 1 || value === "1" || value === "true") return true;
+  if (value === 0 || value === "0" || value === "false") return false;
+  return null;
+}
+
+function executionRunVisibilityFromMetadata(metadata: Record<string, unknown>): ExecutionRunVisibility {
+  return {
+    attemptNumber: numberOrNull(metadata.attemptNumber),
+    resumeOfExecutionRunId: stringOrNull(metadata.resumeOfExecutionRunId),
+    retryPolicy: stringOrNull(metadata.retryPolicy),
+    retryAllowed: booleanOrNull(metadata.retryAllowed),
+    retryDecisionReason: stringOrNull(metadata.retryDecisionReason),
+    terminalizedBy: stringOrNull(metadata.terminalizedBy),
+    failureReason: stringOrNull(metadata.failureReason),
+    cancellationActor: stringOrNull(metadata.cancellationActor),
+    cancellationReason: stringOrNull(metadata.cancellationReason),
+    cancellationResultJson: stringOrNull(metadata.cancellationResultJson),
+    processGroupId: numberOrNull(metadata.processGroupId),
+    childExitCode: numberOrNull(metadata.childExitCode),
+    childSignal: stringOrNull(metadata.childSignal),
+  };
+}
+
+function runHistorySeedFromTimelineEntry(entry: OrchestrationTaskTimelineItem): RunHistorySeed | null {
+  if (entry.source !== "execution_runs" || !entry.linkedRunId) return null;
+  const metadata = entry.metadata ?? {};
+  return {
+    providerId: stringOrNull(metadata.provider) ?? "unknown",
+    executionEngine: stringOrNull(metadata.executionEngine),
+    runnerProvider: stringOrNull(metadata.runnerProvider),
+    runnerModel: stringOrNull(metadata.runnerModel),
+    fallbackUsed: booleanOrNull(metadata.fallbackUsed) ?? false,
+    fallbackIndex: numberOrNull(metadata.fallbackIndex),
+    fallbackFromProvider: stringOrNull(metadata.fallbackFromProvider),
+    routeAttempts: Array.isArray(metadata.routeAttempts) ? metadata.routeAttempts : [],
+    status: stringOrNull(metadata.status) ?? "unknown",
+    startedAt: entry.timestamp,
+    finishedAt: stringOrNull(metadata.finishedAt),
+    ...executionRunVisibilityFromMetadata(metadata),
+  };
+}
+
+function runHistoryFromSeed(runId: string, seed?: RunHistorySeed): RunHistory | null {
+  if (!seed) return null;
+  return {
+    id: runId,
+    providerId: seed.providerId,
+    executionEngine: seed.executionEngine,
+    runnerProvider: seed.runnerProvider,
+    runnerModel: seed.runnerModel,
+    fallbackUsed: seed.fallbackUsed,
+    fallbackIndex: seed.fallbackIndex,
+    fallbackFromProvider: seed.fallbackFromProvider,
+    routeAttempts: seed.routeAttempts,
+    status: seed.status,
+    startedAt: seed.startedAt,
+    finishedAt: seed.finishedAt,
+    transcriptEntries: [],
+    attemptNumber: seed.attemptNumber,
+    resumeOfExecutionRunId: seed.resumeOfExecutionRunId,
+    retryPolicy: seed.retryPolicy,
+    retryAllowed: seed.retryAllowed,
+    retryDecisionReason: seed.retryDecisionReason,
+    terminalizedBy: seed.terminalizedBy,
+    failureReason: seed.failureReason,
+    cancellationActor: seed.cancellationActor,
+    cancellationReason: seed.cancellationReason,
+    cancellationResultJson: seed.cancellationResultJson,
+    processGroupId: seed.processGroupId,
+    childExitCode: seed.childExitCode,
+    childSignal: seed.childSignal,
+  };
+}
+
 /* ── Inbox review context ── */
 
 type InboxContextItem = { taskKey: string; title: string };
@@ -921,15 +1033,16 @@ export default function TaskDetailPage() {
     setActivityLoading(false);
   }, [activeTab]);
 
-  const executionRunIds = useMemo(() => {
-    const ids = new Set<string>();
+  const executionRunSeedsById = useMemo(() => {
+    const seeds = new Map<string, RunHistorySeed>();
     for (const entry of taskDetail?.timeline ?? []) {
-      if (entry.source === "execution_runs" && entry.linkedRunId) {
-        ids.add(entry.linkedRunId);
-      }
+      const seed = runHistorySeedFromTimelineEntry(entry);
+      if (seed && entry.linkedRunId && !seeds.has(entry.linkedRunId)) seeds.set(entry.linkedRunId, seed);
     }
-    return Array.from(ids).slice(0, 5);
+    return seeds;
   }, [taskDetail?.timeline]);
+
+  const executionRunIds = useMemo(() => Array.from(executionRunSeedsById.keys()).slice(0, 5), [executionRunSeedsById]);
 
   useEffect(() => {
     if (executionRunIds.length === 0) {
@@ -944,11 +1057,17 @@ export default function TaskDetailPage() {
       try {
         const histories = await Promise.all(
           executionRunIds.map(async (runId): Promise<RunHistory | null> => {
-            const res = await fetch(`/api/orchestration/engine/runs/${encodeURIComponent(runId)}/events`, {
-              cache: "no-store",
-            });
-            if (!res.ok) return null;
-            const data = await res.json();
+            const seed = executionRunSeedsById.get(runId);
+            let data: Awaited<ReturnType<Response["json"]>> | null = null;
+            try {
+              const res = await fetch(`/api/orchestration/engine/runs/${encodeURIComponent(runId)}/events`, {
+                cache: "no-store",
+              });
+              if (!res.ok) return runHistoryFromSeed(runId, seed);
+              data = await res.json() as Record<string, unknown>;
+            } catch {
+              return runHistoryFromSeed(runId, seed);
+            }
             const entries = Array.isArray(data?.transcript?.entries)
               ? data.transcript.entries.map((entry: Record<string, unknown>) => ({
                   id: String(entry.id ?? crypto.randomUUID()),
@@ -996,23 +1115,36 @@ export default function TaskDetailPage() {
               : undefined;
             return {
               id: String(data?.run?.id ?? runId),
-              providerId: String(data?.run?.providerId ?? "unknown"),
-              executionEngine: typeof data?.run?.executionEngine === "string" ? data.run.executionEngine : null,
-              runnerProvider: typeof data?.run?.runnerProvider === "string" ? data.run.runnerProvider : null,
-              runnerModel: typeof data?.run?.runnerModel === "string" ? data.run.runnerModel : null,
-              fallbackUsed: data?.run?.fallbackUsed === true,
-              fallbackIndex: typeof data?.run?.fallbackIndex === "number" ? data.run.fallbackIndex : null,
-              fallbackFromProvider: typeof data?.run?.fallbackFromProvider === "string" ? data.run.fallbackFromProvider : null,
-              routeAttempts: Array.isArray(data?.run?.routeAttempts) ? data.run.routeAttempts : [],
-              status: String(data?.run?.status ?? "unknown"),
-              startedAt: typeof data?.run?.startedAt === "string" ? data.run.startedAt : null,
-              finishedAt: typeof data?.run?.finishedAt === "string" ? data.run.finishedAt : null,
+              providerId: typeof data?.run?.providerId === "string" ? data.run.providerId : seed?.providerId ?? "unknown",
+              executionEngine: typeof data?.run?.executionEngine === "string" ? data.run.executionEngine : seed?.executionEngine ?? null,
+              runnerProvider: typeof data?.run?.runnerProvider === "string" ? data.run.runnerProvider : seed?.runnerProvider ?? null,
+              runnerModel: typeof data?.run?.runnerModel === "string" ? data.run.runnerModel : seed?.runnerModel ?? null,
+              fallbackUsed: data?.run?.fallbackUsed === true || seed?.fallbackUsed === true,
+              fallbackIndex: typeof data?.run?.fallbackIndex === "number" ? data.run.fallbackIndex : seed?.fallbackIndex ?? null,
+              fallbackFromProvider: typeof data?.run?.fallbackFromProvider === "string" ? data.run.fallbackFromProvider : seed?.fallbackFromProvider ?? null,
+              routeAttempts: Array.isArray(data?.run?.routeAttempts) ? data.run.routeAttempts : seed?.routeAttempts ?? [],
+              status: typeof data?.run?.status === "string" ? data.run.status : seed?.status ?? "unknown",
+              startedAt: typeof data?.run?.startedAt === "string" ? data.run.startedAt : seed?.startedAt ?? null,
+              finishedAt: typeof data?.run?.finishedAt === "string" ? data.run.finishedAt : seed?.finishedAt ?? null,
               durationMs: typeof data?.run?.durationMs === "number" ? data.run.durationMs : null,
               metrics: data?.metrics && typeof data.metrics === "object" ? data.metrics : undefined,
               resolvedExecution: resolvedExecutionEnvelope?.after ?? resolvedExecutionEnvelope?.before,
               transcriptEntries: entries,
               skillEffectiveness,
               memoryEvidence,
+              attemptNumber: seed?.attemptNumber,
+              resumeOfExecutionRunId: seed?.resumeOfExecutionRunId,
+              retryPolicy: seed?.retryPolicy,
+              retryAllowed: seed?.retryAllowed,
+              retryDecisionReason: seed?.retryDecisionReason,
+              terminalizedBy: seed?.terminalizedBy,
+              failureReason: seed?.failureReason,
+              cancellationActor: seed?.cancellationActor,
+              cancellationReason: seed?.cancellationReason,
+              cancellationResultJson: seed?.cancellationResultJson,
+              processGroupId: seed?.processGroupId,
+              childExitCode: seed?.childExitCode,
+              childSignal: seed?.childSignal,
             };
           })
         );
@@ -1028,7 +1160,7 @@ export default function TaskDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [executionRunIds]);
+  }, [executionRunIds, executionRunSeedsById]);
 
   useEffect(() => {
     if (!task?.id) {
@@ -3190,6 +3322,134 @@ function RunSkillEffectivenessInline({ skillEffectiveness }: { skillEffectivenes
   );
 }
 
+function shortId(value: string): string {
+  return value.length > 8 ? value.slice(0, 8) : value;
+}
+
+function shortChipText(value: string, maxLength = 34): string {
+  const compact = value.replace(/\s+/g, " ").trim();
+  return compact.length > maxLength ? `${compact.slice(0, maxLength - 3)}...` : compact;
+}
+
+function compactJsonDetail(value: string): string {
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    const status = stringOrNull(parsed.signalStatus) ?? stringOrNull(parsed.status) ?? stringOrNull(parsed.result) ?? stringOrNull(parsed.outcome);
+    const signal = stringOrNull(parsed.signal) ?? stringOrNull(parsed.childSignal);
+    const exitCode = numberOrNull(parsed.exitCode) ?? numberOrNull(parsed.childExitCode);
+    const method = stringOrNull(parsed.method);
+    const reason = stringOrNull(parsed.error) ?? stringOrNull(parsed.reason) ?? stringOrNull(parsed.message);
+    if (status && signal) return `${status} ${signal}`;
+    if (status && exitCode !== null) return `${status} exit ${exitCode}`;
+    if (status && method) return `${status} ${shortChipText(method, 18)}`;
+    return status ?? signal ?? (exitCode !== null ? `exit ${exitCode}` : reason ?? "json");
+  } catch {
+    return shortChipText(value, 28);
+  }
+}
+
+function retryPolicyLabel(value: string): string {
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    const maxAttempts = numberOrNull(parsed.maxAttempts) ?? numberOrNull(parsed.max_attempts);
+    const schema = stringOrNull(parsed.schema);
+    if (maxAttempts !== null) return `policy max ${maxAttempts}`;
+    if (schema?.includes("retry_policy")) return "policy";
+  } catch {}
+  return shortChipText(value, 24);
+}
+
+function executionTruthChips(history: RunHistory): Array<{ key: string; label: string; title?: string; tone?: "warn" | "bad" | "muted" }> {
+  const chips: Array<{ key: string; label: string; title?: string; tone?: "warn" | "bad" | "muted" }> = [];
+  if (typeof history.attemptNumber === "number") {
+    chips.push({ key: "attempt", label: `attempt ${history.attemptNumber}` });
+  }
+  if (history.resumeOfExecutionRunId) {
+    chips.push({ key: "resume", label: `resume ${shortId(history.resumeOfExecutionRunId)}`, title: history.resumeOfExecutionRunId });
+  }
+  if (history.retryAllowed !== null && history.retryAllowed !== undefined) {
+    chips.push({
+      key: "retryAllowed",
+      label: `retry ${history.retryAllowed ? "yes" : "no"}`,
+      title: [history.retryDecisionReason, history.retryPolicy].filter(Boolean).join("\n") || undefined,
+      tone: history.retryAllowed ? "muted" : "warn",
+    });
+  }
+  if (history.retryDecisionReason) {
+    chips.push({ key: "retryReason", label: `why ${shortChipText(history.retryDecisionReason)}`, title: history.retryDecisionReason });
+  }
+  if (history.retryPolicy) {
+    chips.push({ key: "retryPolicy", label: retryPolicyLabel(history.retryPolicy), title: history.retryPolicy, tone: "muted" });
+  }
+  if (history.terminalizedBy) {
+    chips.push({ key: "terminalizedBy", label: `term ${shortChipText(history.terminalizedBy, 22)}`, title: history.terminalizedBy, tone: "warn" });
+  }
+  if (history.failureReason) {
+    chips.push({ key: "failureReason", label: `fail ${shortChipText(history.failureReason)}`, title: history.failureReason, tone: "bad" });
+  }
+  if (history.cancellationActor) {
+    chips.push({ key: "cancellationActor", label: `cancel ${shortChipText(history.cancellationActor, 22)}`, title: history.cancellationActor, tone: "warn" });
+  }
+  if (history.cancellationReason) {
+    chips.push({ key: "cancellationReason", label: `why ${shortChipText(history.cancellationReason)}`, title: history.cancellationReason, tone: "warn" });
+  }
+  if (history.cancellationResultJson) {
+    chips.push({
+      key: "cancellationResult",
+      label: `result ${compactJsonDetail(history.cancellationResultJson)}`,
+      title: history.cancellationResultJson,
+      tone: "muted",
+    });
+  }
+  if (typeof history.processGroupId === "number") {
+    chips.push({ key: "processGroupId", label: `pgid ${history.processGroupId}`, tone: "muted" });
+  }
+  if (typeof history.childExitCode === "number") {
+    chips.push({ key: "childExitCode", label: `exit ${history.childExitCode}`, tone: history.childExitCode === 0 ? "muted" : "bad" });
+  }
+  if (history.childSignal) {
+    chips.push({ key: "childSignal", label: `sig ${shortChipText(history.childSignal, 18)}`, title: history.childSignal, tone: "bad" });
+  }
+  return chips;
+}
+
+function ExecutionRunTruthDetails({ history }: { history: RunHistory }) {
+  const chips = executionTruthChips(history);
+  if (chips.length === 0) return null;
+  return (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+      {chips.map((chip) => {
+        const chipColor = chip.tone === "bad"
+          ? color.negative
+          : chip.tone === "warn"
+            ? color.warning
+            : color.textMuted;
+        return (
+          <span
+            key={chip.key}
+            title={chip.title}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              maxWidth: "100%",
+              padding: "2px 6px",
+              borderRadius: 999,
+              border: `0.5px solid ${color.border}`,
+              background: color.surface,
+              color: chipColor,
+              fontSize: 10,
+              fontFamily: font.mono,
+              lineHeight: 1.35,
+            }}
+          >
+            {chip.label}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 function ExecutionHistoryPanel({
   histories,
   loading,
@@ -3297,6 +3557,8 @@ function ExecutionHistoryPanel({
               {history.resolvedExecution && (
                 <ExecutionContextInline context={history.resolvedExecution} />
               )}
+
+              <ExecutionRunTruthDetails history={history} />
 
               <div style={{ marginTop: 12 }}>
                 <Link

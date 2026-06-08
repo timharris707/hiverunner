@@ -2,6 +2,7 @@ import type Database from "better-sqlite3";
 
 import { recordExecutionRunAttemptEvent } from "@/lib/orchestration/db";
 import { getExecutionAdapter } from "@/lib/orchestration/execution/adapters";
+import type { CancelAdapterResult } from "@/lib/orchestration/execution/adapters/types";
 import { cleanupRunArtifacts } from "@/lib/orchestration/execution/cleanup";
 import type { DbTaskStatus } from "@/lib/orchestration/service/shared";
 
@@ -15,7 +16,7 @@ export type ExecutionRunToCancel = {
   attemptNumber: number | null;
 };
 
-export type ExecutionRunTerminator = (run: ExecutionRunToCancel) => void | Promise<unknown>;
+export type ExecutionRunTerminator = (run: ExecutionRunToCancel) => unknown | Promise<unknown>;
 
 const EXECUTION_INACTIVE_TASK_STATUSES = new Set<DbTaskStatus>(["backlog", "to-do", "done", "blocked"]);
 
@@ -23,16 +24,151 @@ export function taskStatusCancelsRunningExecutions(status: DbTaskStatus): boolea
   return EXECUTION_INACTIVE_TASK_STATUSES.has(status);
 }
 
-function defaultTerminateExecutionRun(run: ExecutionRunToCancel): void {
+function defaultTerminateExecutionRun(run: ExecutionRunToCancel): Promise<CancelAdapterResult> | CancelAdapterResult {
   const adapter = getExecutionAdapter(run.provider);
-  if (!adapter.cancel) return;
-  adapter.cancel(run.id, run.processPid, run.sessionId).catch((error) => {
-    console.warn("[execution-runs] terminate signal failed during task-status cancellation", {
-      runId: run.id,
-      provider: run.provider,
-      error: error instanceof Error ? error.message : String(error),
-    });
+  if (!adapter.cancel) {
+    return { killed: false, method: "adapter_cancel_unavailable" };
+  }
+  return adapter.cancel(run.id, run.processPid, run.sessionId);
+}
+
+function isPromiseLike(value: unknown): value is Promise<unknown> {
+  return Boolean(value && typeof value === "object" && "then" in value && typeof (value as { then?: unknown }).then === "function");
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function boundedPrimitive(value: unknown): string | number | boolean | null {
+  if (typeof value === "string") return value.slice(0, 500);
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "boolean" || value === null) return value;
+  return String(value).slice(0, 500);
+}
+
+function summarizeCancellationResult(result: unknown): Record<string, unknown> {
+  if (result && typeof result === "object" && !Array.isArray(result)) {
+    const summary: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(result as Record<string, unknown>).slice(0, 12)) {
+      if (
+        typeof value === "string" ||
+        typeof value === "number" ||
+        typeof value === "boolean" ||
+        value === null
+      ) {
+        summary[key] = boundedPrimitive(value);
+      }
+    }
+    return Object.keys(summary).length > 0 ? summary : { value: "[object]" };
+  }
+  return { value: boundedPrimitive(result) };
+}
+
+export function buildCancellationRequestResult(input: {
+  method: string;
+  actor: string;
+  reason: string;
+  requestedAt: string;
+  extra?: Record<string, unknown>;
+}): Record<string, unknown> {
+  return {
+    method: input.method,
+    actor: input.actor,
+    requested: true,
+    signalStatus: "requested",
+    requestedAt: input.requestedAt,
+    ...(input.extra ?? {}),
+  };
+}
+
+export function recordExecutionRunCancellationSignalResult(
+  db: Database.Database,
+  input: {
+    executionRunId: string;
+    attemptNumber?: number | null;
+    actor: string;
+    method: string;
+    reason: string;
+    requestedAt: string;
+    finishedAt?: string;
+    result?: unknown;
+    error?: unknown;
+    extra?: Record<string, unknown>;
+  },
+): void {
+  const finishedAt = input.finishedAt ?? new Date().toISOString();
+  const failed = input.error !== undefined && input.error !== null;
+  const payload = {
+    method: input.method,
+    actor: input.actor,
+    reason: input.reason,
+    requested: true,
+    signalStatus: failed ? "failed" : "completed",
+    requestedAt: input.requestedAt,
+    finishedAt,
+    ...(input.extra ?? {}),
+    ...(failed
+      ? { error: errorMessage(input.error) }
+      : { result: summarizeCancellationResult(input.result) }),
+  };
+
+  db.prepare(
+    `UPDATE execution_runs
+     SET cancellation_result_json = ?,
+         updated_at = ?
+     WHERE id = ?`,
+  ).run(JSON.stringify(payload), finishedAt, input.executionRunId);
+
+  recordExecutionRunAttemptEvent(db, {
+    executionRunId: input.executionRunId,
+    attemptNumber: input.attemptNumber,
+    eventType: failed ? "cancel_signal_failed" : "cancel_signal_completed",
+    metadata: payload,
+    createdAt: finishedAt,
   });
+}
+
+function observeCancellationSignal(
+  db: Database.Database,
+  input: {
+    run: ExecutionRunToCancel;
+    actor: string;
+    method: string;
+    reason: string;
+    requestedAt: string;
+    result: unknown;
+    extra?: Record<string, unknown>;
+  },
+): void {
+  const record = (result: unknown, error?: unknown) => {
+    try {
+      recordExecutionRunCancellationSignalResult(db, {
+        executionRunId: input.run.id,
+        attemptNumber: input.run.attemptNumber,
+        actor: input.actor,
+        method: input.method,
+        reason: input.reason,
+        requestedAt: input.requestedAt,
+        result,
+        error,
+        extra: input.extra,
+      });
+    } catch (recordError) {
+      console.warn("[execution-runs] failed to persist cancellation signal result", {
+        runId: input.run.id,
+        provider: input.run.provider,
+        error: errorMessage(recordError),
+      });
+    }
+  };
+
+  if (isPromiseLike(input.result)) {
+    input.result.then((result) => record(result)).catch((error) => record(undefined, error));
+    return;
+  }
+
+  record(input.result);
 }
 
 export function cancelRunningExecutionRunsForTask(
@@ -78,6 +214,13 @@ export function cancelRunningExecutionRunsForTask(
       ? Math.max(0, Date.parse(input.now) - Date.parse(run.startedAt))
       : null;
     const cancellationReason = `Cancelled: task transitioned to ${input.toStatus}`;
+    const cancellationRequest = buildCancellationRequestResult({
+      method: "task_status_transition",
+      actor: "task_status_transition",
+      reason: cancellationReason,
+      requestedAt: input.now,
+      extra: { toStatus: input.toStatus },
+    });
     db.prepare(
       `UPDATE execution_runs
        SET status = 'cancelled',
@@ -103,7 +246,7 @@ export function cancelRunningExecutionRunsForTask(
       cancellationReason,
       cancellationReason,
       cancellationReason,
-      JSON.stringify({ method: "task_status_transition", requested: true, toStatus: input.toStatus }),
+      JSON.stringify(cancellationRequest),
       input.now,
       run.id
     );
@@ -122,12 +265,31 @@ export function cancelRunningExecutionRunsForTask(
 
     try {
       const terminate = input.terminateRun ?? defaultTerminateExecutionRun;
-      void terminate(run);
+      const terminationResult = terminate(run);
+      observeCancellationSignal(db, {
+        run,
+        actor: "task_status_transition",
+        method: "task_status_transition",
+        reason: cancellationReason,
+        requestedAt: input.now,
+        result: terminationResult,
+        extra: { toStatus: input.toStatus },
+      });
     } catch (error) {
       console.warn("[execution-runs] terminate signal threw during task-status cancellation", {
         runId: run.id,
         provider: run.provider,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage(error),
+      });
+      recordExecutionRunCancellationSignalResult(db, {
+        executionRunId: run.id,
+        attemptNumber: run.attemptNumber,
+        actor: "task_status_transition",
+        method: "task_status_transition",
+        reason: cancellationReason,
+        requestedAt: input.now,
+        error,
+        extra: { toStatus: input.toStatus },
       });
     }
 
