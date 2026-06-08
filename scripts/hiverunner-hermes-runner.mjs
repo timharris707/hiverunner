@@ -2,7 +2,15 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import path from "node:path";
-import { asRecord, buildExternalRunnerPrompt, numberFromEnv, readStdin, splitCommandLine, stringFrom } from "./lib/external-runner-utils.mjs";
+import {
+  asRecord,
+  buildExternalRunnerEnv,
+  buildExternalRunnerPrompt,
+  numberFromEnv,
+  readStdin,
+  splitCommandLine,
+  stringFrom,
+} from "./lib/external-runner-utils.mjs";
 
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
 const RUNNER_VERSION = "hiverunner-hermes-runner 0.1.0";
@@ -80,13 +88,12 @@ function buildEnv(command) {
   if (path.isAbsolute(command)) {
     pathEntries.unshift(path.dirname(command));
   }
-  return {
-    ...process.env,
+  return buildExternalRunnerEnv({
     HERMES_YOLO_MODE: "1",
     HIVERUNNER_EXTERNAL_RUNNER: "1",
     HIVERUNNER_HERMES_RUNNER: "1",
     PATH: pathEntries.filter(Boolean).join(":"),
-  };
+  });
 }
 
 function mergeUsage(base, raw) {

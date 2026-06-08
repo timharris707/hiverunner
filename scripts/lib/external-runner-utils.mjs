@@ -1,5 +1,34 @@
 import { spawn, spawnSync } from "node:child_process";
 
+const EXTERNAL_RUNNER_ENV_DENYLIST = [
+  "HIVERUNNER_RUNTIME_PROMOTION_DB",
+  "HIVERUNNER_EPHEMERAL_DATA_DIR",
+  "MC_API_KEY",
+  "MC_APP_ROOT",
+  "MC_DATA_DIR",
+  "MC_DEV_EXECUTION_TEST_MODE",
+  "MC_ENGINE_TICK",
+  "MC_LOG_DIR",
+  "MC_SWEEP_COMPANIES",
+  "MC_SWEEP_INTERVAL_MS",
+  "MC_TICK_MAX_CONCURRENT",
+  "MC_WORKSPACE_ROOT",
+  "ORCHESTRATION_DB_PATH",
+  "PORT",
+  "WORKSPACE_ROOT",
+];
+
+export function buildExternalRunnerEnv(overrides = {}) {
+  const env = { ...process.env };
+  for (const key of EXTERNAL_RUNNER_ENV_DENYLIST) {
+    delete env[key];
+  }
+  return {
+    ...env,
+    ...overrides,
+  };
+}
+
 export function readStdin() {
   return new Promise((resolve, reject) => {
     let body = "";

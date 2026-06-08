@@ -1,5 +1,15 @@
 #!/usr/bin/env node
-import { asRecord, buildExternalRunnerPrompt, numberFrom, numberFromEnv, readStdin, runBufferedCommand, splitCommandLine, stringFrom } from "./lib/external-runner-utils.mjs";
+import {
+  asRecord,
+  buildExternalRunnerEnv,
+  buildExternalRunnerPrompt,
+  numberFrom,
+  numberFromEnv,
+  readStdin,
+  runBufferedCommand,
+  splitCommandLine,
+  stringFrom,
+} from "./lib/external-runner-utils.mjs";
 
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
 const DEFAULT_MAX_BUFFER_BYTES = 20 * 1024 * 1024;
@@ -164,11 +174,10 @@ function runClaude({ command, args, cwd, prompt }) {
     command,
     args,
     cwd,
-    env: {
-      ...process.env,
+    env: buildExternalRunnerEnv({
       HIVERUNNER_EXTERNAL_RUNNER: "1",
       HIVERUNNER_CLAUDE_RUNNER: "1",
-    },
+    }),
     stdio: ["pipe", "pipe", "pipe"],
     stdin: prompt,
     timeoutMs,

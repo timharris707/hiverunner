@@ -2,7 +2,15 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { numberFrom, numberFromEnv, readStdin, runBufferedCommand, splitCommandLine, stringFrom } from "./lib/external-runner-utils.mjs";
+import {
+  buildExternalRunnerEnv,
+  numberFrom,
+  numberFromEnv,
+  readStdin,
+  runBufferedCommand,
+  splitCommandLine,
+  stringFrom,
+} from "./lib/external-runner-utils.mjs";
 
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
 const DEFAULT_MAX_BUFFER_BYTES = 20 * 1024 * 1024;
@@ -364,10 +372,9 @@ function runCodex({ command, args, cwd, prompt }) {
     command,
     args,
     cwd,
-    env: {
-      ...process.env,
+    env: buildExternalRunnerEnv({
       HIVERUNNER_SYMPHONY_RUNNER: "1",
-    },
+    }),
     stdio: ["pipe", "pipe", "pipe"],
     stdin: prompt,
     timeoutMs,

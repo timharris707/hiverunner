@@ -34,6 +34,7 @@ import type {
   ExecutionResult,
   ExecutionSelfHealInput,
 } from "./types";
+import { buildExternalRunnerEnv } from "./child-env";
 
 type GeminiRuntimeRow = {
   command: string | null;
@@ -421,11 +422,10 @@ function buildEnv(command: string, modelConfig: GeminiCliModelConfig | null): No
   if (path.isAbsolute(command)) {
     pathEntries.unshift(path.dirname(command));
   }
-  return {
-    ...process.env,
+  return buildExternalRunnerEnv(process.env, {
     ...(modelConfig ? { GEMINI_CLI_SYSTEM_SETTINGS_PATH: modelConfig.settingsPath } : {}),
     PATH: pathEntries.filter(Boolean).join(":"),
-  };
+  });
 }
 
 function runGemini(

@@ -26,6 +26,7 @@ import type {
   ExecutionResult,
   ExecutionSelfHealInput,
 } from "./types";
+import { buildExternalRunnerEnv } from "./child-env";
 
 function resolveOpenClawBin(): string {
   const explicit = process.env.ORCHESTRATION_OPENCLAW_CLI?.trim();
@@ -42,10 +43,9 @@ function resolveOpenClawBin(): string {
 
 export const OPENCLAW_BIN = resolveOpenClawBin();
 
-const GATEWAY_ENV = {
-  ...process.env,
+const GATEWAY_ENV = buildExternalRunnerEnv(process.env, {
   PATH: ["/opt/homebrew/bin", "/usr/local/bin", process.env.PATH ?? ""].join(":"),
-} as NodeJS.ProcessEnv;
+});
 
 export async function callGateway<T>(
   _command: string,

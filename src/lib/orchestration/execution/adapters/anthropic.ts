@@ -36,6 +36,7 @@ import type {
   ExecutionSelfHealInput,
 } from "./types";
 import { createAdapterLiveChunkEmitter } from "./live-event-utils";
+import { buildExternalRunnerEnv } from "./child-env";
 
 type AnthropicRuntimeRow = {
   command: string | null;
@@ -516,10 +517,9 @@ function buildEnv(command: string): NodeJS.ProcessEnv {
   if (path.isAbsolute(command)) {
     pathEntries.unshift(path.dirname(command));
   }
-  return {
-    ...process.env,
+  return buildExternalRunnerEnv(process.env, {
     PATH: pathEntries.filter(Boolean).join(":"),
-  };
+  });
 }
 
 function buildClaudeConfig(input: {

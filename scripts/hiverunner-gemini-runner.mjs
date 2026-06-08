@@ -1,6 +1,16 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
-import { asRecord, buildExternalRunnerPrompt, numberFrom, numberFromEnv, readStdin, runBufferedCommand, splitCommandLine, stringFrom } from "./lib/external-runner-utils.mjs";
+import {
+  asRecord,
+  buildExternalRunnerEnv,
+  buildExternalRunnerPrompt,
+  numberFrom,
+  numberFromEnv,
+  readStdin,
+  runBufferedCommand,
+  splitCommandLine,
+  stringFrom,
+} from "./lib/external-runner-utils.mjs";
 
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
 const DEFAULT_MAX_BUFFER_BYTES = 20 * 1024 * 1024;
@@ -642,11 +652,10 @@ function runGemini({ command, args, cwd }) {
     command,
     args,
     cwd,
-    env: {
-      ...process.env,
+    env: buildExternalRunnerEnv({
       HIVERUNNER_EXTERNAL_RUNNER: "1",
       HIVERUNNER_GEMINI_RUNNER: "1",
-    },
+    }),
     timeoutMs,
     maxBufferBytes,
     progressIntervalMs,

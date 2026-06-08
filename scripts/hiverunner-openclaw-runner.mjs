@@ -1,5 +1,14 @@
 #!/usr/bin/env node
-import { asRecord, buildExternalRunnerPrompt, numberFromEnv, readStdin, runBufferedCommand, splitCommandLine, stringFrom } from "./lib/external-runner-utils.mjs";
+import {
+  asRecord,
+  buildExternalRunnerEnv,
+  buildExternalRunnerPrompt,
+  numberFromEnv,
+  readStdin,
+  runBufferedCommand,
+  splitCommandLine,
+  stringFrom,
+} from "./lib/external-runner-utils.mjs";
 
 const DEFAULT_TIMEOUT_MS = 20 * 60 * 1000;
 const DEFAULT_MAX_BUFFER_BYTES = 4 * 1024 * 1024;
@@ -169,11 +178,10 @@ async function gatewayCall({ command, commandPrefixArgs, method, params, cwd }) 
     command,
     args,
     cwd,
-    env: {
-      ...process.env,
+    env: buildExternalRunnerEnv({
       HIVERUNNER_EXTERNAL_RUNNER: "1",
       HIVERUNNER_OPENCLAW_RUNNER: "1",
-    },
+    }),
     timeoutMs,
     maxBufferBytes,
     describeTimeout: () => `OpenClaw gateway call ${method} timed out after ${timeoutMs}ms`,

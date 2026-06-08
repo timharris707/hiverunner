@@ -30,6 +30,7 @@ import type {
   ExecutionResult,
   ExecutionSelfHealInput,
 } from "./types";
+import { buildExternalRunnerEnv } from "./child-env";
 
 type HermesRuntimeRow = {
   command: string | null;
@@ -268,11 +269,10 @@ function buildEnv(command: string): NodeJS.ProcessEnv {
   if (path.isAbsolute(command)) {
     pathEntries.unshift(path.dirname(command));
   }
-  return {
-    ...process.env,
+  return buildExternalRunnerEnv(process.env, {
     HERMES_YOLO_MODE: "1",
     PATH: pathEntries.filter(Boolean).join(":"),
-  };
+  });
 }
 
 function buildHermesConfig(command: string, model: string): HermesExecConfig {

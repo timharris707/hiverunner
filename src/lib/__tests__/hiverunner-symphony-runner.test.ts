@@ -193,6 +193,16 @@ const outputFile = outputIndex >= 0 ? args[outputIndex + 1] : null;
 const prompt = fs.readFileSync(0, "utf8");
 fs.writeFileSync(process.env.FAKE_CODEX_ARGS_FILE, args.join("\\n"), "utf8");
 fs.writeFileSync(process.env.FAKE_CODEX_PROMPT_FILE, prompt, "utf8");
+if (process.env.FAKE_CODEX_ENV_FILE) {
+  fs.writeFileSync(process.env.FAKE_CODEX_ENV_FILE, JSON.stringify({
+    HIVERUNNER_SYMPHONY_RUNNER: process.env.HIVERUNNER_SYMPHONY_RUNNER || null,
+    MC_DATA_DIR: process.env.MC_DATA_DIR || null,
+    MC_ENGINE_TICK: process.env.MC_ENGINE_TICK || null,
+    MC_WORKSPACE_ROOT: process.env.MC_WORKSPACE_ROOT || null,
+    ORCHESTRATION_DB_PATH: process.env.ORCHESTRATION_DB_PATH || null,
+    PORT: process.env.PORT || null,
+  }), "utf8");
+}
 if (process.env.FAKE_CODEX_MODE === "silent-sleep") {
   setTimeout(() => {}, 60_000);
   return;
@@ -228,6 +238,7 @@ async function run() {
     const fakeCodex = path.join(tempRoot, "fake-codex");
     const argsFile = path.join(tempRoot, "args.txt");
     const promptFile = path.join(tempRoot, "prompt.txt");
+    const envFile = path.join(tempRoot, "env.json");
     const codexHome = path.join(tempRoot, "codex-home");
     mkdirSync(workspace, { recursive: true });
     mkdirSync(codexHome, { recursive: true });
@@ -257,8 +268,14 @@ async function run() {
           ...process.env,
           HIVERUNNER_SYMPHONY_CODEX_COMMAND: fakeCodex,
           HIVERUNNER_SYMPHONY_MODEL: "",
+          ORCHESTRATION_DB_PATH: path.join(tempRoot, "control.db"),
+          MC_DATA_DIR: path.join(tempRoot, "data"),
+          MC_ENGINE_TICK: "on",
+          MC_WORKSPACE_ROOT: path.join(tempRoot, "control-workspace"),
+          PORT: "3021",
           FAKE_CODEX_ARGS_FILE: argsFile,
           FAKE_CODEX_PROMPT_FILE: promptFile,
+          FAKE_CODEX_ENV_FILE: envFile,
         },
       });
 
@@ -283,6 +300,14 @@ async function run() {
       assert.ok(prompt.includes("Symphony-compatible task handoff"));
       assert.ok(prompt.includes("INS-1 - Run fixture task"));
       assert.ok(prompt.includes("Implement the fixture task."));
+
+      const childEnv = JSON.parse(readFileSync(envFile, "utf8")) as Record<string, unknown>;
+      assert.strictEqual(childEnv.HIVERUNNER_SYMPHONY_RUNNER, "1");
+      assert.strictEqual(childEnv.ORCHESTRATION_DB_PATH, null);
+      assert.strictEqual(childEnv.MC_DATA_DIR, null);
+      assert.strictEqual(childEnv.MC_ENGINE_TICK, null);
+      assert.strictEqual(childEnv.MC_WORKSPACE_ROOT, null);
+      assert.strictEqual(childEnv.PORT, null);
     });
 
     await test("runner terminates a silent Codex subprocess with a no-output diagnostic", () => {
