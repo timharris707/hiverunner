@@ -881,7 +881,8 @@ const CODEX_CHILD_PROGRESS_DIAGNOSTIC_PREFIX = "[hiverunner-symphony-runner] Cod
 const CLAUDE_CHILD_PROGRESS_DIAGNOSTIC_PREFIX = "[hiverunner-claude-runner] Claude still active after";
 const GEMINI_CHILD_PROGRESS_DIAGNOSTIC_PREFIX = "[hiverunner-gemini-runner] Gemini still active after";
 
-type CodexChildProgressDiagnostic = {
+type ChildProgressDiagnostic = {
+  source: string;
   silentForMs: number;
   stdoutBytes: number;
   stderrBytes: number;
@@ -895,16 +896,17 @@ function parseDiagnosticDurationMs(value: string): number | null {
   return match[2] === "s" ? amount * 1000 : amount;
 }
 
-function parseCodexChildProgressDiagnostic(line: string): CodexChildProgressDiagnostic | null {
+function parseChildProgressDiagnostic(line: string): ChildProgressDiagnostic | null {
   const match = line.trim().match(
-    /^\[hiverunner-symphony-runner\] Codex still active after \S+; (\d+(?:\.\d+)?(?:ms|s)) since last stdout\/stderr \((\d+) stdout bytes, (\d+) stderr bytes\)\.$/,
+    /^\[(hiverunner-(?:symphony|claude|gemini)-runner)\] (?:Codex|Claude|Gemini) still active after \S+; (\d+(?:\.\d+)?(?:ms|s)) since last (?:meaningful )?stdout\/stderr \((\d+) stdout bytes, (\d+) stderr bytes\)\.$/,
   );
   if (!match) return null;
-  const silentForMs = parseDiagnosticDurationMs(match[1] ?? "");
-  const stdoutBytes = Number.parseInt(match[2] ?? "", 10);
-  const stderrBytes = Number.parseInt(match[3] ?? "", 10);
+  const source = match[1] ?? "";
+  const silentForMs = parseDiagnosticDurationMs(match[2] ?? "");
+  const stdoutBytes = Number.parseInt(match[3] ?? "", 10);
+  const stderrBytes = Number.parseInt(match[4] ?? "", 10);
   if (silentForMs === null || !Number.isFinite(stdoutBytes) || !Number.isFinite(stderrBytes)) return null;
-  return { silentForMs, stdoutBytes, stderrBytes };
+  return { source, silentForMs, stdoutBytes, stderrBytes };
 }
 
 function isProgressDiagnosticLine(line: string): boolean {
@@ -931,29 +933,30 @@ function isProgressDiagnosticPrefix(value: string): boolean {
   ].some((prefix) => prefix.startsWith(text) || text.startsWith(prefix));
 }
 
-function createMeaningfulOutputDetector(): (chunk: Buffer) => boolean {
+function createMeaningfulOutputDetector(noOutputTimeoutMs: number): (chunk: Buffer) => boolean {
   let pendingLine = "";
-  let lastCodexChildProgress: CodexChildProgressDiagnostic | null = null;
+  const lastChildProgressBySource = new Map<string, ChildProgressDiagnostic>();
   const isMeaningfulLine = (line: string) => {
     const text = line.trim();
     if (!text) return false;
     if (isProgressDiagnosticLine(text)) return false;
-    if (isWrapperChildProgressDiagnosticLine(text)) return false;
     if (text.startsWith(RUNNER_LIVE_EVENT_PREFIX)) {
       return isMeaningfulRunnerLiveProtocolEvent(parseRunnerLiveProtocolLine(text));
     }
 
-    const codexChildProgress = parseCodexChildProgressDiagnostic(text);
-    if (codexChildProgress) {
-      const previous = lastCodexChildProgress;
-      lastCodexChildProgress = codexChildProgress;
-      const childOutputBytes = codexChildProgress.stdoutBytes + codexChildProgress.stderrBytes;
+    const childProgress = parseChildProgressDiagnostic(text);
+    if (childProgress) {
+      const previous = lastChildProgressBySource.get(childProgress.source) ?? null;
+      lastChildProgressBySource.set(childProgress.source, childProgress);
+      const childOutputBytes = childProgress.stdoutBytes + childProgress.stderrBytes;
       if (childOutputBytes <= 0) return false;
-      return !previous ||
-        codexChildProgress.stdoutBytes > previous.stdoutBytes ||
-        codexChildProgress.stderrBytes > previous.stderrBytes ||
-        codexChildProgress.silentForMs < previous.silentForMs;
+      if (!previous && childProgress.silentForMs < noOutputTimeoutMs) return true;
+      if (!previous) return false;
+      return childProgress.stdoutBytes > previous.stdoutBytes ||
+        childProgress.stderrBytes > previous.stderrBytes ||
+        childProgress.silentForMs < previous.silentForMs;
     }
+    if (isWrapperChildProgressDiagnosticLine(text)) return false;
 
     return true;
   };
@@ -1637,6 +1640,7 @@ function runCommand(
     let forcedKilled = false;
     let spawnError: string | null = null;
     let lastOutputAt: number | null = null;
+    let lastMeaningfulOutputAt: number | null = null;
     let progressUpdateCount = 0;
     let terminationSignalMethod: string | null = null;
     let forceKillTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1665,8 +1669,10 @@ function runCommand(
           status,
           lastProgressAt: new Date(nowMs).toISOString(),
           lastOutputAt: lastOutputAt ? new Date(lastOutputAt).toISOString() : null,
+          lastMeaningfulOutputAt: lastMeaningfulOutputAt ? new Date(lastMeaningfulOutputAt).toISOString() : null,
           lastActivityAt: new Date(lastActivityAt).toISOString(),
           silentForMs: nowMs - lastActivityAt,
+          meaningfulSilentForMs: nowMs - (lastMeaningfulOutputAt ?? startedAt),
           durationMs: nowMs - startedAt,
           progressUpdateCount,
           stdoutBytes,
@@ -1799,6 +1805,14 @@ function runCommand(
       }, noOutputTimeoutMs);
     };
 
+    const recordRunnerOutput = (meaningful: boolean) => {
+      if (!meaningful) return;
+      const nowMs = Date.now();
+      lastOutputAt = nowMs;
+      lastMeaningfulOutputAt = nowMs;
+      resetNoOutputTimer();
+    };
+
     if (options?.executionRunId && options.db) {
       try {
         if (pid) {
@@ -1876,8 +1890,8 @@ function runCommand(
       mergeProgressMetadata(lastOutputAt ? "running" : "running_silent", {}, { touchUpdatedAt: false });
     }, progressIntervalMs);
 
-    const stdoutHasMeaningfulOutput = createMeaningfulOutputDetector();
-    const stderrHasMeaningfulOutput = createMeaningfulOutputDetector();
+    const stdoutHasMeaningfulOutput = createMeaningfulOutputDetector(noOutputTimeoutMs);
+    const stderrHasMeaningfulOutput = createMeaningfulOutputDetector(noOutputTimeoutMs);
     const runnerLiveProtocolStripper = createRunnerLiveProtocolStripper();
     const runnerLiveProtocol = createRunnerLiveProtocolParser((event) => {
       appendLiveTranscript(event, {
@@ -1889,8 +1903,7 @@ function runCommand(
         source: "runner-live-protocol",
       }));
       if (isMeaningfulRunnerLiveProtocolEvent(event)) {
-        lastOutputAt = Date.now();
-        resetNoOutputTimer();
+        recordRunnerOutput(true);
       }
     });
 
@@ -1899,10 +1912,7 @@ function runCommand(
       stdoutTail = appendTail(stdoutTail, chunk);
       if (stdoutBytes <= maxBufferBytes) stdoutChunks.push(chunk);
       stdoutLive.push(chunk);
-      if (stdoutHasMeaningfulOutput(chunk)) {
-        lastOutputAt = Date.now();
-        resetNoOutputTimer();
-      }
+      recordRunnerOutput(stdoutHasMeaningfulOutput(chunk));
       if (stdoutBytes > maxBufferBytes && !killedForBuffer) {
         killedForBuffer = true;
         requestTermination(
@@ -1918,10 +1928,7 @@ function runCommand(
       runnerLiveProtocol.push(chunk);
       const cleanStderrChunk = runnerLiveProtocolStripper.push(chunk);
       if (cleanStderrChunk) stderrLive.push(cleanStderrChunk);
-      if (stderrHasMeaningfulOutput(chunk)) {
-        lastOutputAt = Date.now();
-        resetNoOutputTimer();
-      }
+      recordRunnerOutput(stderrHasMeaningfulOutput(chunk));
     });
     child.on("error", (error) => {
       spawnError = error.message;
@@ -1981,6 +1988,7 @@ function runCommand(
             noOutputTimeoutMs,
             progressUpdateCount,
             lastOutputAt: lastOutputAt ? new Date(lastOutputAt).toISOString() : null,
+            lastMeaningfulOutputAt: lastMeaningfulOutputAt ? new Date(lastMeaningfulOutputAt).toISOString() : null,
             stdoutTail: trimForStorage(stdoutTail),
             stderrTail: trimForStorage(cleanStderrTail),
           });

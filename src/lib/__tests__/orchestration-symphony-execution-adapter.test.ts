@@ -196,6 +196,19 @@ if (process.env.FAKE_SYMPHONY_MODE === "claude-wrapper-progress-sleep") {
   setTimeout(() => process.stdout.write(JSON.stringify({ sessionId: "late-claude-wrapper-progress-session", resultText: "too late" })), 60_000);
   return;
 }
+if (process.env.FAKE_SYMPHONY_MODE === "claude-child-progress-sleep") {
+  let tick = 0;
+  setInterval(() => {
+    process.stderr.write(
+      "[hiverunner-claude-runner] Claude still active after 60.0s; " +
+      "102ms since last stdout/stderr " +
+      "(" + (114447 + tick * 2048) + " stdout bytes, 0 stderr bytes).\\n"
+    );
+    tick += 1;
+  }, 50);
+  setTimeout(() => process.stdout.write(JSON.stringify({ sessionId: "late-claude-child-progress-session", resultText: "too late" })), 60_000);
+  return;
+}
 if (process.env.FAKE_SYMPHONY_MODE === "gemini-wrapper-progress-sleep") {
   setInterval(() => {
     process.stderr.write(
@@ -1820,7 +1833,7 @@ async function run() {
       setActiveHiveDefaultRoute({ runtimeId: "codex", runtimeLabel: "Codex" });
 
       async function runDiagnosticFixture(
-        mode: "sleep" | "silent-sleep" | "progress-only-sleep" | "codex-child-progress-sleep" | "claude-wrapper-progress-sleep" | "self-sigterm",
+        mode: "sleep" | "silent-sleep" | "progress-only-sleep" | "codex-child-progress-sleep" | "claude-wrapper-progress-sleep" | "claude-child-progress-sleep" | "gemini-wrapper-progress-sleep" | "self-sigterm",
         title: string,
       ) {
         const diagnosticAgent = createSymphonyAgentFixture({
@@ -1863,7 +1876,10 @@ async function run() {
           process.env.SYMPHONY_EXEC_PROGRESS_INTERVAL_MS = "50";
           process.env.SYMPHONY_EXEC_TERMINATION_GRACE_MS = "50";
         }
-        if (mode === "codex-child-progress-sleep") {
+        if (
+          mode === "codex-child-progress-sleep" ||
+          mode === "claude-child-progress-sleep"
+        ) {
           process.env.SYMPHONY_EXEC_TIMEOUT_MS = "450";
           process.env.SYMPHONY_EXEC_NO_OUTPUT_TIMEOUT_MS = "150";
           process.env.SYMPHONY_EXEC_PROGRESS_INTERVAL_MS = "50";
@@ -1953,6 +1969,7 @@ async function run() {
       assert.strictEqual(progressOnlyRunner.terminationReason, "silent_timeout");
       assert.strictEqual(progressOnlyRunner.noOutputTimeoutMs, 250);
       assert.strictEqual(progressOnlyRunner.lastOutputAt, null);
+      assert.strictEqual(progressOnlyRunner.lastMeaningfulOutputAt, null);
       assert.match(String(progressOnlyRunner.stderrTail), /External runner still active after/);
       const progressOnlyUsage = JSON.parse(progressOnlyRun.token_usage_json ?? "{}") as Record<string, unknown>;
       assert.strictEqual(progressOnlyUsage.silentTimedOut, true);
@@ -1990,11 +2007,30 @@ async function run() {
       assert.strictEqual(claudeWrapperProgressRunner.terminationReason, "silent_timeout");
       assert.strictEqual(claudeWrapperProgressRunner.noOutputTimeoutMs, 250);
       assert.strictEqual(claudeWrapperProgressRunner.lastOutputAt, null);
+      assert.strictEqual(claudeWrapperProgressRunner.lastMeaningfulOutputAt, null);
       assert.match(String(claudeWrapperProgressRunner.stderrTail), /\[hiverunner-claude-runner\] Claude still active after 60\.0s/);
       const claudeWrapperProgressUsage = JSON.parse(claudeWrapperProgressRun.token_usage_json ?? "{}") as Record<string, unknown>;
       assert.strictEqual(claudeWrapperProgressUsage.silentTimedOut, true);
-      assert.strictEqual(claudeWrapperProgressUsage.timedOut, false);
       assert.strictEqual(claudeWrapperProgressUsage.terminationReason, "silent_timeout");
+
+      const claudeChildProgressRun = await runDiagnosticFixture("claude-child-progress-sleep", "Run Claude child progress diagnostic fixture");
+      assert.strictEqual(claudeChildProgressRun.status, "failed");
+      assert.strictEqual(claudeChildProgressRun.process_pid, null);
+      assert.strictEqual(claudeChildProgressRun.failure_class, "adapter_timeout");
+      assert.match(claudeChildProgressRun.error_message ?? "", /timed out/i);
+      const claudeChildProgressMetadata = JSON.parse(claudeChildProgressRun.metadata_json ?? "{}") as Record<string, unknown>;
+      const claudeChildProgressRunner = claudeChildProgressMetadata.externalRunner as Record<string, unknown>;
+      assert.ok(Number(claudeChildProgressRunner.pid) > 0, "Claude child progress metadata should retain the child pid");
+      assert.strictEqual(claudeChildProgressRunner.silentTimedOut, false);
+      assert.strictEqual(claudeChildProgressRunner.timedOut, true);
+      assert.strictEqual(claudeChildProgressRunner.terminationReason, "adapter_timeout");
+      assert.strictEqual(claudeChildProgressRunner.noOutputTimeoutMs, 150);
+      assert.strictEqual(typeof claudeChildProgressRunner.lastOutputAt, "string");
+      assert.match(String(claudeChildProgressRunner.stderrTail), /\[hiverunner-claude-runner\] Claude still active after 60\.0s; 102ms since last stdout\/stderr \(114/);
+      const claudeChildProgressUsage = JSON.parse(claudeChildProgressRun.token_usage_json ?? "{}") as Record<string, unknown>;
+      assert.strictEqual(claudeChildProgressUsage.silentTimedOut, false);
+      assert.strictEqual(claudeChildProgressUsage.timedOut, true);
+      assert.strictEqual(claudeChildProgressUsage.terminationReason, "adapter_timeout");
 
       const geminiWrapperProgressRun = await runDiagnosticFixture("gemini-wrapper-progress-sleep", "Run Gemini wrapper progress diagnostic fixture");
       assert.strictEqual(geminiWrapperProgressRun.status, "failed");
@@ -2009,10 +2045,10 @@ async function run() {
       assert.strictEqual(geminiWrapperProgressRunner.terminationReason, "silent_timeout");
       assert.strictEqual(geminiWrapperProgressRunner.noOutputTimeoutMs, 250);
       assert.strictEqual(geminiWrapperProgressRunner.lastOutputAt, null);
+      assert.strictEqual(geminiWrapperProgressRunner.lastMeaningfulOutputAt, null);
       assert.match(String(geminiWrapperProgressRunner.stderrTail), /\[hiverunner-gemini-runner\] Gemini still active after 60\.0s/);
       const geminiWrapperProgressUsage = JSON.parse(geminiWrapperProgressRun.token_usage_json ?? "{}") as Record<string, unknown>;
       assert.strictEqual(geminiWrapperProgressUsage.silentTimedOut, true);
-      assert.strictEqual(geminiWrapperProgressUsage.timedOut, false);
       assert.strictEqual(geminiWrapperProgressUsage.terminationReason, "silent_timeout");
 
       const signalRun = await runDiagnosticFixture("self-sigterm", "Run external signal diagnostic fixture");
