@@ -1042,7 +1042,7 @@ async function run() {
       type: "feature",
       status: "in-progress",
       assignee: producer.id,
-      labels: ["bundle-5"],
+      labels: ["bundle-5", "review-required"],
       createdBy: "bundle-5-test",
     }).task;
     db.prepare("UPDATE tasks SET status = 'in_progress' WHERE id = ?").run(task.id);
@@ -1109,7 +1109,7 @@ async function run() {
       type: "feature",
       status: "in-progress",
       assignee: producer.id,
-      labels: ["bundle-5"],
+      labels: ["bundle-5", "review-required"],
       createdBy: "bundle-5-test",
     }).task;
     db.prepare("UPDATE tasks SET status = 'in_progress' WHERE id = ?").run(task.id);

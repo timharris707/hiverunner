@@ -521,6 +521,7 @@ async function run() {
       skills: [],
     }).agent;
     db.prepare("UPDATE agents SET adapter_type = 'codex' WHERE id IN (?, ?)").run(builder.id, qa.id);
+    db.prepare("UPDATE agent_runtimes SET provider = 'codex', status = 'online' WHERE agent_id IN (?, ?)").run(builder.id, qa.id);
 
     const task = createTask({
       projectId: project.id,
@@ -530,7 +531,7 @@ async function run() {
       type: "feature",
       status: "in-progress",
       assignee: builder.id,
-      labels: [],
+      labels: ["review-required"],
       createdBy: "test",
       executionEngine: "symphony",
     }).task;
@@ -547,7 +548,64 @@ async function run() {
       assignee_agent_id: string | null;
     };
     assert.strictEqual(row.status, "review");
-    assert.ok(row.assignee_agent_id, "review handoff should leave the task assigned");
+    assert.notStrictEqual(row.assignee_agent_id, builder.id, "review handoff should move the task off the producer");
+    const assigned = db.prepare("SELECT role FROM agents WHERE id = ?").get(row.assignee_agent_id) as { role: string } | undefined;
+    assert.match(assigned?.role ?? "", /qa|quality|review/i, "review handoff should assign a reviewer-capable agent");
+  });
+
+  await test("tasks submitted to review without an explicit review gate do not auto-route a reviewer", () => {
+    const db = getOrchestrationDb();
+    const builder = createProjectAgent({
+      projectId: project.id,
+      name: `No Gate Builder ${Date.now()}`,
+      emoji: "B",
+      role: "Builder",
+      personality: "Submits work.",
+      status: "idle",
+      skills: [],
+    }).agent;
+    const qa = createProjectAgent({
+      projectId: project.id,
+      name: `No Gate QA ${Date.now()}`,
+      emoji: "Q",
+      role: "QA Lead",
+      personality: "Reviews work.",
+      status: "idle",
+      skills: [],
+    }).agent;
+    db.prepare("UPDATE agents SET adapter_type = 'codex' WHERE id IN (?, ?)").run(builder.id, qa.id);
+
+    const task = createTask({
+      projectId: project.id,
+      title: `No explicit review gate ${Date.now()}`,
+      description: "Ordinary implementation task.",
+      priority: "P2",
+      type: "feature",
+      status: "in-progress",
+      assignee: builder.id,
+      labels: [],
+      createdBy: "test",
+      executionEngine: "symphony",
+    }).task;
+    const runId = `no-review-gate-${Date.now()}`;
+
+    const result = executeUpdateTask(
+      { action: "update_task", taskKey: task.key as string, status: "review" },
+      { agentId: builder.id, companyId: company.id, runId },
+      db,
+    );
+    assert.strictEqual(result.statusApplied, true, result.statusRejectedReason);
+
+    const row = db.prepare("SELECT status, assignee_agent_id FROM tasks WHERE id = ?").get(task.id) as {
+      status: string;
+      assignee_agent_id: string | null;
+    };
+    assert.strictEqual(row.status, "review");
+    assert.strictEqual(row.assignee_agent_id, builder.id);
+    const wake = db
+      .prepare("SELECT COUNT(*) AS count FROM agent_wakeup_requests WHERE reason = 'engine_default_review_handoff' AND json_extract(payload_json, '$.taskId') = ?")
+      .get(task.id) as { count: number };
+    assert.strictEqual(wake.count, 0, "ordinary review status should not spend a second autonomous run");
   });
 
   await test("review routing skips reviewers blocked by pending protected runtime approvals", () => {
@@ -810,7 +868,7 @@ async function run() {
       type: "feature",
       status: "in-progress",
       assignee: builder.id,
-      labels: [],
+      labels: ["review-required"],
       createdBy: "test",
       executionEngine: "symphony",
     }).task;
@@ -875,7 +933,7 @@ async function run() {
       type: "feature",
       status: "in-progress",
       assignee: builder.id,
-      labels: [],
+      labels: ["review-required"],
       createdBy: "test",
       executionEngine: "symphony",
     }).task;

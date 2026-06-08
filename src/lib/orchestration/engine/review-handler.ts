@@ -27,6 +27,21 @@ export type ReviewHandlerTask = {
 
 type ReviewRunEvent = (runId: string, agentId: string, type: "action_executed" | "action_skipped", message: string, db: Database.Database) => void;
 
+const REVIEW_HANDOFF_LABELS = new Set([
+  "review-required",
+  "requires-review",
+  "qa-required",
+  "requires-qa",
+  "human-review",
+  "operator-review",
+  "second-pass",
+]);
+const REVIEW_HANDOFF_DISABLED_LABELS = new Set([
+  "direct-work-only",
+  "no-review",
+  "review-not-required",
+]);
+
 export function safeJsonStringArray(value: string | null | undefined): string[] {
   try {
     const parsed = JSON.parse(value ?? "[]");
@@ -34,6 +49,19 @@ export function safeJsonStringArray(value: string | null | undefined): string[] 
   } catch {
     return [];
   }
+}
+
+export function taskRequiresAutonomousReviewHandoff(task: {
+  title?: string | null;
+  type?: string | null;
+  labels_json?: string | null;
+}): boolean {
+  const labels = safeJsonStringArray(task.labels_json);
+  if (labels.some((label) => REVIEW_HANDOFF_DISABLED_LABELS.has(label))) return false;
+  if (labels.some((label) => REVIEW_HANDOFF_LABELS.has(label))) return true;
+
+  const type = String(task.type ?? "").trim().toLowerCase();
+  return type === "review" || type === "qa";
 }
 
 function reviewAgentScore(
@@ -210,6 +238,17 @@ export function autoRouteReviewHandoff(input: {
     !input.task.company_id ||
     input.task.assignee_agent_id === undefined
   ) {
+    return { assigneeApplied: false };
+  }
+
+  if (!taskRequiresAutonomousReviewHandoff(input.task)) {
+    input.emitRunEvent(
+      input.runId,
+      input.producerAgentId,
+      "action_skipped",
+      `Skipped automatic review handoff for ${input.task.task_key ?? input.task.id}: no explicit review-required label.`,
+      input.db,
+    );
     return { assigneeApplied: false };
   }
 

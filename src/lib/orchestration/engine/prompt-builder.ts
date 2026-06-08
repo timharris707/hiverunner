@@ -703,7 +703,8 @@ export function buildHeartbeatPrompt(
   sections.push("- If the task asks for news, articles, sources, or external references, verify the information and include clickable Markdown links in the task comment, e.g. `[Article title](https://example.com/story)`.");
   sections.push("- Do not invent URLs or claim a link is verified unless you actually opened it. HiveRunner checks external links before publishing comments; broken or unavailable links are withheld from the operator-facing reply.");
   sections.push("- Write concise but useful summaries. Use Markdown headings, bold labels, lists, and source links when they make the answer easier to scan.");
-  sections.push("- For final deliverables, post one polished `add_comment` for the operator, then move the task to `review` with `update_task` and no status comment.");
+  sections.push("- For final deliverables, post one polished `add_comment` for the operator, then move the task to `done` when validation/evidence is complete and no explicit review gate is required.");
+  sections.push("- Use `update_task` with status `review` only when the task labels, description, or operator instruction explicitly require QA, second-pass review, human review, or approval before closure.");
   sections.push("- Do not post 'Starting', 'Now I will', stdout/stderr, provider warnings, or JSON traces as comments. Execution history stores those details.");
   sections.push("- If you cannot verify current external information with available tools, say so in a clean task comment instead of inventing sources or stale facts.");
 
@@ -738,7 +739,7 @@ export function buildHeartbeatPrompt(
   sections.push("- Hire an agent: `hire_agent` with `{ \"name\", \"role\", \"capabilities\", \"reason\" }`");
   sections.push("- Report only (no action needed): `report` with `{ \"summary\" }`");
   sections.push("Even if your only output is a status report, wrap it in an `mc-action` `report` block. Narrative paragraphs outside blocks do NOT count.");
-  sections.push("Final-answer example:\n```mc-action\n{\"action\":\"add_comment\",\"taskKey\":\"WEA-XXX\",\"body\":\"**Summary**\\n\\nCompleted the research and included the three strongest sources with links.\"}\n```\n```mc-action\n{\"action\":\"update_task\",\"taskKey\":\"WEA-XXX\",\"status\":\"review\"}\n```");
+  sections.push("Final-answer example:\n```mc-action\n{\"action\":\"add_comment\",\"taskKey\":\"WEA-XXX\",\"body\":\"**Summary**\\n\\nCompleted the research and included the three strongest sources with links.\"}\n```\n```mc-action\n{\"action\":\"update_task\",\"taskKey\":\"WEA-XXX\",\"status\":\"done\"}\n```");
 
   return sections.join("\n").trim();
 }
