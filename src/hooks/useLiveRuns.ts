@@ -15,7 +15,7 @@ export interface LiveRunTranscriptEntry {
   type?: string;
 }
 
-export type LiveRunLiveness = "queued" | "live" | "quiet" | "stalled" | "completed";
+export type LiveRunLiveness = "queued" | "live" | "quiet" | "suspicious" | "stalled" | "completed";
 
 export interface LiveRun {
   runId: string;
@@ -56,7 +56,7 @@ export interface LiveRun {
    * client-side with a ticking timer for sub-poll smoothness. */
   lastEventAgeMs?: number | null;
   /** Operator-facing classification: live (recent signal), quiet (alive but
-   * no recent signal), stalled (likely hung), completed (terminal). */
+   * no recent signal), suspicious (90s+ without meaningful progress), completed (terminal). */
   liveness?: LiveRunLiveness;
   /** Pre-formatted label matching `liveness`, server-rendered for SSR/initial
    * paint. The dashboard recomputes client-side as the clock advances. */

@@ -1313,23 +1313,23 @@ function AgentTranscript({
         {isLive && (() => {
           const liveness = livenessSnapshot?.liveness ?? "live";
           const isQuiet = liveness === "quiet";
-          const isStalled = liveness === "stalled";
-          const accentColor = isStalled
+          const isSuspicious = liveness === "suspicious" || liveness === "stalled";
+          const accentColor = isSuspicious
             ? "var(--negative)"
             : isQuiet
               ? "var(--warning)"
               : "var(--accent)";
           const baseLabel = liveActivityLabel ?? "Thinking";
           const heartbeatLabel =
-            isStalled || isQuiet ? livenessSnapshot?.label ?? baseLabel : baseLabel;
+            isSuspicious || isQuiet ? livenessSnapshot?.label ?? baseLabel : baseLabel;
           return (
             <div
               className="flex items-center gap-2.5 py-3 text-[13px]"
-              style={{ color: isStalled ? "var(--negative)" : isQuiet ? "var(--warning)" : "var(--text-muted)" }}
+              style={{ color: isSuspicious ? "var(--negative)" : isQuiet ? "var(--warning)" : "var(--text-muted)" }}
               data-liveness={liveness}
               data-testid="agent-transcript-liveness"
             >
-              {isStalled ? (
+              {isSuspicious ? (
                 <AlertCircle className="h-3.5 w-3.5 shrink-0" style={{ color: accentColor }} />
               ) : (
                 <CircleDashed

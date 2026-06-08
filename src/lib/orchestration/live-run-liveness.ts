@@ -3,11 +3,11 @@
  *
  * Operator trust requires that CLI runs which produce no output for minutes
  * are distinguishable from runs that have actually hung. We classify a run
- * along four buckets using the most recent signal we have for it (process
+ * along operator-facing buckets using the most recent signal we have for it (process
  * lifecycle event, run event, agent comment, task event).
  */
 
-export type RunLiveness = "queued" | "live" | "quiet" | "stalled" | "completed";
+export type RunLiveness = "queued" | "live" | "quiet" | "suspicious" | "stalled" | "completed";
 
 export interface RunLivenessInput {
   /** heartbeat_runs.status — running/queued/succeeded/failed/cancelled/timed_out */
@@ -28,7 +28,9 @@ export interface RunLivenessInput {
   now?: number;
   /** Below this, runs render as "live". Default 30s. */
   quietThresholdMs?: number;
-  /** At or above this, runs render as "stalled". Default 120s. */
+  /** At or above this, runs render as "suspicious". Default 90s. */
+  suspiciousThresholdMs?: number;
+  /** @deprecated Use suspiciousThresholdMs. Kept for older callers/tests. */
   stalledThresholdMs?: number;
 }
 
@@ -38,12 +40,12 @@ export interface RunLivenessSnapshot {
   ageMs: number | null;
   /** How long since the last visible signal. null when no signal yet. */
   lastEventAgeMs: number | null;
-  /** Human-readable badge label, e.g. "Live", "Quiet · 1m 12s", "Stalled · 4m". */
+  /** Human-readable badge label, e.g. "Live", "Quiet · 1m 12s", "Suspicious · 4m". */
   label: string;
 }
 
 const DEFAULT_QUIET_MS = 30_000;
-const DEFAULT_STALLED_MS = 120_000;
+const DEFAULT_SUSPICIOUS_MS = 90_000;
 const QUEUED_STATUSES = new Set(["queued", "pending"]);
 const TERMINAL_STATUSES = new Set(["succeeded", "failed", "cancelled", "timed_out"]);
 
@@ -68,7 +70,7 @@ function formatDuration(ms: number): string {
 export function deriveRunLiveness(input: RunLivenessInput): RunLivenessSnapshot {
   const now = input.now ?? Date.now();
   const quietThresholdMs = input.quietThresholdMs ?? DEFAULT_QUIET_MS;
-  const stalledThresholdMs = input.stalledThresholdMs ?? DEFAULT_STALLED_MS;
+  const suspiciousThresholdMs = input.suspiciousThresholdMs ?? input.stalledThresholdMs ?? DEFAULT_SUSPICIOUS_MS;
 
   const startedMs = parseTs(input.startedAt);
   const finishedMs = parseTs(input.finishedAt);
@@ -125,7 +127,7 @@ export function deriveRunLiveness(input: RunLivenessInput): RunLivenessSnapshot 
     };
   }
 
-  if (lastEventAgeMs < stalledThresholdMs) {
+  if (lastEventAgeMs < suspiciousThresholdMs) {
     const pidSuffix = input.runnerPid ? ` (pid ${input.runnerPid})` : "";
     return {
       liveness: "quiet",
@@ -135,25 +137,25 @@ export function deriveRunLiveness(input: RunLivenessInput): RunLivenessSnapshot 
     };
   }
 
-  // Past the stall threshold, process liveness is not enough to call the run
+  // Past the suspicious threshold, process liveness is not enough to call the run
   // healthy. A wrapper can be alive while the operator has no durable evidence
-  // of progress, so surface that as stalled and let the watchdog/policy layer
+  // of progress, so surface that as suspicious and let the watchdog/policy layer
   // decide whether to retry, reassign, or wait.
   if (input.runnerPidAlive === true) {
     const pidSuffix = input.runnerPid ? ` (pid ${input.runnerPid})` : "";
     return {
-      liveness: "stalled",
+      liveness: "suspicious",
       ageMs,
       lastEventAgeMs,
-      label: `Stalled · runner alive but no signal for ${formatDuration(lastEventAgeMs)}${pidSuffix}`,
+      label: `Suspicious · runner alive but no signal for ${formatDuration(lastEventAgeMs)}${pidSuffix}`,
     };
   }
 
   return {
-    liveness: "stalled",
+    liveness: "suspicious",
     ageMs,
     lastEventAgeMs,
-    label: `Stalled · no signal for ${formatDuration(lastEventAgeMs)}`,
+    label: `Suspicious · no signal for ${formatDuration(lastEventAgeMs)}`,
   };
 }
 
@@ -178,4 +180,5 @@ export function probeRunnerPidAlive(pid: number | null | undefined): boolean | n
 }
 
 export const LIVE_RUN_QUIET_THRESHOLD_MS = DEFAULT_QUIET_MS;
-export const LIVE_RUN_STALLED_THRESHOLD_MS = DEFAULT_STALLED_MS;
+/** @deprecated The stalled threshold now maps to the 90s suspicious threshold. */
+export const LIVE_RUN_STALLED_THRESHOLD_MS = DEFAULT_SUSPICIOUS_MS;

@@ -40,16 +40,16 @@ async function run() {
     assert.match(snap.label, /pid 12345/);
   });
 
-  await test("running run silent past stalled threshold is stalled", () => {
+  await test("running run silent past suspicious threshold is suspicious", () => {
     const snap = deriveRunLiveness({
       status: "running",
       startedAt: iso(0),
       lastEventAt: iso(10_000),
-      now: T0 + 4 * 60_000,
+      now: T0 + 100_000,
     });
-    assert.strictEqual(snap.liveness, "stalled");
-    assert.strictEqual(snap.lastEventAgeMs, 4 * 60_000 - 10_000);
-    assert.match(snap.label, /^Stalled/);
+    assert.strictEqual(snap.liveness, "suspicious");
+    assert.strictEqual(snap.lastEventAgeMs, 90_000);
+    assert.match(snap.label, /^Suspicious/);
   });
 
   await test("queued run with no events yet shows as queued, not live", () => {
@@ -89,7 +89,7 @@ async function run() {
     const liveAtTightQuiet = deriveRunLiveness({
       ...baseInput,
       quietThresholdMs: 5_000,
-      stalledThresholdMs: 20_000,
+      suspiciousThresholdMs: 20_000,
       now: T0 + 4_000,
     });
     assert.strictEqual(liveAtTightQuiet.liveness, "live");
@@ -97,18 +97,29 @@ async function run() {
     const quietAtTightStall = deriveRunLiveness({
       ...baseInput,
       quietThresholdMs: 5_000,
-      stalledThresholdMs: 20_000,
+      suspiciousThresholdMs: 20_000,
       now: T0 + 10_000,
     });
     assert.strictEqual(quietAtTightStall.liveness, "quiet");
 
-    const stalledAtTightStall = deriveRunLiveness({
+    const suspiciousAtTightThreshold = deriveRunLiveness({
       ...baseInput,
       quietThresholdMs: 5_000,
+      suspiciousThresholdMs: 20_000,
+      now: T0 + 30_000,
+    });
+    assert.strictEqual(suspiciousAtTightThreshold.liveness, "suspicious");
+  });
+
+  await test("legacy stalledThresholdMs still overrides suspicious threshold", () => {
+    const snap = deriveRunLiveness({
+      status: "running",
+      startedAt: iso(0),
+      lastEventAt: iso(0),
       stalledThresholdMs: 20_000,
       now: T0 + 30_000,
     });
-    assert.strictEqual(stalledAtTightStall.liveness, "stalled");
+    assert.strictEqual(snap.liveness, "suspicious");
   });
 
   await test("uses started_at as the floor signal when no other event is recorded", () => {
@@ -122,7 +133,7 @@ async function run() {
     assert.strictEqual(snap.lastEventAgeMs, 5_000);
   });
 
-  await test("verified-alive runner past stall threshold is stalled, not quietly trusted", () => {
+  await test("verified-alive runner past suspicious threshold is suspicious, not quietly trusted", () => {
     const snap = deriveRunLiveness({
       status: "running",
       startedAt: iso(0),
@@ -131,12 +142,12 @@ async function run() {
       runnerPidAlive: true,
       now: T0 + 10 * 60_000,
     });
-    assert.strictEqual(snap.liveness, "stalled");
+    assert.strictEqual(snap.liveness, "suspicious");
     assert.match(snap.label, /runner alive/);
     assert.match(snap.label, /pid 99999/);
   });
 
-  await test("verified-dead runner past stall threshold still classifies as stalled", () => {
+  await test("verified-dead runner past suspicious threshold still classifies as suspicious", () => {
     const snap = deriveRunLiveness({
       status: "running",
       startedAt: iso(0),
@@ -145,7 +156,7 @@ async function run() {
       runnerPidAlive: false,
       now: T0 + 10 * 60_000,
     });
-    assert.strictEqual(snap.liveness, "stalled");
+    assert.strictEqual(snap.liveness, "suspicious");
   });
 
   await test("probeRunnerPidAlive returns null for non-positive PIDs", () => {
