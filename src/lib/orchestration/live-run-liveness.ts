@@ -7,7 +7,7 @@
  * lifecycle event, run event, agent comment, task event).
  */
 
-export type RunLiveness = "live" | "quiet" | "stalled" | "completed";
+export type RunLiveness = "queued" | "live" | "quiet" | "stalled" | "completed";
 
 export interface RunLivenessInput {
   /** heartbeat_runs.status — running/queued/succeeded/failed/cancelled/timed_out */
@@ -44,6 +44,7 @@ export interface RunLivenessSnapshot {
 
 const DEFAULT_QUIET_MS = 30_000;
 const DEFAULT_STALLED_MS = 120_000;
+const QUEUED_STATUSES = new Set(["queued", "pending"]);
 const TERMINAL_STATUSES = new Set(["succeeded", "failed", "cancelled", "timed_out"]);
 
 function parseTs(value: string | null | undefined): number | null {
@@ -92,8 +93,20 @@ export function deriveRunLiveness(input: RunLivenessInput): RunLivenessSnapshot 
     };
   }
 
-  // No clock at all yet — treat as live so the UI keeps animating instead of
-  // flipping to a stall warning immediately after a fresh queue insert.
+  if (QUEUED_STATUSES.has(input.status)) {
+    const queuedLabel = input.status === "pending" ? "Pending" : "Queued";
+    return {
+      liveness: "queued",
+      ageMs,
+      lastEventAgeMs,
+      label: lastEventAgeMs == null
+        ? queuedLabel
+        : `${queuedLabel} · waiting ${formatDuration(lastEventAgeMs)}`,
+    };
+  }
+
+  // A running row without a clock is still in-flight; keep it live instead of
+  // flipping to a stall warning before the first durable signal arrives.
   if (lastEventAgeMs == null) {
     return {
       liveness: "live",

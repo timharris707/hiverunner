@@ -6,7 +6,7 @@ type LiveRunLookup = Map<string, LiveRunState>;
 
 export function isRunActivelyRunning(runOrStatus?: string | LiveRunState | null): boolean {
   const status = typeof runOrStatus === "string" ? runOrStatus : runOrStatus?.status;
-  return status === "queued" || status === "pending" || status === "running";
+  return status === "running";
 }
 
 export function isRunLive(runOrStatus?: string | LiveRunState | null, now = Date.now()): boolean {

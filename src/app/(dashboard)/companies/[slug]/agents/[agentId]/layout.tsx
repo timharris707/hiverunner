@@ -204,7 +204,7 @@ export default function AgentDetailLayout({
     return m[profile.agent.status] ?? fallback;
   }, [profile]);
 
-  const isLive = profile?.liveSession?.status === "running" || profile?.liveSession?.status === "pending";
+  const isLive = profile?.liveSession?.status === "running";
 
   const activeTab = useMemo(() => {
     const segments = pathname.split("/");

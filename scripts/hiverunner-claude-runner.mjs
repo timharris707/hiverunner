@@ -13,7 +13,7 @@ import {
 
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
 const DEFAULT_MAX_BUFFER_BYTES = 20 * 1024 * 1024;
-const DEFAULT_PROGRESS_INTERVAL_MS = 60 * 1000;
+const DEFAULT_PROGRESS_INTERVAL_MS = 30 * 1000;
 const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6";
 const RUNNER_VERSION = "hiverunner-claude-runner 0.1.0";
 

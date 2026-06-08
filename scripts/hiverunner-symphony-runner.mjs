@@ -15,7 +15,7 @@ import {
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
 const DEFAULT_MAX_BUFFER_BYTES = 20 * 1024 * 1024;
 const DEFAULT_CODEX_NO_OUTPUT_TIMEOUT_MS = 5 * 60 * 1000;
-const DEFAULT_CODEX_PROGRESS_INTERVAL_MS = 60 * 1000;
+const DEFAULT_CODEX_PROGRESS_INTERVAL_MS = 30 * 1000;
 const DEFAULT_CODEX_TERMINATION_GRACE_MS = 5 * 1000;
 const RUNNER_VERSION = "hiverunner-symphony-runner 0.1.0";
 const LIVE_EVENT_SCHEMA = "hiverunner.external-runner.live-event.v1";
@@ -491,6 +491,26 @@ function runCodex({ command, args, cwd, prompt }) {
   });
 }
 
+function isRecoveredNoOutputTimeout(result, finalMessage, records) {
+  if (!result.noOutputTimedOut) return false;
+  const invalidated = [
+    result.timedOut,
+    result.killedForBuffer,
+    result.forcedKilled,
+    result.signal,
+    result.exitCode !== 0,
+  ].some(Boolean);
+  if (invalidated) return false;
+  if (finalMessage) return true;
+  return records.some((record) => {
+    const body = extractText(record);
+    if (!body) return false;
+    const role = stringFrom(record.role).toLowerCase();
+    const type = stringFrom(record.type).toLowerCase();
+    return role === "assistant" || ["assistant", "message", "response.completed", "item.completed"].includes(type);
+  });
+}
+
 async function main() {
   const rawInput = await readStdin();
   const payload = JSON.parse(rawInput);
@@ -549,13 +569,19 @@ async function main() {
       .filter(Boolean);
     const usage = collectUsage(records);
     const assistantSummary = finalMessage || result.stdout.trim() || result.stderr.trim() || stringFrom(result.error);
+    const recoveredNoOutputTimeout = isRecoveredNoOutputTimeout(result, finalMessage, records);
+    const effectiveError = recoveredNoOutputTimeout ? undefined : result.error;
+    const effectiveNoOutputTimedOut = recoveredNoOutputTimeout ? false : result.noOutputTimedOut;
+    const effectiveTerminationReason = recoveredNoOutputTimeout && result.terminationReason === "no_output_timeout"
+      ? null
+      : result.terminationReason;
     process.stdout.write(JSON.stringify({
       sessionId: stringFrom(records.find((record) => stringFrom(record.session_id) || stringFrom(record.sessionId))?.session_id) ||
         stringFrom(records.find((record) => stringFrom(record.sessionId))?.sessionId) ||
         `codex-${payload.runId ?? Date.now()}`,
       resultText: assistantSummary,
       assistantSummary,
-      error: result.error ?? undefined,
+      error: effectiveError ?? undefined,
       runnerProvider: "codex",
       runnerModel: runnerModel || null,
       inputTokens: usage.inputTokens,
@@ -567,22 +593,32 @@ async function main() {
       totalCostCents: usage.totalCostCents,
       durationMs: result.durationMs,
       timedOut: result.timedOut,
-      noOutputTimedOut: result.noOutputTimedOut,
+      noOutputTimedOut: effectiveNoOutputTimedOut,
       killedForBuffer: result.killedForBuffer,
       forcedKilled: result.forcedKilled,
-      terminationReason: result.terminationReason,
+      terminationReason: effectiveTerminationReason,
       terminationSignalMethod: result.terminationSignalMethod,
+      exitCode: result.exitCode,
+      signal: result.signal,
+      stdoutBytes: result.stdoutBytes,
+      stderrBytes: result.stderrBytes,
+      recoveredNoOutputTimeout,
       usage: {
         ...usage,
         runnerProvider: "codex",
         runnerModel: runnerModel || null,
         model: runnerModel || null,
         timedOut: result.timedOut,
-        noOutputTimedOut: result.noOutputTimedOut,
+        noOutputTimedOut: effectiveNoOutputTimedOut,
         killedForBuffer: result.killedForBuffer,
         forcedKilled: result.forcedKilled,
-        terminationReason: result.terminationReason,
+        terminationReason: effectiveTerminationReason,
         terminationSignalMethod: result.terminationSignalMethod,
+        exitCode: result.exitCode,
+        signal: result.signal,
+        stdoutBytes: result.stdoutBytes,
+        stderrBytes: result.stderrBytes,
+        recoveredNoOutputTimeout,
       },
       transcriptEvents: collectTranscriptEvents(records, assistantSummary),
     }) + "\n");

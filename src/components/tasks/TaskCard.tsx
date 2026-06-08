@@ -102,7 +102,7 @@ export function TaskCard({
   const agent = displayAgent ?? assigneeAgent;
   const meta = PRIORITY_META[task.priority];
   const waitingOn = getWaitingOnLabel(task);
-  const isActivelyRunning = activeRun?.status === "running" || activeRun?.status === "queued" || activeRun?.status === "pending";
+  const isActivelyRunning = activeRun?.status === "running";
   const runnerModelDisplay = useMemo(() => {
     if (!isActivelyRunning || !activeRun?.runnerModel) return null;
     return resolveLiveRunnerModelDisplay({

@@ -1045,7 +1045,7 @@ export function getTaskDetail(taskId: string): { task: OrchestrationTask; detail
   const plannedExecution = plannedExecutionContext({ db, task, taskId: task.id });
 
   const userFacingRuns = executionRuns.length > 0 ? executionRuns : heartbeatRuns;
-  const activeRun = userFacingRuns.find((run) => run.status === "running" || run.status === "queued" || run.status === "pending");
+  const activeRun = userFacingRuns.find((run) => run.status === "running");
   const latestRun = userFacingRuns[0];
   const heartbeatRunEventCount = heartbeatRunIds.size
     ? Number(

@@ -4,24 +4,24 @@ import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
 import { TaskRow } from "./TaskRow";
-import { type TaskRow as TaskRowT, type TaskGroup, type InlineEditCallbacks, getActiveRunLabel } from "./types";
+import { type ActiveTaskRunInfo, type TaskRow as TaskRowT, type TaskGroup, type InlineEditCallbacks } from "./types";
 import type { OrchestrationAgent } from "@/lib/orchestration/types";
 import { P } from "@/lib/ui/tokens";
 
 interface Props {
   groups: TaskGroup[];
   agents: OrchestrationAgent[];
-  agentMap: Map<string, OrchestrationAgent>;
   callbacks: InlineEditCallbacks;
   selectedIndex: number;
   onSelect: (index: number) => void;
   buildHref: (task: TaskRowT) => string;
   onContextMenu: (e: React.MouseEvent, task: TaskRowT) => void;
+  activeRunsByTaskId?: Map<string, ActiveTaskRunInfo>;
 }
 
 export function TaskListView({
-  groups, agents, agentMap, callbacks, selectedIndex, onSelect,
-  buildHref, onContextMenu,
+  groups, agents, callbacks, selectedIndex, onSelect,
+  buildHref, onContextMenu, activeRunsByTaskId,
 }: Props) {
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [expandedParents, setExpandedParents] = useState<Record<string, boolean>>({});
@@ -50,7 +50,8 @@ export function TaskListView({
     const children = childrenMap.get(task.id);
     const childCount = children?.length ?? 0;
     const isExpanded = expandedParents[task.id] ?? false;
-    const activeLabel = getActiveRunLabel(task, agentMap);
+    const activeRun = activeRunsByTaskId?.get(task.id);
+    const activeLabel = activeRun?.agentName;
     const myIndex = globalIndex++;
 
     return (
@@ -67,7 +68,7 @@ export function TaskListView({
           childCount={childCount}
           expanded={isExpanded}
           onToggleExpand={() => setExpandedParents((prev) => ({ ...prev, [task.id]: !prev[task.id] }))}
-          hasActiveRun={!!activeLabel}
+          hasActiveRun={Boolean(activeRun)}
           activeAgentName={activeLabel}
         />
         {isExpanded && children?.map((child) => renderTask(child, depth + 1))}

@@ -10,10 +10,11 @@ import { SprintGroupedList } from "@/components/goals/SprintGroupedList";
 import { SprintRow } from "@/components/goals/SprintRow";
 import { AgentAvatarInline } from "@/components/tasks/InlineAssigneePicker";
 import { TaskRow as TaskRowComponent } from "@/components/tasks/TaskRow";
-import { type InlineEditCallbacks, type TaskRow as TaskRowT, getActiveRunLabel } from "@/components/tasks/types";
+import { type ActiveTaskRunInfo, type InlineEditCallbacks, type TaskRow as TaskRowT } from "@/components/tasks/types";
 import { ScopedActiveCrewPanel } from "@/components/team/ScopedActiveCrewPanel";
 import { TemplateLaunchDialog, type CreatedTemplateDraft } from "@/components/templates/TemplateLaunchDialog";
 import { ContextualRecommendationRollup, emptyContextualRecommendationCounts } from "@/components/orchestration/ContextualRecommendationRollup";
+import { useLiveRuns } from "@/hooks/useLiveRuns";
 import {
   createGoalContractItem,
   createSprintPlanningTask,
@@ -34,6 +35,7 @@ import {
 import { determineGoalKind } from "@/lib/orchestration/goal-kind";
 import { groupBySprint, type GroupableItem } from "@/lib/orchestration/groupBySprint";
 import { buildCanonicalCompanyPath, buildCanonicalGoalPath, buildCanonicalImprovePath, goalRouteKey } from "@/lib/orchestration/route-paths";
+import { isRunLive } from "@/lib/orchestration/live-status";
 import { useEventStream, type StreamEvent } from "@/lib/orchestration/use-event-stream";
 import type {
   OrchestrationAgent,
@@ -372,6 +374,10 @@ export default function GoalDetailPage({
 
   const companyCode = company?.code ?? slug;
   const activeCompanySlug = company?.slug ?? slug;
+  const { runsByAgentId } = useLiveRuns({
+    companySlug: activeCompanySlug,
+    enabled: Boolean(activeCompanySlug && goal),
+  });
   const goalsRefetchTimerRef = useRef<number | null>(null);
   const tasksRefetchTimerRef = useRef<number | null>(null);
   const goalsRequestSeqRef = useRef(0);
@@ -785,16 +791,6 @@ export default function GoalDetailPage({
     onPriorityChange: async () => {},
   }), [loadData, tasks]);
 
-  const agentMap = useMemo(() => {
-    const map = new Map<string, OrchestrationAgent>();
-    agents.forEach((agent) => {
-      map.set(agent.id.toLowerCase(), agent);
-      map.set(agent.name.toLowerCase(), agent);
-      map.set(agent.slug.toLowerCase(), agent);
-    });
-    return map;
-  }, [agents]);
-
   const supportingSprints = useMemo(() => {
     if (!goal) return [];
     return allGoals
@@ -816,6 +812,22 @@ export default function GoalDetailPage({
   }, [allGoals, goal, parentGoal, tasks]);
 
   const groupedTasks = useMemo(() => groupBySprint(sprintTasks, "sprint"), [sprintTasks]);
+  const activeRunsByTaskId = useMemo(() => {
+    const map = new Map<string, ActiveTaskRunInfo>();
+    for (const run of runsByAgentId.values()) {
+      if (!run.taskId || !isRunLive(run)) continue;
+      map.set(run.taskId, {
+        agentName: run.agentName,
+        status: run.status,
+        startedAt: run.startedAt,
+        finishedAt: run.finishedAt,
+        runnerProvider: run.runnerProvider,
+        runnerModel: run.runnerModel,
+      });
+    }
+    return map;
+  }, [runsByAgentId]);
+
   const activeCrewReferences = useMemo(() => {
     if (!goal) return [];
     const refs = new Set<string>();
@@ -889,7 +901,8 @@ export default function GoalDetailPage({
   const goalsHref = buildCanonicalCompanyPath(companyCode, "/goals");
 
   const renderTask = (task: SprintTaskRow) => {
-    const activeRunLabel = getActiveRunLabel(task, agentMap);
+    const activeRun = activeRunsByTaskId.get(task.id);
+    const activeRunLabel = activeRun?.agentName;
     return (
       <TaskRowComponent
         key={task.id}
@@ -900,7 +913,7 @@ export default function GoalDetailPage({
         isSelected={false}
         onContextMenu={(event) => event.preventDefault()}
         onClick={() => {}}
-        hasActiveRun={Boolean(activeRunLabel)}
+        hasActiveRun={Boolean(activeRun)}
         activeAgentName={activeRunLabel}
       />
     );

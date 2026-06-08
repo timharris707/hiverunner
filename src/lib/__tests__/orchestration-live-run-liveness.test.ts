@@ -52,17 +52,17 @@ async function run() {
     assert.match(snap.label, /^Stalled/);
   });
 
-  await test("queued run with no events yet shows as live (no false-positive stall)", () => {
+  await test("queued run with no events yet shows as queued, not live", () => {
     const snap = deriveRunLiveness({
       status: "queued",
       startedAt: null,
       lastEventAt: null,
       now: T0 + 1_000,
     });
-    assert.strictEqual(snap.liveness, "live");
+    assert.strictEqual(snap.liveness, "queued");
     assert.strictEqual(snap.ageMs, null);
     assert.strictEqual(snap.lastEventAgeMs, null);
-    assert.strictEqual(snap.label, "Live");
+    assert.strictEqual(snap.label, "Queued");
   });
 
   await test("terminal status reports completed with settle age", () => {

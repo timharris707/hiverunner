@@ -57,7 +57,7 @@ import {
   UNASSIGNED_PROJECT_FILTER_ID,
   PRI_WEIGHT,
   getTaskIdentifier,
-  getActiveRunLabel
+  type ActiveTaskRunInfo,
 } from "@/components/tasks/types";
 import { useEventStream, type StreamEvent } from "@/lib/orchestration/use-event-stream";
 import { isRunLive } from "@/lib/orchestration/live-status";
@@ -837,23 +837,23 @@ export default function CompanyTasksPage() {
             mode={groupMode}
             companyCode={companyCode}
             agents={agents}
-            agentMap={agentMap}
             callbacks={callbacks}
             selectedIndex={selectedIndex}
             onSelect={setSelectedIndex}
             buildHref={taskHref}
             onContextMenu={openContextMenu}
+            activeRunsByTaskId={activeRunsByTaskId}
           />
         ) : viewMode === "list" || (viewMode === "table" && groupMode !== "none") ? (
           <TaskListView
             groups={grouped}
             agents={agents}
-            agentMap={agentMap}
             callbacks={callbacks}
             selectedIndex={selectedIndex}
             onSelect={setSelectedIndex}
             buildHref={taskHref}
             onContextMenu={openContextMenu}
+            activeRunsByTaskId={activeRunsByTaskId}
           />
         ) : viewMode === "board" ? (
           <TaskBoardView
@@ -872,7 +872,6 @@ export default function CompanyTasksPage() {
           <TaskTableView
             tasks={filtered}
             agents={agents}
-            agentMap={agentMap}
             companyCode={companyCode}
             selectedIndex={selectedIndex}
             sortField={sort.field}
@@ -880,6 +879,7 @@ export default function CompanyTasksPage() {
             onSortChange={handleTableSort}
             onContextMenu={openContextMenu}
             callbacks={callbacks}
+            activeRunsByTaskId={activeRunsByTaskId}
           />
         )}
       </div>
@@ -929,23 +929,23 @@ function TaskSprintGroupedView({
   mode,
   companyCode,
   agents,
-  agentMap,
   callbacks,
   selectedIndex,
   onSelect,
   buildHref,
   onContextMenu,
+  activeRunsByTaskId,
 }: {
   grouped: ReturnType<typeof groupBySprint<SprintGroupedTask>>;
   mode: "sprint" | "company-goal";
   companyCode: string;
   agents: OrchestrationAgent[];
-  agentMap: Map<string, OrchestrationAgent>;
   callbacks: InlineEditCallbacks;
   selectedIndex: number;
   onSelect: (index: number) => void;
   buildHref: (task: TaskRow) => string;
   onContextMenu: (event: ReactMouseEvent, task: TaskRow) => void;
+  activeRunsByTaskId?: Map<string, ActiveTaskRunInfo>;
 }) {
   const [expandedParents, setExpandedParents] = useState<Record<string, boolean>>({});
   const allItems = useMemo(
@@ -977,7 +977,8 @@ function TaskSprintGroupedView({
     const children = childrenMap.get(task.id);
     const childCount = children?.length ?? 0;
     const isExpanded = expandedParents[task.id] ?? false;
-    const activeLabel = getActiveRunLabel(task, agentMap);
+    const activeRun = activeRunsByTaskId?.get(task.id);
+    const activeLabel = activeRun?.agentName;
     const myIndex = globalIndex++;
     return (
       <div key={task.id}>
@@ -993,7 +994,7 @@ function TaskSprintGroupedView({
           childCount={childCount}
           expanded={isExpanded}
           onToggleExpand={() => setExpandedParents((prev) => ({ ...prev, [task.id]: !prev[task.id] }))}
-          hasActiveRun={!!activeLabel}
+          hasActiveRun={Boolean(activeRun)}
           activeAgentName={activeLabel}
         />
         {isExpanded && children?.map((child) => renderTask(child as SprintGroupedTask, depth + 1))}

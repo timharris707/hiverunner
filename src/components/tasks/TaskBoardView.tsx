@@ -16,7 +16,7 @@ import { StatusCircle } from "@/components/orchestration/StatusCircle";
 import { AssigneeAvatar } from "@/components/agents/AssigneeAvatar";
 import { TaskCard, type TaskModelQuickOption } from "./TaskCard";
 import { type TaskBoardDropTarget, useTaskDragDrop } from "./useTaskDragDrop";
-import { type ActiveTaskRunInfo, type TaskRow, type GroupMode, getActiveRunLabel } from "./types";
+import { type ActiveTaskRunInfo, type TaskRow, type GroupMode } from "./types";
 import type { OrchestrationAgent, TaskPriority, TaskStatus } from "@/lib/orchestration/types";
 import { groupTasksFlat, type FlatTaskGroup } from "@/lib/orchestration/groupBySprint";
 import { font, P, radius, type as tokenType } from "@/lib/ui/tokens";
@@ -81,7 +81,7 @@ function Column({
         <SortableContext items={tasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
           {tasks.map((task) => {
             const activeRun = activeRunsByTaskId?.get(task.id);
-            const activeLabel = activeRun ? activeRun.agentName : getActiveRunLabel(task, agentMap);
+            const activeLabel = activeRun?.agentName;
             const childCount = childrenMap.get(task.id) ?? 0;
             return (
               <TaskCard
@@ -219,11 +219,11 @@ export function TaskBoardView({ tasks, agentMap, onContextMenu, onOpenTask, mode
   useLayoutEffect(() => {
     if (!boardRef.current) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      previousMeasurementsRef.current = measureTaskCards(boardRef.current, tasks, agentMap, activeRunsByTaskId);
+      previousMeasurementsRef.current = measureTaskCards(boardRef.current, tasks, activeRunsByTaskId);
       return;
     }
 
-    const nextMeasurements = measureTaskCards(boardRef.current, tasks, agentMap, activeRunsByTaskId);
+    const nextMeasurements = measureTaskCards(boardRef.current, tasks, activeRunsByTaskId);
     const previousMeasurements = previousMeasurementsRef.current;
     const ghosts: MovingTaskGhost[] = [];
 
@@ -276,7 +276,7 @@ export function TaskBoardView({ tasks, agentMap, onContextMenu, onOpenTask, mode
       window.cancelAnimationFrame(startFrame);
       if (runFrame !== null) window.cancelAnimationFrame(runFrame);
     };
-  }, [activeRunsByTaskId, agentMap, tasks]);
+  }, [activeRunsByTaskId, tasks]);
 
   useLayoutEffect(() => () => {
     for (const timer of movementTimersRef.current) window.clearTimeout(timer);
@@ -413,7 +413,6 @@ function rectToBox(rect: DOMRect): MovingTaskGhost["from"] {
 function measureTaskCards(
   board: HTMLDivElement,
   tasks: TaskRow[],
-  agentMap: Map<string, OrchestrationAgent>,
   activeRunsByTaskId?: Map<string, ActiveTaskRunInfo>
 ) {
   const taskById = new Map(tasks.map((task) => [task.id, task]));
@@ -431,7 +430,7 @@ function measureTaskCards(
       rect: card.getBoundingClientRect(),
       title: task.title,
       identifier: task.key ?? task.id.slice(0, 8),
-      activeAgentName: activeRun ? activeRun.agentName : getActiveRunLabel(task, agentMap),
+      activeAgentName: activeRun?.agentName,
     });
   });
 

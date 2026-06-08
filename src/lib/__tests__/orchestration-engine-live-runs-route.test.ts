@@ -479,6 +479,7 @@ async function run() {
 
     assert.equal(packageRun.latestOutput, "Prior package output should stay with package run only");
     assert.equal(queuedRun.status, "queued");
+    assert.equal(queuedRun.liveness, "queued");
     assert.equal(queuedRun.startedAt, null);
     assert.equal(queuedRun.latestOutput, null);
     assert.equal(queuedRun.transcript.some((entry) => entry.message.includes("Prior package output")), false);

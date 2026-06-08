@@ -15,7 +15,7 @@ export interface LiveRunTranscriptEntry {
   type?: string;
 }
 
-export type LiveRunLiveness = "live" | "quiet" | "stalled" | "completed";
+export type LiveRunLiveness = "queued" | "live" | "quiet" | "stalled" | "completed";
 
 export interface LiveRun {
   runId: string;

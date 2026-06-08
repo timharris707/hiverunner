@@ -207,6 +207,19 @@ if (process.env.FAKE_CODEX_MODE === "silent-sleep") {
   setTimeout(() => {}, 60_000);
   return;
 }
+if (process.env.FAKE_CODEX_MODE === "sigterm-success-after-silence") {
+  process.on("SIGTERM", () => {
+    if (outputFile) {
+      fs.writeFileSync(outputFile, "Fixture Codex completed after a delayed graceful exit.", "utf8");
+    }
+    process.stdout.write(JSON.stringify({ type: "session", session_id: "fixture-recovered-session" }) + "\\n");
+    process.stdout.write(JSON.stringify({ type: "message", role: "assistant", message: "Fixture Codex completed after a delayed graceful exit." }) + "\\n");
+    process.stdout.write(JSON.stringify({ type: "usage", input_tokens: 4, output_tokens: 6, total_tokens: 10 }) + "\\n");
+    process.exit(0);
+  });
+  setTimeout(() => {}, 60_000);
+  return;
+}
 if (process.env.FAKE_CODEX_MODE === "streaming-progress") {
   process.stdout.write(JSON.stringify({ type: "session", session_id: "fixture-stream-session" }) + "\\n");
   process.stdout.write(JSON.stringify({ type: "message", role: "assistant", message: "Fixture Codex streamed an early progress update." }) + "\\n");
@@ -355,6 +368,44 @@ async function run() {
       assert.strictEqual(usage.terminationReason, "no_output_timeout");
       const prompt = readFileSync(promptFile, "utf8");
       assert.ok(prompt.includes("Implement the fixture task."));
+    });
+
+    await test("runner treats a clean child exit with final output as recovered from no-output", () => {
+      const result = spawnSync(process.execPath, ["scripts/hiverunner-symphony-runner.mjs"], {
+        cwd: process.cwd(),
+        input: JSON.stringify(payload),
+        encoding: "utf8",
+        timeout: 5000,
+        env: {
+          ...process.env,
+          HIVERUNNER_SYMPHONY_CODEX_COMMAND: fakeCodex,
+          HIVERUNNER_SYMPHONY_MODEL: "",
+          HIVERUNNER_SYMPHONY_TIMEOUT_MS: "5000",
+          HIVERUNNER_SYMPHONY_CODEX_NO_OUTPUT_TIMEOUT_MS: "120",
+          HIVERUNNER_SYMPHONY_CODEX_PROGRESS_INTERVAL_MS: "25",
+          HIVERUNNER_SYMPHONY_CODEX_TERMINATION_GRACE_MS: "1000",
+          FAKE_CODEX_ARGS_FILE: argsFile,
+          FAKE_CODEX_PROMPT_FILE: promptFile,
+          FAKE_CODEX_MODE: "sigterm-success-after-silence",
+        },
+      });
+
+      assert.strictEqual(result.status, 0, result.stderr || String(result.error));
+      const output = JSON.parse(result.stdout) as Record<string, unknown>;
+      assert.strictEqual(output.error, undefined);
+      assert.strictEqual(output.sessionId, "fixture-recovered-session");
+      assert.strictEqual(output.resultText, "Fixture Codex completed after a delayed graceful exit.");
+      assert.strictEqual(output.noOutputTimedOut, false);
+      assert.strictEqual(output.recoveredNoOutputTimeout, true);
+      assert.strictEqual(output.terminationReason, null);
+      assert.strictEqual(output.exitCode, 0);
+      assert.strictEqual(output.signal, null);
+      assert.ok(Number(output.stdoutBytes) > 0);
+
+      const usage = output.usage as Record<string, unknown>;
+      assert.strictEqual(usage.noOutputTimedOut, false);
+      assert.strictEqual(usage.recoveredNoOutputTimeout, true);
+      assert.strictEqual(usage.exitCode, 0);
     });
 
     await test("runner forwards live Codex stdout events without polluting final JSON stdout", () => {

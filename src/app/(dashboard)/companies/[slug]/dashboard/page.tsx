@@ -36,9 +36,8 @@ import {
 } from "@/lib/orchestration/client";
 import { SprintRow } from "@/components/goals/SprintRow";
 import { COMPANY_SLUG_TO_CODE } from "@/lib/orchestration/edge-route-maps";
-import { isAgentLive } from "@/lib/orchestration/live-status";
+import { isAgentActivelyRunning, isRunLive } from "@/lib/orchestration/live-status";
 import { buildCanonicalAgentPath, buildCanonicalCompanyPath } from "@/lib/orchestration/route-paths";
-import { isRunLive } from "@/lib/orchestration/live-status";
 import { deriveRunLiveness, type RunLivenessSnapshot } from "@/lib/orchestration/live-run-liveness";
 import { useNotifications } from "@/components/notifications/NotificationToast";
 import { useLiveRuns, type LiveRun, type LiveRunTranscriptEntry } from "@/hooks/useLiveRuns";
@@ -521,7 +520,7 @@ export default function CompanyDashboardPage() {
     }
     const completed = runs.filter((r) => r.status === "completed").length;
     const failed = runs.filter((r) => r.status === "failed" || r.status === "cancelled").length;
-    const running = runs.filter((r) => r.status === "running" || r.status === "pending").length;
+    const running = runs.filter((r) => r.status === "running").length;
     // Daily bucketing
     const daily = last14Days.map((day) => {
       const dayRuns = runs.filter((r) => (r.completedAt ?? r.createdAt)?.split("T")[0] === day);
@@ -582,7 +581,7 @@ export default function CompanyDashboardPage() {
   });
 
   /* ── live run streaming (shared context — SSE managed at layout level) ── */
-  const { streamByAgentId, liveAgentIds } = useLiveStream();
+  const { streamByAgentId } = useLiveStream();
 
   const { push: pushToast } = useNotifications();
   const companyCode = data?.company.code ?? COMPANY_SLUG_TO_CODE[slug] ?? slug;
@@ -706,14 +705,12 @@ export default function CompanyDashboardPage() {
   const runningAgentCount = useMemo(() => {
     if (!data) return 0;
     return data.agents.filter((agent) =>
-      isAgentLive({
+      isAgentActivelyRunning({
         agentId: agent.id,
-        agentStatus: agent.status,
-        liveAgentIds,
         liveRunsByAgentId: runsByAgentId,
       })
     ).length;
-  }, [data, liveAgentIds, runsByAgentId]);
+  }, [data, runsByAgentId]);
 
   /* ── render ── */
 
@@ -1374,7 +1371,7 @@ function TranscriptIcon({ type }: { type?: string }) {
 /* ── Action execution badge ── */
 function ActionBadge({ result, status }: { result: NonNullable<LiveRun["result"]>; status: string }) {
   const [expanded, setExpanded] = useState(false);
-  const isRunning = status === "running" || status === "queued";
+  const isRunning = status === "running";
   const total = result.actionsExecuted + result.actionsSkippedDedup;
   const reportCount = result.reportsImported ?? 0;
   const label = isRunning

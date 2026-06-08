@@ -14,7 +14,7 @@ import {
 
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
 const DEFAULT_MAX_BUFFER_BYTES = 20 * 1024 * 1024;
-const DEFAULT_PROGRESS_INTERVAL_MS = 60 * 1000;
+const DEFAULT_PROGRESS_INTERVAL_MS = 30 * 1000;
 const DEFAULT_PREFLIGHT_TIMEOUT_MS = 15 * 1000;
 const PREFLIGHT_SCHEMA = "hiverunner.benchmark.model-preflight.v1";
 const DIRECT_GENERATION_SCHEMA = "hiverunner.benchmark.google-direct-generation.v1";

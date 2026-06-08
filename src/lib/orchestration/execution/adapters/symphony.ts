@@ -979,6 +979,140 @@ function failureClassForTermination(reason: string | null): string | null {
   }
 }
 
+function booleanFrom(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value !== "string") return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === "true" || normalized === "1" || normalized === "yes";
+}
+
+function integerFrom(value: unknown): number | null {
+  const parsed = numberFrom(value);
+  return parsed === undefined ? null : Math.trunc(parsed);
+}
+
+function parsedResultValue(parsed: Record<string, unknown>, key: string): unknown {
+  const usage = asRecord(parsed.usage);
+  return parsed[key] ?? usage?.[key];
+}
+
+function booleanParsedResultValue(parsed: Record<string, unknown>, key: string): boolean {
+  return booleanFrom(parsedResultValue(parsed, key));
+}
+
+function stringParsedResultValue(parsed: Record<string, unknown>, key: string): string {
+  return stringFrom(parsedResultValue(parsed, key));
+}
+
+function integerParsedResultValue(parsed: Record<string, unknown>, key: string): number | null {
+  return integerFrom(parsedResultValue(parsed, key));
+}
+
+function isNoOutputTimeoutMessage(value: string): boolean {
+  return /no stdout\/stderr|no output/i.test(value);
+}
+
+function hasRunnerCompletionOutput(parsed: Record<string, unknown>): boolean {
+  return Boolean(
+    stringFrom(parsed.resultText) ||
+    stringFrom(parsed.assistantSummary) ||
+    stringFrom(parsed.summary),
+  );
+}
+
+function runnerFailureClass(parsed: Record<string, unknown>, parsedError: string): string | null {
+  const termination = stringParsedResultValue(parsed, "terminationReason");
+  const signal = stringParsedResultValue(parsed, "signal");
+  const exitCode = integerParsedResultValue(parsed, "exitCode");
+  if (
+    booleanParsedResultValue(parsed, "noOutputTimedOut") ||
+    booleanParsedResultValue(parsed, "silentTimedOut") ||
+    termination === "no_output_timeout" ||
+    termination === "silent_timeout" ||
+    isNoOutputTimeoutMessage(parsedError)
+  ) {
+    return "silent_timeout";
+  }
+  if (
+    booleanParsedResultValue(parsed, "timedOut") ||
+    termination === "timeout" ||
+    termination === "adapter_timeout" ||
+    /timed?\s*out|timeout/i.test(parsedError)
+  ) {
+    return "adapter_timeout";
+  }
+  if (booleanParsedResultValue(parsed, "killedForBuffer") || termination === "buffer_limit") {
+    return "buffer_limit";
+  }
+  if (signal || termination === "external_signal") {
+    return "external_signal";
+  }
+  if (exitCode !== null && exitCode !== 0) {
+    return "runtime_error";
+  }
+  return "runtime_error";
+}
+
+function runnerParsedFailure(
+  result: SymphonyExecResult,
+  parsed: Record<string, unknown>,
+): { error: string | null; failureClass: string | null; ignoredNoOutputTimeout: boolean } {
+  const parsedError = stringFrom(parsed.error);
+  if (!parsedError) {
+    return { error: null, failureClass: null, ignoredNoOutputTimeout: false };
+  }
+
+  const termination = stringParsedResultValue(parsed, "terminationReason");
+  const exitCode = integerParsedResultValue(parsed, "exitCode");
+  const recoveredNoOutputTimeout =
+    (
+      booleanParsedResultValue(parsed, "recoveredNoOutputTimeout") ||
+      booleanParsedResultValue(parsed, "noOutputTimedOut") ||
+      booleanParsedResultValue(parsed, "silentTimedOut") ||
+      termination === "no_output_timeout" ||
+      termination === "silent_timeout" ||
+      isNoOutputTimeoutMessage(parsedError)
+    ) &&
+    exitCode === 0 &&
+    !stringParsedResultValue(parsed, "signal") &&
+    !booleanParsedResultValue(parsed, "timedOut") &&
+    !booleanParsedResultValue(parsed, "killedForBuffer") &&
+    !booleanParsedResultValue(parsed, "forcedKilled") &&
+    hasRunnerCompletionOutput(parsed) &&
+    result.exitCode === 0 &&
+    !result.signal &&
+    !result.errorMessage;
+
+  if (recoveredNoOutputTimeout) {
+    return { error: null, failureClass: null, ignoredNoOutputTimeout: true };
+  }
+
+  return {
+    error: parsedError,
+    failureClass: runnerFailureClass(parsed, parsedError),
+    ignoredNoOutputTimeout: false,
+  };
+}
+
+function persistRunnerFailureClass(
+  db: Database.Database,
+  executionRunId: string | undefined,
+  failureClass: string | null,
+): void {
+  if (!executionRunId || !failureClass) return;
+  try {
+    db.prepare(
+      `UPDATE execution_runs
+       SET failure_class = COALESCE(failure_class, ?),
+           updated_at = ?
+       WHERE id = ?`,
+    ).run(failureClass, new Date().toISOString(), executionRunId);
+  } catch {
+    // Failure classification is diagnostic; final status still flows through finishRun.
+  }
+}
+
 function transcriptText(value: string, maxChars = 12000): { body: string; truncated: boolean } {
   const trimmed = value.trim();
   if (trimmed.length <= maxChars) return { body: trimmed, truncated: false };
@@ -1926,8 +2060,10 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
     readOnlyIntent,
   });
   const parsed = parseResultObject(result.stdout);
-  const parsedError = stringFrom(parsed.error);
-  const error = result.errorMessage ?? (parsedError || null);
+  const parsedFailure = runnerParsedFailure(result, parsed);
+  const error = result.errorMessage ?? parsedFailure.error;
+  const failureClass = result.failureClass ?? parsedFailure.failureClass;
+  persistRunnerFailureClass(db, input.executionRunId, failureClass);
   const sessionId = stringFrom(parsed.sessionId) || stringFrom(parsed.runId);
   const parsedUsage = asRecord(parsed.usage) ?? parsed;
   const resultRunnerProvider = stringFrom(parsed.runnerProvider) || config.runnerProvider;
@@ -2035,7 +2171,9 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
       killedForBuffer: result.killedForBuffer,
       forcedKilled: result.forcedKilled,
       terminationReason: result.terminationReason,
-      failureClass: result.failureClass,
+      failureClass,
+      runnerReportedFailureClass: parsedFailure.failureClass,
+      runnerIgnoredNoOutputTimeout: parsedFailure.ignoredNoOutputTimeout,
       stdoutBytes: result.stdoutBytes,
       stderrBytes: result.stderrBytes,
       stdoutTail: result.stdoutTail || trimForStorage(result.stdout),

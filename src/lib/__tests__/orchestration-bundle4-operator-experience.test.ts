@@ -407,8 +407,17 @@ async function run() {
       executionEngine: "symphony",
     });
     assert.equal(liveRunner?.source, "runner");
+    assert.equal(liveRunner?.providerLabel, "Claude Code CLI");
     assert.equal(liveRunner?.displayModel, "Runner: Sonnet 4.6");
-    assert.equal(liveRunner?.label, "Runner: Anthropic · anthropic/claude-sonnet-4-6");
+    assert.equal(liveRunner?.label, "Runner: Claude Code CLI · anthropic/claude-sonnet-4-6");
+
+    const codexRunner = resolveLiveRunnerModelDisplay({
+      provider: "codex",
+      model: "openai-codex/gpt-5.5",
+      executionEngine: "symphony",
+    });
+    assert.equal(codexRunner?.providerLabel, "Codex CLI");
+    assert.equal(codexRunner?.label, "Runner: Codex CLI · openai-codex/gpt-5.5");
   });
 
   finish();

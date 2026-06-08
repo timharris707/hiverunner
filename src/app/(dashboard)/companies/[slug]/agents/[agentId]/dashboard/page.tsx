@@ -421,7 +421,7 @@ function LiveRunSection({ liveSession }: { liveSession?: OrchestrationAgentProfi
     );
   }
 
-  const isRunning = liveSession.status === "running" || liveSession.status === "pending";
+  const isRunning = liveSession.status === "running";
   const statusColor = isRunning ? "#22c55e" : A.muted;
   const statusLabel = liveSession.status;
 

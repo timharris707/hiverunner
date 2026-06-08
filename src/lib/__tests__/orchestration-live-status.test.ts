@@ -13,18 +13,18 @@ const { finish, test } = createTestRunner({ passLabel: "[PASS]", failLabel: "[FA
 async function run() {
   console.log("\nOrchestration Live Status Tests\n");
 
-  await test("active predicate only counts queued, pending, and running runs", () => {
-    assert.equal(isRunActivelyRunning("queued"), true);
-    assert.equal(isRunActivelyRunning("pending"), true);
+  await test("active predicate only counts running runs", () => {
+    assert.equal(isRunActivelyRunning("queued"), false);
+    assert.equal(isRunActivelyRunning("pending"), false);
     assert.equal(isRunActivelyRunning("running"), true);
     assert.equal(isRunActivelyRunning("completed"), false);
     assert.equal(isRunActivelyRunning("succeeded"), false);
     assert.equal(isRunActivelyRunning("failed"), false);
   });
 
-  await test("isRunLive treats queued, pending, and running as live", () => {
-    assert.equal(isRunLive("queued"), true);
-    assert.equal(isRunLive("pending"), true);
+  await test("isRunLive treats only running runs as live by status", () => {
+    assert.equal(isRunLive("queued"), false);
+    assert.equal(isRunLive("pending"), false);
     assert.equal(isRunLive("running"), true);
     assert.equal(isRunLive("succeeded"), false);
     assert.equal(isRunLive("failed"), false);
@@ -119,6 +119,7 @@ async function run() {
         },
       ],
       ["agent_running", { status: "running", finishedAt: null, liveIndicatorUntil: null }],
+      ["agent_queued", { status: "queued", finishedAt: null, liveIndicatorUntil: null }],
     ]);
 
     assert.equal(
@@ -131,6 +132,7 @@ async function run() {
     );
     assert.equal(isAgentActivelyRunning({ agentId: "agent_recent", liveRunsByAgentId: runsByAgentId }), false);
     assert.equal(isAgentActivelyRunning({ agentId: "agent_running", liveRunsByAgentId: runsByAgentId }), true);
+    assert.equal(isAgentActivelyRunning({ agentId: "agent_queued", liveRunsByAgentId: runsByAgentId }), false);
   });
 
   finish();

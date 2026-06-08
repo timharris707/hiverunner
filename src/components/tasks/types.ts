@@ -1,5 +1,4 @@
-import type { OrchestrationAgent, OrchestrationTask, TaskExecutionEngine, TaskModelLane, TaskPriority, TaskStatus, TaskType } from "@/lib/orchestration/types";
-import { agentDisplayLabel } from "@/lib/orchestration/avatar-icons";
+import type { OrchestrationTask, TaskExecutionEngine, TaskModelLane, TaskPriority, TaskStatus, TaskType } from "@/lib/orchestration/types";
 
 export type ViewMode = "list" | "board" | "table";
 export type GroupMode = "none" | "status" | "priority" | "assignee" | "project" | "sprint" | "company-goal";
@@ -107,17 +106,6 @@ export function formatShortDate(isoString: string): string {
 
 export function assigneeInitials(name: string): string {
   return name.slice(0, 2).toUpperCase();
-}
-
-function getAgentForTask(task: Pick<TaskRow, "assignee" | "status">, agentMap: Map<string, OrchestrationAgent>) {
-  if (!task.assignee) return undefined;
-  return agentMap.get(task.assignee.toLowerCase());
-}
-
-export function getActiveRunLabel(task: Pick<TaskRow, "assignee" | "status">, agentMap: Map<string, OrchestrationAgent>) {
-  const agent = getAgentForTask(task, agentMap);
-  if ((task.status !== "in-progress" && task.status !== "review") || !agent || agent.status !== "working") return undefined;
-  return agentDisplayLabel(agent.emoji, agent.name);
 }
 
 export function getWaitingOnLabel(task: Pick<TaskRow, "waitingOn">): { label: string; tone: "blocked" | "waiting" } | undefined {

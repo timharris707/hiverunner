@@ -363,7 +363,7 @@ function loadActiveExecutionEvidence(
        LEFT JOIN tasks t ON t.id = er.task_id
        LEFT JOIN projects p ON p.id = t.project_id
        WHERE er.agent_id IN (${buildInClause(agentIds.length)})
-         AND er.status IN ('pending', 'running')
+         AND er.status = 'running'
          AND (
            er.provider <> 'openclaw'
            OR NULLIF(trim(COALESCE(er.session_id, '')), '') IS NOT NULL

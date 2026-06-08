@@ -52,6 +52,17 @@ export function modelProviderLabel(provider: ModelProviderFamily): string {
   }
 }
 
+function liveRunnerProviderLabel(provider: ModelProviderFamily): string {
+  switch (provider) {
+    case "anthropic": return "Claude Code CLI";
+    case "codex": return "Codex CLI";
+    case "gemini": return "Gemini CLI";
+    case "openai": return "OpenAI API runtime";
+    case "manual": return "Manual";
+    default: return "Runtime";
+  }
+}
+
 export function modelProviderColors(provider: ModelProviderFamily): Pick<AgentModelDisplay, "color" | "background" | "border"> {
   switch (provider) {
     case "anthropic":
@@ -97,10 +108,12 @@ export function resolveLiveRunnerModelDisplay(input: {
   const display = resolveAgentModelDisplay(input);
   if (!display) return null;
   const compact = display.displayModel || compactAgentModelLabel(display.model);
+  const runnerProviderLabel = liveRunnerProviderLabel(display.provider);
   return {
     ...display,
+    providerLabel: runnerProviderLabel,
     displayModel: `Runner: ${compact}`,
-    label: `Runner: ${display.providerLabel} · ${display.model}`,
+    label: `Runner: ${runnerProviderLabel} · ${display.model}`,
     source: "runner",
   };
 }

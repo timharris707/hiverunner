@@ -4,14 +4,13 @@ import { formatAge } from "@/components/orchestration/ui";
 import { InlineStatusPicker } from "./InlineStatusPicker";
 import { InlinePriorityPicker } from "./InlinePriorityPicker";
 import { InlineAssigneePicker } from "./InlineAssigneePicker";
-import { type TaskRow, type InlineEditCallbacks, type SortField, type SortDir, getTaskIdentifier, getActiveRunLabel, getWaitingOnLabel } from "./types";
+import { type ActiveTaskRunInfo, type TaskRow, type InlineEditCallbacks, type SortField, type SortDir, getTaskIdentifier, getWaitingOnLabel } from "./types";
 import type { OrchestrationAgent } from "@/lib/orchestration/types";
 import { font, P, type as tokenType } from "@/lib/ui/tokens";
 
 interface Props {
   tasks: TaskRow[];
   agents: OrchestrationAgent[];
-  agentMap: Map<string, OrchestrationAgent>;
   companyCode: string;
   selectedIndex: number;
   sortField: SortField;
@@ -19,6 +18,7 @@ interface Props {
   onSortChange: (field: SortField) => void;
   onContextMenu: (e: React.MouseEvent, task: TaskRow) => void;
   callbacks: InlineEditCallbacks;
+  activeRunsByTaskId?: Map<string, ActiveTaskRunInfo>;
 }
 
 const COLUMNS: { field: SortField; label: string; width: string; align?: "right" }[] = [
@@ -32,8 +32,8 @@ const COLUMNS: { field: SortField; label: string; width: string; align?: "right"
 ];
 
 export function TaskTableView({
-  tasks, agents, agentMap, companyCode, selectedIndex,
-  sortField, sortDir, onSortChange, onContextMenu, callbacks,
+  tasks, agents, companyCode, selectedIndex,
+  sortField, sortDir, onSortChange, onContextMenu, callbacks, activeRunsByTaskId,
 }: Props) {
   const buildHref = (task: TaskRow) =>
     `/${encodeURIComponent(companyCode.toUpperCase())}/tasks/${encodeURIComponent(getTaskIdentifier(task))}`;
@@ -61,7 +61,7 @@ export function TaskTableView({
 
       <div style={{ minWidth: "800px" }}>
         {tasks.map((task, i) => {
-          const activeLabel = getActiveRunLabel(task, agentMap);
+          const activeLabel = activeRunsByTaskId?.get(task.id)?.agentName;
           const waitingOn = getWaitingOnLabel(task);
           return (
             <div

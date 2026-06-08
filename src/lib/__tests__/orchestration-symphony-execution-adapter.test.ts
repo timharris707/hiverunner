@@ -194,6 +194,38 @@ if (process.env.FAKE_SYMPHONY_MODE === "sleep") {
 const taskKey = payload.task && payload.task.key ? payload.task.key : "SYM-1";
 const action = JSON.stringify({ action: "update_task", taskKey, status: "review" });
 
+const noOutputError = "Codex command produced no stdout/stderr for 300000ms";
+const writeRunnerResponse = (response) => process.stdout.write(JSON.stringify(response) + "\\n");
+const noOutputFields = (overrides) => ({
+  runnerProvider: "codex", runnerModel: "gpt-5.4-mini", timedOut: false,
+  noOutputTimedOut: true, killedForBuffer: false, forcedKilled: false,
+  terminationReason: "no_output_timeout", ...overrides
+});
+
+if (process.env.FAKE_SYMPHONY_MODE === "stale-no-output-success") {
+  const child = noOutputFields({ exitCode: 0, signal: null, stdoutBytes: 625989, stderrBytes: 817 });
+  writeRunnerResponse({
+    sessionId: "symphony-stale-no-output-success-session",
+    error: noOutputError,
+    resultText: "External runner completed fixture work after recovered no-output.\\n\\n\`\`\`mc-action\\n" + action + "\\n\`\`\`",
+    assistantSummary: "External runner completed fixture work after recovered no-output.",
+    ...child, usage: child
+  });
+  return;
+}
+
+if (process.env.FAKE_SYMPHONY_MODE === "runner-no-output-timeout") {
+  const child = noOutputFields({ exitCode: null, signal: "SIGTERM", stdoutBytes: 0, stderrBytes: 0 });
+  writeRunnerResponse({
+    sessionId: "symphony-runner-timeout-session",
+    error: noOutputError,
+    resultText: "",
+    assistantSummary: noOutputError,
+    ...child, usage: child
+  });
+  return;
+}
+
 if (process.env.FAKE_SYMPHONY_MODE === "live-protocol-delay") {
   process.stderr.write("::hiverunner-live-event " + JSON.stringify({
     schema: "hiverunner.external-runner.live-event.v1",
@@ -893,6 +925,126 @@ async function run() {
       } finally {
         delete process.env.FAKE_SYMPHONY_MODE;
         unsubscribe();
+      }
+    });
+
+    await test("runner-reported no-output error is ignored after clean child completion", async () => {
+      const recoveredAgent = createSymphonyAgentFixture({
+        name: "Recovered No Output Agent",
+        emoji: "R",
+      });
+      upsertSymphonyRuntimeFixture({
+        agentId: recoveredAgent.id,
+        runtimeSlug: "fixture-recovered-no-output",
+        displayName: "Fixture Recovered No Output Runner",
+        runtimeKind: "external",
+        metadata: {
+          commandPath: fakeSymphony,
+          runnerConfig: { provider: "codex" },
+        },
+      });
+      const recoveredTask = createSymphonyTaskFixture({
+        title: "Run recovered no-output fixture",
+        description: "Exercise stale runner no-output error finalization.",
+        assignee: recoveredAgent.id,
+        labels: ["symphony", "recovered-no-output"],
+      });
+
+      process.env.FAKE_SYMPHONY_MODE = "stale-no-output-success";
+      try {
+        await executeQueuedSymphonyHeartbeat({
+          taskId: recoveredTask.id,
+          reason: "symphony_recovered_no_output_test",
+          assertResultErrorNull: true,
+        });
+
+        const executionRun = db
+          .prepare(
+            `SELECT status, error_message, failure_class, token_usage_json
+             FROM execution_runs
+             WHERE task_id = ? AND agent_id = ?
+             LIMIT 1`,
+          )
+          .get(recoveredTask.id, recoveredAgent.id) as {
+            status: string;
+            error_message: string | null;
+            failure_class: string | null;
+            token_usage_json: string | null;
+          } | undefined;
+        assert.ok(executionRun, "execution_run should be created");
+        assert.strictEqual(executionRun!.status, "completed");
+        assert.strictEqual(executionRun!.error_message, null);
+        assert.strictEqual(executionRun!.failure_class, null);
+
+        const usage = JSON.parse(executionRun!.token_usage_json ?? "{}") as Record<string, unknown>;
+        assert.strictEqual(usage.runnerIgnoredNoOutputTimeout, true);
+        assert.strictEqual(usage.runnerReportedFailureClass, null);
+        assert.strictEqual(usage.failureClass, null);
+        assert.strictEqual(usage.exitCode, 0);
+        assert.strictEqual(usage.timedOut, false);
+        assert.strictEqual(usage.silentTimedOut, false);
+        assert.ok(String(usage.resultText).includes("recovered no-output"));
+        assert.strictEqual(getTask(recoveredTask.id).task.status, "review");
+      } finally {
+        delete process.env.FAKE_SYMPHONY_MODE;
+      }
+    });
+
+    await test("runner-reported no-output timeout persists silent timeout failure class", async () => {
+      const timeoutAgent = createSymphonyAgentFixture({
+        name: "Runner Timeout Agent",
+        emoji: "T",
+      });
+      upsertSymphonyRuntimeFixture({
+        agentId: timeoutAgent.id,
+        runtimeSlug: "fixture-runner-no-output-timeout",
+        displayName: "Fixture Runner No Output Timeout",
+        runtimeKind: "external",
+        metadata: {
+          commandPath: fakeSymphony,
+          runnerConfig: { provider: "codex" },
+        },
+      });
+      const timeoutTask = createSymphonyTaskFixture({
+        title: "Run runner no-output timeout fixture",
+        description: "Exercise runner-reported timeout classification.",
+        type: "maintenance",
+        assignee: timeoutAgent.id,
+        labels: ["symphony", "runner-timeout"],
+      });
+
+      process.env.FAKE_SYMPHONY_MODE = "runner-no-output-timeout";
+      try {
+        await executeQueuedSymphonyHeartbeat({
+          taskId: timeoutTask.id,
+          reason: "symphony_runner_no_output_timeout_test",
+          expectedStatus: "failed",
+        });
+
+        const executionRun = db
+          .prepare(
+            `SELECT status, error_message, failure_class, token_usage_json
+             FROM execution_runs
+             WHERE task_id = ? AND agent_id = ?
+             LIMIT 1`,
+          )
+          .get(timeoutTask.id, timeoutAgent.id) as {
+            status: string;
+            error_message: string | null;
+            failure_class: string | null;
+            token_usage_json: string | null;
+          } | undefined;
+        assert.ok(executionRun, "execution_run should be created");
+        assert.strictEqual(executionRun!.status, "failed");
+        assert.match(executionRun!.error_message ?? "", /no stdout\/stderr/i);
+        assert.strictEqual(executionRun!.failure_class, "silent_timeout");
+
+        const usage = JSON.parse(executionRun!.token_usage_json ?? "{}") as Record<string, unknown>;
+        assert.strictEqual(usage.runnerIgnoredNoOutputTimeout, false);
+        assert.strictEqual(usage.runnerReportedFailureClass, "silent_timeout");
+        assert.strictEqual(usage.failureClass, "silent_timeout");
+      } finally {
+        delete process.env.FAKE_SYMPHONY_MODE;
       }
     });
 
