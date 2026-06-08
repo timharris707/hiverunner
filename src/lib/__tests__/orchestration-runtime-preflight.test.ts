@@ -314,6 +314,97 @@ async function run() {
       assert.match(JSON.stringify(result.summary), /outside_allowed_workspace_roots/);
     });
 
+    await test("unhealthy required runtime lane opens one circuit then blocks duplicate admission", () => {
+      const input = {
+        laneKey: "lane-health",
+        provider: "symphony",
+        runnerProvider: "gemini",
+        runnerModel: "auto",
+        taskId: "task-lane-health",
+        heartbeatRunId: "heartbeat-lane-health-1",
+        nodePath: process.execPath,
+        command: runnerScript,
+        commandArgs: [],
+        runnerScriptPath: runnerScript,
+        helperImportPaths: [helperImport],
+        cwd,
+        companyWorkspaceRoot: cwd,
+        allowedWorkspaceRoots: [cwd],
+        laneReadinessChecks: [{
+          laneKey: "stable",
+          label: "Stable 3001",
+          status: "unhealthy",
+          mode: "stable",
+          role: "executor",
+          port: "3001",
+          expectedRole: "executor",
+          endpointUrl: "http://127.0.0.1:3001/api/hiverunner/health",
+          detail: `health probe failed while reading ${tempRoot}/secret/path`,
+        }],
+      };
+
+      const first = admitRuntimePreflight(input, db);
+      assert.strictEqual(first.status, "failed");
+      assert.strictEqual(first.failureCode, "runtime_lane_unhealthy");
+
+      const second = admitRuntimePreflight(input, db);
+      assert.strictEqual(second.status, "blocked");
+      assert.strictEqual(second.failureCode, "runtime_lane_unhealthy");
+      assert.strictEqual(second.circuitId, first.circuitId);
+
+      const rows = db
+        .prepare("SELECT summary_json FROM runtime_preflight_results WHERE failure_code = 'runtime_lane_unhealthy'")
+        .all() as Array<{ summary_json: string }>;
+      assert.strictEqual(rows.length, 1);
+      assert.match(rows[0]!.summary_json, /Stable 3001/);
+      assert.match(rows[0]!.summary_json, /runtime_lane_unhealthy/);
+      assert.ok(!rows[0]!.summary_json.includes(tempRoot), "summary must not store raw local paths");
+    });
+
+    await test("migration-incompatible required lane uses distinct deterministic preflight code", () => {
+      const result = admitRuntimePreflight({
+        laneKey: "lane-migration",
+        provider: "symphony",
+        runnerProvider: "gemini",
+        runnerModel: "auto",
+        taskId: "task-lane-migration",
+        heartbeatRunId: "heartbeat-lane-migration-1",
+        nodePath: process.execPath,
+        command: runnerScript,
+        commandArgs: [],
+        runnerScriptPath: runnerScript,
+        helperImportPaths: [helperImport],
+        cwd,
+        companyWorkspaceRoot: cwd,
+        allowedWorkspaceRoots: [cwd],
+        laneReadinessChecks: [{
+          laneKey: "stable",
+          label: "Stable 3001",
+          status: "ok",
+          mode: "stable",
+          role: "executor",
+          port: "3001",
+          expectedMode: "stable",
+          expectedRole: "executor",
+          migrationCompatibility: {
+            ok: false,
+            expectedLatestVersion: 119,
+            appliedLatestVersion: 124,
+            pendingCount: 0,
+            incompatibleCount: 1,
+            legacyExtraCount: 0,
+            error: `future migration in ${tempRoot}/orchestration.db`,
+          },
+        }],
+      }, db);
+
+      assert.strictEqual(result.status, "failed");
+      assert.strictEqual(result.failureCode, "runtime_lane_migration_incompatible");
+      assert.match(JSON.stringify(result.summary), /migration_incompatible/);
+      assert.match(JSON.stringify(result.summary), /124/);
+      assert.ok(!JSON.stringify(result.summary).includes(tempRoot), "summary must not store raw local paths");
+    });
+
     await test("provider model fingerprint quarantine blocks later clean admissions", () => {
       const first = admitRuntimePreflight({
         laneKey: "quarantine",

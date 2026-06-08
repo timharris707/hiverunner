@@ -191,6 +191,30 @@ function createSourceDb(dbPath: string, oldAppRoot: string, oldCompanyRoot: stri
   db.close();
 }
 
+function markMigrationIncompatible(dbPath: string) {
+  const db = new Database(dbPath);
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        version     INTEGER PRIMARY KEY,
+        name        TEXT NOT NULL,
+        checksum    TEXT NOT NULL,
+        applied_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+      );
+    `);
+    db.prepare("INSERT INTO schema_migrations(version, name, checksum) VALUES (?, ?, ?)")
+      .run(999, "future_bundle_only_migration", "future-checksum");
+  } finally {
+    db.close();
+  }
+}
+
+function tableExists(db: Database.Database, tableName: string): boolean {
+  return Boolean(
+    db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(tableName),
+  );
+}
+
 function readRuntime(db: Database.Database, id: string) {
   return db
     .prepare("SELECT command, metadata_json, workspace_root FROM agent_runtimes WHERE id = ?")
@@ -308,6 +332,84 @@ async function run() {
         assert.equal(rowJson.includes(path.join(oldAppRoot, ".stable")), false, "old source root should not remain in rewritten runtime/config rows");
       } finally {
         target.close();
+      }
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  await test("prepare refuses migration-incompatible source DB before touching target", () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "prepare-exec-dev-benchmark-"));
+    try {
+      const sourceDbPath = path.join(tempRoot, "source.db");
+      const targetDbPath = path.join(tempRoot, "target", "orchestration.db");
+      const manifestPath = path.join(tempRoot, "target", "benchmark-manifest.json");
+      createSourceDb(sourceDbPath, path.join(tempRoot, "main-app"), path.join(tempRoot, "company-workspace"));
+      markMigrationIncompatible(sourceDbPath);
+
+      fs.mkdirSync(path.dirname(targetDbPath), { recursive: true });
+      fs.writeFileSync(targetDbPath, "sentinel-target", "utf8");
+
+      const result = spawnSync(process.execPath, [
+        "./scripts/run-tsx.mjs",
+        "scripts/prepare-exec-dev-benchmark.ts",
+        "--source-db",
+        sourceDbPath,
+        "--target-db",
+        targetDbPath,
+        "--manifest",
+        manifestPath,
+        "--goal",
+        "INS-G006",
+        "--expected-tasks",
+        "2",
+        "--required-repeats",
+        "1",
+      ], {
+        cwd: process.cwd(),
+        encoding: "utf8",
+      });
+
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /migration-incompatible source DB/);
+      assert.match(result.stderr, /future_migration/);
+      assert.equal(fs.readFileSync(targetDbPath, "utf8"), "sentinel-target");
+      assert.equal(fs.existsSync(manifestPath), false);
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  await test("repeat check-only refuses migration-incompatible DB before opening writable runtime DB", () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "runtime-benchmark-repeat-"));
+    try {
+      const dbPath = path.join(tempRoot, "orchestration.db");
+      markMigrationIncompatible(dbPath);
+
+      const result = spawnSync(process.execPath, [
+        "./scripts/run-tsx.mjs",
+        "scripts/runtime-benchmark-repeat.ts",
+        "--task-key",
+        "INS-1",
+        "--check-only",
+      ], {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          ORCHESTRATION_DB_PATH: dbPath,
+        },
+      });
+
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /migration-incompatible orchestration DB/);
+      assert.match(result.stderr, /future_migration/);
+
+      const db = new Database(dbPath, { readonly: true, fileMustExist: true });
+      try {
+        assert.equal(tableExists(db, "tasks"), false);
+      } finally {
+        db.close();
       }
     } finally {
       fs.rmSync(tempRoot, { recursive: true, force: true });

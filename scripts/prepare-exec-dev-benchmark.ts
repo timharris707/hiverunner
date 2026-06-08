@@ -3,6 +3,8 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import Database from "better-sqlite3";
 
+import { assertOrchestrationMigrationCompatible } from "./lib/orchestration-migration-compatibility";
+
 type CliOptions = {
   sourceDbPath: string;
   targetDbPath: string;
@@ -775,11 +777,15 @@ async function main() {
   const options = parseArgs(process.argv.slice(2));
   assertSafeTarget(options.sourceDbPath, options.targetDbPath);
 
-  fs.mkdirSync(path.dirname(options.targetDbPath), { recursive: true });
-
   const source = new Database(options.sourceDbPath, { readonly: true, fileMustExist: true });
   try {
     source.pragma("query_only = ON");
+    assertOrchestrationMigrationCompatible({
+      db: source,
+      dbPath: options.sourceDbPath,
+      label: "benchmark fixture preparation with migration-incompatible source DB",
+    });
+
     const goal = source
       .prepare("SELECT id, goal_key, name, status FROM sprints WHERE goal_key = ? LIMIT 1")
       .get(options.goalKey) as { id: string; goal_key: string; name: string; status: string } | undefined;
@@ -794,6 +800,8 @@ async function main() {
         "Create or select the 10-task fixture goal before preparing execution-dev benchmark data.",
       );
     }
+
+    fs.mkdirSync(path.dirname(options.targetDbPath), { recursive: true });
 
     if (fs.existsSync(options.targetDbPath)) {
       fs.rmSync(options.targetDbPath);

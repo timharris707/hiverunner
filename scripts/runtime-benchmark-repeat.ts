@@ -1,8 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { getOrchestrationDb } from "@/lib/orchestration/db";
+import {
+  getOrchestrationDb,
+  getOrchestrationDbPath,
+} from "@/lib/orchestration/db";
 import { tick } from "@/lib/orchestration/engine/engine";
+import { assertOrchestrationDbPathMigrationCompatible } from "./lib/orchestration-migration-compatibility";
 
 type CliOptions = {
   goalKey: string;
@@ -87,6 +91,14 @@ function placeholders(count: number): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function assertConfiguredDbMigrationCompatible(label: string): void {
+  const dbPath = getOrchestrationDbPath();
+  assertOrchestrationDbPathMigrationCompatible({
+    dbPath,
+    label: `${label} with migration-incompatible orchestration DB`,
+  });
 }
 
 function readProjectSourceRoot(settingsJson: string | null): string | null {
@@ -225,6 +237,8 @@ function readGeneratedTasksInFixtureProjects(
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+  assertConfiguredDbMigrationCompatible(options.checkOnly ? "benchmark replay check-only" : "benchmark replay");
+
   const db = getOrchestrationDb();
   if (options.requireIsolatedWorkspace) {
     assertIsolatedWorkspace(db, options.taskKeys);

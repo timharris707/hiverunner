@@ -23,6 +23,8 @@ type RuntimePreflightFailureCode =
   | "invalid_provider_identity"
   | "provider_disabled_by_policy"
   | "unavailable_model_identity"
+  | "runtime_lane_unhealthy"
+  | "runtime_lane_migration_incompatible"
   | "cli_not_ready"
   | "missing_cli_auth"
   | "quarantined_provider_model_fingerprint";
@@ -39,6 +41,30 @@ type RuntimeCliReadiness = {
   detail?: string | null;
   authMode?: "subscription" | "api_key" | "unknown" | "missing" | null;
   version?: string | null;
+};
+
+type RuntimeLaneReadinessCheck = {
+  laneKey?: string | null;
+  label?: string | null;
+  status?: string | null;
+  mode?: string | null;
+  role?: string | null;
+  port?: string | number | null;
+  observerOnly?: boolean | null;
+  expectedMode?: string | null;
+  expectedRole?: string | null;
+  expectedPort?: string | number | null;
+  endpointUrl?: string | null;
+  detail?: string | null;
+  migrationCompatibility?: {
+    ok?: boolean | null;
+    expectedLatestVersion?: number | null;
+    appliedLatestVersion?: number | null;
+    pendingCount?: number | null;
+    incompatibleCount?: number | null;
+    legacyExtraCount?: number | null;
+    error?: string | null;
+  } | null;
 };
 
 type RuntimePreflightAdmissionResult =
@@ -79,6 +105,7 @@ type RuntimePreflightAdmissionInput = {
   cliCommand?: string | null;
   cliCommandArgs?: readonly string[];
   cliReadiness?: RuntimeCliReadiness | null;
+  laneReadinessChecks?: readonly RuntimeLaneReadinessCheck[];
   acceptanceChecks?: boolean;
   diagnosticText?: string | null;
 };
@@ -150,6 +177,11 @@ const SUBSCRIPTION_CLI_ENV_DENYLIST = [
 
 function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function scalarText(value: unknown): string {
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return text(value);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -357,6 +389,18 @@ function buildRuntimeFingerprint(input: RuntimePreflightAdmissionInput): string 
       runnerScriptPathHash: pathHash(input.runnerScriptPath),
       cwdHash: pathHash(input.cwd),
       helperImportPathHashes: (input.helperImportPaths ?? []).map(pathHash),
+      laneReadinessChecks: (input.laneReadinessChecks ?? []).map((check) => ({
+        laneKey: text(check.laneKey),
+        label: text(check.label),
+        status: text(check.status).toLowerCase(),
+        mode: text(check.mode).toLowerCase(),
+        role: text(check.role).toLowerCase(),
+        port: scalarText(check.port),
+        expectedMode: text(check.expectedMode).toLowerCase(),
+        expectedRole: text(check.expectedRole).toLowerCase(),
+        expectedPort: scalarText(check.expectedPort),
+        migrationOk: check.migrationCompatibility?.ok ?? null,
+      })),
     }))
     .digest("hex");
 }
@@ -443,6 +487,52 @@ function buildProviderModelFingerprint(input: RuntimePreflightAdmissionInput): s
     .digest("hex");
 }
 
+function safeEndpointSummary(value: string | null | undefined): Record<string, unknown> | null {
+  const candidate = text(value);
+  if (!candidate) return null;
+  try {
+    const parsed = new URL(candidate);
+    return {
+      protocol: parsed.protocol.replace(/:$/, ""),
+      hostname: parsed.hostname,
+      port: parsed.port || null,
+      pathnameBasename: path.basename(parsed.pathname),
+      pathnameSha256: createHash("sha256").update(parsed.pathname).digest("hex"),
+    };
+  } catch {
+    return {
+      valueSha256: createHash("sha256").update(candidate).digest("hex"),
+    };
+  }
+}
+
+function summarizeLaneReadinessCheck(check: RuntimeLaneReadinessCheck): Record<string, unknown> {
+  const migration = check.migrationCompatibility;
+  return {
+    laneKey: text(check.laneKey) || null,
+    label: text(check.label) || null,
+    status: text(check.status) || null,
+    mode: text(check.mode) || null,
+    role: text(check.role) || null,
+    port: scalarText(check.port) || null,
+    observerOnly: typeof check.observerOnly === "boolean" ? check.observerOnly : null,
+    expectedMode: text(check.expectedMode) || null,
+    expectedRole: text(check.expectedRole) || null,
+    expectedPort: scalarText(check.expectedPort) || null,
+    endpoint: safeEndpointSummary(check.endpointUrl),
+    migrationCompatibility: migration ? {
+      ok: migration.ok ?? null,
+      expectedLatestVersion: typeof migration.expectedLatestVersion === "number" ? migration.expectedLatestVersion : null,
+      appliedLatestVersion: typeof migration.appliedLatestVersion === "number" ? migration.appliedLatestVersion : null,
+      pendingCount: typeof migration.pendingCount === "number" ? migration.pendingCount : null,
+      incompatibleCount: typeof migration.incompatibleCount === "number" ? migration.incompatibleCount : null,
+      legacyExtraCount: typeof migration.legacyExtraCount === "number" ? migration.legacyExtraCount : null,
+      error: redactRuntimePreflightText(migration.error, 160) || null,
+    } : null,
+    detail: redactRuntimePreflightText(check.detail, 240) || null,
+  };
+}
+
 function buildBaseSummary(
   input: RuntimePreflightAdmissionInput,
   failureCode: RuntimePreflightFailureCode,
@@ -499,6 +589,7 @@ function buildBaseSummary(
       pathSha256: pathHash(helperPath),
       kind: statKind(helperPath),
     })),
+    laneReadinessChecks: (input.laneReadinessChecks ?? []).map((check) => summarizeLaneReadinessCheck(check)),
     diagnostic: redactRuntimePreflightText(input.diagnosticText),
   };
 }
@@ -595,6 +686,60 @@ function detectWorkspaceFailure(input: RuntimePreflightAdmissionInput): RuntimeP
     };
   }
 
+  return null;
+}
+
+function isReadyLaneStatus(status: string): boolean {
+  const normalized = status.trim().toLowerCase();
+  return !normalized || normalized === "ok" || normalized === "ready" || normalized === "healthy";
+}
+
+function laneReadinessMismatchReason(check: RuntimeLaneReadinessCheck): string | null {
+  const migration = check.migrationCompatibility;
+  if (migration?.ok === false) return "migration_incompatible";
+
+  const status = text(check.status);
+  if (!isReadyLaneStatus(status)) return status.toLowerCase();
+
+  const expectedMode = text(check.expectedMode).toLowerCase();
+  const actualMode = text(check.mode).toLowerCase();
+  if (expectedMode && actualMode && expectedMode !== actualMode) return "mode_mismatch";
+
+  const expectedRole = text(check.expectedRole).toLowerCase();
+  const actualRole = text(check.role).toLowerCase();
+  if (expectedRole && actualRole && expectedRole !== actualRole) return "role_mismatch";
+
+  const expectedPort = scalarText(check.expectedPort);
+  const actualPort = scalarText(check.port);
+  if (expectedPort && actualPort && expectedPort !== actualPort) return "port_mismatch";
+
+  if (check.observerOnly === true && (!expectedRole || expectedRole === "executor")) return "observer_only";
+
+  return null;
+}
+
+function detectLaneReadinessFailure(input: RuntimePreflightAdmissionInput): RuntimePreflightFailure | null {
+  for (const check of input.laneReadinessChecks ?? []) {
+    const reason = laneReadinessMismatchReason(check);
+    if (!reason) continue;
+
+    const code = reason === "migration_incompatible"
+      ? "runtime_lane_migration_incompatible"
+      : "runtime_lane_unhealthy";
+    return {
+      code,
+      message: code === "runtime_lane_migration_incompatible"
+        ? "Runtime preflight failed: a required runtime lane has incompatible database migrations."
+        : "Runtime preflight failed: a required runtime lane was not healthy for execution.",
+      summary: {
+        ...buildBaseSummary(input, code),
+        laneReadiness: {
+          reason,
+          failingCheck: summarizeLaneReadinessCheck(check),
+        },
+      },
+    };
+  }
   return null;
 }
 
@@ -999,6 +1144,7 @@ function detectPreflightFailure(
 
   return (
     detectWorkspaceFailure({ ...input, nodePath }) ??
+    detectLaneReadinessFailure({ ...input, nodePath }) ??
     detectProviderModelFailure({ ...input, nodePath }, db) ??
     detectCliReadinessFailure({ ...input, nodePath }) ??
     detectProviderModelQuarantine({ ...input, nodePath }, db)
@@ -1196,6 +1342,53 @@ function helperImportsForRunnerScript(runnerScriptPath: string | null): string[]
   return [path.join(path.dirname(runnerScriptPath), "lib", "external-runner-utils.mjs")];
 }
 
+function coerceLaneReadinessCheck(value: unknown): RuntimeLaneReadinessCheck | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  const migration = asRecord(record.migrationCompatibility);
+  return {
+    laneKey: text(record.laneKey) || text(record.laneId) || null,
+    label: text(record.label) || null,
+    status: text(record.status) || null,
+    mode: text(record.mode) || null,
+    role: text(record.role) || null,
+    port: typeof record.port === "number" || typeof record.port === "string" ? record.port : null,
+    observerOnly: typeof record.observerOnly === "boolean" ? record.observerOnly : null,
+    expectedMode: text(record.expectedMode) || null,
+    expectedRole: text(record.expectedRole) || null,
+    expectedPort: typeof record.expectedPort === "number" || typeof record.expectedPort === "string" ? record.expectedPort : null,
+    endpointUrl: text(record.endpointUrl) || text(record.healthUrl) || null,
+    detail: text(record.detail) || text(record.reason) || null,
+    migrationCompatibility: migration ? {
+      ok: typeof migration.ok === "boolean" ? migration.ok : null,
+      expectedLatestVersion: typeof migration.expectedLatestVersion === "number" ? migration.expectedLatestVersion : null,
+      appliedLatestVersion: typeof migration.appliedLatestVersion === "number" ? migration.appliedLatestVersion : null,
+      pendingCount: typeof migration.pendingCount === "number" ? migration.pendingCount : null,
+      incompatibleCount: typeof migration.incompatibleCount === "number" ? migration.incompatibleCount : null,
+      legacyExtraCount: typeof migration.legacyExtraCount === "number" ? migration.legacyExtraCount : null,
+      error: text(migration.error) || null,
+    } : null,
+  };
+}
+
+function coerceLaneReadinessChecks(value: unknown): RuntimeLaneReadinessCheck[] {
+  if (Array.isArray(value)) {
+    return value.map(coerceLaneReadinessCheck).filter((check): check is RuntimeLaneReadinessCheck => Boolean(check));
+  }
+  const check = coerceLaneReadinessCheck(value);
+  return check ? [check] : [];
+}
+
+function laneReadinessChecksFromMetadata(metadata: Record<string, unknown>): RuntimeLaneReadinessCheck[] {
+  const replay = asRecord(metadata.hiverunnerBenchmarkReplay);
+  return [
+    ...coerceLaneReadinessChecks(metadata.requiredLaneReadinessChecks),
+    ...coerceLaneReadinessChecks(metadata.requiredLaneReadiness),
+    ...coerceLaneReadinessChecks(replay?.requiredLaneReadinessChecks),
+    ...coerceLaneReadinessChecks(replay?.requiredLaneReadiness),
+  ];
+}
+
 function resolveHeartbeatRunnerLaunch(db: Database.Database, input: HeartbeatRuntimePreflightInput): {
   command: string | null;
   commandArgs: string[];
@@ -1203,6 +1396,7 @@ function resolveHeartbeatRunnerLaunch(db: Database.Database, input: HeartbeatRun
   helperImportPaths: string[];
   cliCommand: string | null;
   cliCommandArgs: string[];
+  laneReadinessChecks: RuntimeLaneReadinessCheck[];
 } {
   if (input.provider !== "symphony") {
     const cli = splitCommandPrefix(configuredCliCommandForRunnerProvider(input.runnerProvider, {}));
@@ -1213,6 +1407,7 @@ function resolveHeartbeatRunnerLaunch(db: Database.Database, input: HeartbeatRun
       helperImportPaths: [],
       cliCommand: cli.command,
       cliCommandArgs: cli.args,
+      laneReadinessChecks: [],
     };
   }
 
@@ -1247,6 +1442,7 @@ function resolveHeartbeatRunnerLaunch(db: Database.Database, input: HeartbeatRun
     helperImportPaths: helperImportsForRunnerScript(runnerScriptPath),
     cliCommand: cli.command,
     cliCommandArgs: cli.args,
+    laneReadinessChecks: laneReadinessChecksFromMetadata(metadata),
   };
 }
 
@@ -1276,5 +1472,6 @@ export function admitHeartbeatRuntimePreflight(
     allowedWorkspaceRoots: workspace.allowedWorkspaceRoots,
     cliCommand: launch.cliCommand,
     cliCommandArgs: launch.cliCommandArgs,
+    laneReadinessChecks: launch.laneReadinessChecks,
   }, db);
 }
