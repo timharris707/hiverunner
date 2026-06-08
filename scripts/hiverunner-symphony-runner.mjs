@@ -173,18 +173,200 @@ function parseJsonLine(line) {
   }
 }
 
-function extractText(value) {
+function asRecord(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+
+function extractText(value, depth = 0) {
   if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    return value.map((item) => extractText(item, depth + 1)).filter(Boolean).join("\n").trim();
+  }
+  if (depth > 6) return "";
   if (!value || typeof value !== "object") return "";
   const record = value;
+  for (const key of [
+    "text",
+    "message",
+    "content",
+    "summary",
+    "summaryText",
+    "output_text",
+    "output",
+    "aggregated_output",
+    "stdout",
+    "stderr",
+    "result",
+    "delta",
+    "command",
+  ]) {
+    const direct = stringFrom(record[key]);
+    if (direct) return direct;
+  }
+
+  for (const key of ["message", "item", "event", "delta", "content", "output", "tool_call", "toolCall", "function"]) {
+    const nested = record[key];
+    if (nested && typeof nested === "object") {
+      const text = extractText(nested, depth + 1);
+      if (text) return text;
+    }
+  }
+
+  return "";
+}
+
+function codexEventType(record) {
+  return stringFrom(record.type) || stringFrom(record.event) || stringFrom(record.kind) || "codex_event";
+}
+
+function codexItem(record) {
+  return asRecord(record.item) || asRecord(record.message) || asRecord(record.event);
+}
+
+function codexItemType(record) {
+  const item = codexItem(record);
+  return item ? stringFrom(item.type) || stringFrom(item.kind) || stringFrom(item.name) : "";
+}
+
+function codexSessionId(record) {
+  if (!record) return "";
+  const item = codexItem(record);
   return (
-    stringFrom(record.text) ||
-    stringFrom(record.message) ||
-    stringFrom(record.content) ||
-    stringFrom(record.summary) ||
-    stringFrom(record.summaryText) ||
-    stringFrom(record.output_text)
+    stringFrom(record.session_id) ||
+    stringFrom(record.sessionId) ||
+    stringFrom(record.thread_id) ||
+    stringFrom(record.threadId) ||
+    stringFrom(item?.session_id) ||
+    stringFrom(item?.sessionId) ||
+    stringFrom(item?.thread_id) ||
+    stringFrom(item?.threadId)
   );
+}
+
+function codexToolName(record) {
+  const item = codexItem(record);
+  return (
+    stringFrom(record.tool_name) ||
+    stringFrom(record.toolName) ||
+    stringFrom(record.name) ||
+    stringFrom(record.command) ||
+    stringFrom(item?.tool_name) ||
+    stringFrom(item?.toolName) ||
+    stringFrom(item?.name) ||
+    stringFrom(item?.command) ||
+    codexItemType(record) ||
+    codexEventType(record)
+  );
+}
+
+function codexEventFromRecord(record) {
+  const type = codexEventType(record);
+  const itemType = codexItemType(record);
+  const lowerType = type.toLowerCase();
+  const lowerItemType = itemType.toLowerCase();
+  const body = trimForLiveEvent(extractText(record));
+  const sessionId = codexSessionId(record);
+  const metadata = {
+    runnerProvider: "codex",
+    source: "codex-stdout",
+    codexEventType: type || null,
+    codexItemType: itemType || null,
+    sessionId: sessionId || null,
+  };
+
+  if (lowerType === "thread.started" || lowerType === "session") {
+    return {
+      kind: "provider_event",
+      role: "system",
+      title: "Codex session started",
+      body: body || (sessionId ? `Codex session ${sessionId} started.` : "Codex session started."),
+      metadata,
+    };
+  }
+
+  if (lowerType === "turn.started") {
+    return {
+      kind: "provider_event",
+      role: "system",
+      title: "Codex turn started",
+      body: body || "Codex turn started.",
+      metadata,
+    };
+  }
+
+  if (lowerType === "turn.completed") {
+    return {
+      kind: "provider_event",
+      role: "system",
+      title: "Codex turn completed",
+      body: body || "Codex turn completed.",
+      metadata,
+    };
+  }
+
+  if (lowerType === "item.started" && /(command|tool|exec|shell|terminal|function)/i.test(lowerItemType)) {
+    const toolName = codexToolName(record);
+    return {
+      kind: "tool_call_start",
+      role: "tool",
+      title: toolName || "Codex tool call",
+      body: body || `Codex started ${toolName || itemType || "a tool call"}.`,
+      metadata,
+    };
+  }
+
+  if (lowerType === "item.completed" && /(command|tool|exec|shell|terminal|function)/i.test(lowerItemType)) {
+    const toolName = codexToolName(record);
+    return {
+      kind: "tool_result",
+      role: "tool",
+      title: toolName || "Codex tool result",
+      body: body || `Codex completed ${toolName || itemType || "a tool call"}.`,
+      metadata,
+    };
+  }
+
+  if (lowerItemType === "agent_message" || lowerItemType === "assistant_message") {
+    if (!body) return null;
+    return {
+      kind: lowerType.includes("completed") ? "assistant_text_final" : "assistant_text_delta",
+      role: "assistant",
+      title: lowerType.includes("completed") ? "Codex assistant final" : "Codex assistant text",
+      body,
+      metadata,
+    };
+  }
+
+  if (/(reason|thinking|thought)/i.test(`${lowerType} ${lowerItemType}`)) {
+    if (!body) return null;
+    return {
+      kind: "thinking_summary",
+      role: "assistant",
+      title: "Codex thinking summary",
+      body,
+      metadata,
+    };
+  }
+
+  const role = stringFrom(record.role) || (body ? "assistant" : "system");
+  if (body && (role === "assistant" || type === "message" || type === "assistant")) {
+    return {
+      kind: "assistant_text_delta",
+      role: "assistant",
+      title: "Codex assistant text",
+      body,
+      metadata,
+    };
+  }
+
+  if (!body && !sessionId && type !== "session") return null;
+  return {
+    kind: "provider_event",
+    role,
+    title: type === "session" ? "Codex session started" : "Codex event",
+    body: body || (sessionId ? `Codex session ${sessionId} started.` : type || "Codex event"),
+    metadata,
+  };
 }
 
 function trimForLiveEvent(value, maxChars = 4000) {
@@ -236,25 +418,9 @@ function createCodexLiveStdoutForwarder() {
 
     const record = parseJsonLine(line);
     if (!record) return;
-    const type = stringFrom(record.type);
-    const body = trimForLiveEvent(extractText(record));
-    const role = stringFrom(record.role) || (body ? "assistant" : "system");
-    const sessionId = stringFrom(record.session_id) || stringFrom(record.sessionId);
-    if (!body && !sessionId && type !== "session") return;
-
-    const assistantLike = body && (role === "assistant" || type === "message" || type === "assistant");
-    emitRunnerLiveEvent({
-      kind: assistantLike ? "assistant_text_delta" : "provider_event",
-      role,
-      title: type === "session" ? "Codex session started" : "Codex event",
-      body: body || (sessionId ? `Codex session ${sessionId} started.` : type || "Codex event"),
-      metadata: {
-        runnerProvider: "codex",
-        source: "codex-stdout",
-        codexEventType: type || null,
-        sessionId: sessionId || null,
-      },
-    });
+    const event = codexEventFromRecord(record);
+    if (!event) return;
+    emitRunnerLiveEvent(event);
     forwarded += 1;
   };
 
@@ -326,14 +492,9 @@ function collectUsage(records) {
 function collectTranscriptEvents(records, finalMessage) {
   const events = [];
   for (const record of records) {
-    const body = extractText(record);
-    if (!body) continue;
-    events.push({
-      role: typeof record.role === "string" ? record.role : "assistant",
-      kind: typeof record.type === "string" ? record.type : "message",
-      title: "Codex event",
-      body,
-    });
+    const event = codexEventFromRecord(record);
+    if (!event) continue;
+    events.push(event);
   }
   if (events.length === 0 && finalMessage) {
     events.push({
@@ -576,8 +737,7 @@ async function main() {
       ? null
       : result.terminationReason;
     process.stdout.write(JSON.stringify({
-      sessionId: stringFrom(records.find((record) => stringFrom(record.session_id) || stringFrom(record.sessionId))?.session_id) ||
-        stringFrom(records.find((record) => stringFrom(record.sessionId))?.sessionId) ||
+      sessionId: codexSessionId(records.find((record) => codexSessionId(record))) ||
         `codex-${payload.runId ?? Date.now()}`,
       resultText: assistantSummary,
       assistantSummary,

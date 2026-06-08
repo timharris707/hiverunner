@@ -231,6 +231,27 @@ if (process.env.FAKE_CODEX_MODE === "streaming-progress") {
   }, 80);
   return;
 }
+if (process.env.FAKE_CODEX_MODE === "current-jsonl-shape") {
+  if (outputFile) {
+    fs.writeFileSync(outputFile, "Current Codex JSONL final message.", "utf8");
+  }
+  process.stdout.write(JSON.stringify({ type: "thread.started", thread_id: "fixture-current-thread" }) + "\\n");
+  process.stdout.write(JSON.stringify({ type: "turn.started" }) + "\\n");
+  process.stdout.write(JSON.stringify({
+    type: "item.started",
+    item: { id: "cmd-1", type: "command_execution", command: "npm test" },
+  }) + "\\n");
+  process.stdout.write(JSON.stringify({
+    type: "item.completed",
+    item: { id: "cmd-1", type: "command_execution", command: "npm test", aggregated_output: "tests passed" },
+  }) + "\\n");
+  process.stdout.write(JSON.stringify({
+    type: "item.completed",
+    item: { id: "msg-1", type: "agent_message", text: "Current Codex JSONL produced nested assistant text." },
+  }) + "\\n");
+  process.stdout.write(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 7, output_tokens: 9, total_tokens: 16, reasoning_output_tokens: 3 } }) + "\\n");
+  return;
+}
 if (outputFile) {
   fs.writeFileSync(outputFile, "Fixture Codex completed the external runner task.", "utf8");
 }
@@ -440,6 +461,45 @@ async function run() {
         .find((event) => event.kind === "assistant_text_delta");
       assert.ok(assistantFrame, "expected an assistant_text_delta live frame");
       assert.match(String(assistantFrame!.body), /early progress update/);
+    });
+
+    await test("runner normalizes current Codex exec JSONL item events into live frames", () => {
+      const result = spawnSync(process.execPath, ["scripts/hiverunner-symphony-runner.mjs"], {
+        cwd: process.cwd(),
+        input: JSON.stringify(payload),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          HIVERUNNER_SYMPHONY_CODEX_COMMAND: fakeCodex,
+          HIVERUNNER_SYMPHONY_MODEL: "",
+          FAKE_CODEX_ARGS_FILE: argsFile,
+          FAKE_CODEX_PROMPT_FILE: promptFile,
+          FAKE_CODEX_MODE: "current-jsonl-shape",
+        },
+      });
+
+      assert.strictEqual(result.status, 0, result.stderr || String(result.error));
+      const output = JSON.parse(result.stdout) as Record<string, unknown>;
+      assert.strictEqual(output.sessionId, "fixture-current-thread");
+      assert.strictEqual(output.resultText, "Current Codex JSONL final message.");
+      assert.strictEqual(output.inputTokens, 7);
+      assert.strictEqual(output.outputTokens, 9);
+      assert.strictEqual(output.totalTokens, 16);
+
+      const liveEvents = result.stderr
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith("::hiverunner-live-event "))
+        .map((line) => JSON.parse(line.slice("::hiverunner-live-event ".length)) as Record<string, unknown>)
+        .map((frame) => frame.event as Record<string, unknown>);
+      assert.ok(liveEvents.some((event) => event.kind === "provider_event" && event.title === "Codex session started"));
+      assert.ok(liveEvents.some((event) => event.kind === "tool_call_start" && event.title === "npm test"));
+      assert.ok(liveEvents.some((event) => event.kind === "tool_result" && /tests passed/.test(String(event.body))));
+      assert.ok(liveEvents.some((event) => event.kind === "assistant_text_final" && /nested assistant text/.test(String(event.body))));
+
+      const transcriptEvents = output.transcriptEvents as Array<Record<string, unknown>>;
+      assert.ok(transcriptEvents.some((event) => event.kind === "tool_call_start"));
+      assert.ok(transcriptEvents.some((event) => event.kind === "tool_result"));
+      assert.ok(transcriptEvents.some((event) => event.kind === "assistant_text_final"));
     });
 
     await test("runner reports the Codex configured default when the CLI owns model selection", () => {
