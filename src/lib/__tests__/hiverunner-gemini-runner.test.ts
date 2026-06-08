@@ -34,6 +34,13 @@ if (process.env.FAKE_GEMINI_MODE === "spinner-sleep") {
   setTimeout(() => process.stdout.write("too late\\n"), 60_000);
   return;
 }
+if (process.env.FAKE_GEMINI_MODE === "stderr-progress-sleep") {
+  setInterval(() => {
+    process.stderr.write("Still working...\\n");
+  }, 25);
+  setTimeout(() => process.stdout.write("too late\\n"), 60_000);
+  return;
+}
 if (process.env.FAKE_GEMINI_MODE === "json-live") {
   process.stdout.write(JSON.stringify({ type: "message", role: "assistant", text: "Gemini streamed a live update." }) + "\\n");
   process.stdout.write(JSON.stringify({ type: "function_call", name: "npm test", args: { command: "npm test" } }) + "\\n");
@@ -276,6 +283,26 @@ async function run() {
         .split(/\r?\n/)
         .filter((line) => line.startsWith("::hiverunner-live-event "));
       assert.strictEqual(liveLines.length, 0, "spinner-only output should not emit transcript live frames");
+    });
+
+    await test("Gemini runner does not count stderr progress chatter as meaningful activity", () => {
+      const output = runGeminiRunnerResult(payload, {
+        FAKE_GEMINI_MODE: "stderr-progress-sleep",
+        HIVERUNNER_GEMINI_TIMEOUT_MS: "5000",
+        HIVERUNNER_GEMINI_NO_OUTPUT_TIMEOUT_MS: "120",
+        HIVERUNNER_GEMINI_PROGRESS_INTERVAL_MS: "25",
+        HIVERUNNER_GEMINI_TERMINATION_GRACE_MS: "25",
+      });
+
+      assert.strictEqual(output.status, 0, output.stderr || String(output.error));
+      const parsed = JSON.parse(output.stdout) as Record<string, unknown>;
+      assert.match(String(parsed.error), /no meaningful stdout\/stderr/i);
+      assert.strictEqual(parsed.noOutputTimedOut, true);
+      assert.strictEqual(parsed.terminationReason, "no_output_timeout");
+      assert.ok(Number(parsed.stderrBytes) > 0, "stderr progress fixture should produce raw stderr bytes");
+      assert.ok(Number(parsed.durationMs) < 5000, `stderr progress should fail before full timeout, got ${String(parsed.durationMs)}ms`);
+      const usage = parsed.usage as Record<string, unknown>;
+      assert.strictEqual(usage.noOutputTimedOut, true);
     });
 
     await test("Gemini runner normalizes Gemini CLI JSON output into transcript and live events", () => {

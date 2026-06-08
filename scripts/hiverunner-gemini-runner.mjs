@@ -378,7 +378,9 @@ function createGeminiLiveStdoutForwarder() {
 
 function hasMeaningfulGeminiOutput(stream, chunk) {
   if (stream === "stdout") return false;
-  return meaningfulPlainTextFromOutput(chunk.toString("utf8")).length > 0;
+  const text = meaningfulPlainTextFromOutput(chunk.toString("utf8"));
+  if (!text) return false;
+  return /\b(error|exception|failed|failure|unauthorized|permission|forbidden|auth|not found|model not found|quota|rate limit|timeout)\b/i.test(text);
 }
 
 function createGeminiOutputTracker() {
