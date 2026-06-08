@@ -46,6 +46,25 @@ async function run() {
     assert.deepStrictEqual(risks, []);
   });
 
+  await test("operator docs live-mode wording does not borrow update intent from task title", () => {
+    const risks = assessProtectedRuntimeRisksForText(`
+    INS-277
+    Update operator docs for governed live-mode boundaries
+    Document the live-mode risk language, approval boundaries, and operator waiver guidance for the MCP package.
+    research
+    critical
+    HiveRunner
+  `);
+
+    assert.deepStrictEqual(risks, []);
+  });
+
+  await test("live deployment update in one sentence still requires approval", () => {
+    const risks = assessProtectedRuntimeRisksForText("Update live deployment config for the production runtime.");
+
+    assert.ok(risks.some((risk) => risk.code === "production_target"));
+  });
+
   finish();
 }
 

@@ -127,8 +127,22 @@ function normalizeText(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
+function normalizeRiskText(value: string): string {
+  return value
+    .split(/\r?\n/)
+    .map((line) => normalizeText(line))
+    .filter((line) => line.length > 0)
+    .join("\n");
+}
+
 const ENVIRONMENT_CHANGE_INTENT_PATTERN =
   /\b(apply|alter|change|configure|delete|deploy|install|migrate|modify|patch|promote|publish|push|release|restart|rollout|scale|ship|stop|touch|update|write)\b/i;
+const HARD_ENVIRONMENT_CHANGE_INTENT_PATTERN =
+  /\b(apply|alter|configure|delete|deploy|install|migrate|promote|publish|push|release|restart|rollout|scale|ship|stop)\b/i;
+const GENERIC_ENVIRONMENT_CHANGE_INTENT_PATTERN =
+  /\b(change|modify|patch|touch|update|write)\b/i;
+const DOCUMENTATION_CONTEXT_PATTERN =
+  /\b(doc|docs|documentation|readme|runbook|guide|guidance|spec|contract|notes?|comment|boundary|boundaries)\b/i;
 
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -306,7 +320,7 @@ function assessRisks(text: string): ProtectedRuntimeRisk[] {
 }
 
 export function assessProtectedRuntimeRisksForText(text: string): ProtectedRuntimeRisk[] {
-  return assessRisks(normalizeText(text));
+  return assessRisks(normalizeRiskText(text));
 }
 
 function shouldAutoApproveProtectedRuntime(companyId: string, db: Database.Database): boolean {
@@ -385,6 +399,13 @@ function hasEnvironmentChangeIntentNearMatch(text: string, matchIndex: number): 
     : text.length;
   const sentence = text.slice(sentenceStart, sentenceEnd);
   if (ENVIRONMENT_CHANGE_INTENT_PATTERN.test(sentence)) {
+    if (
+      DOCUMENTATION_CONTEXT_PATTERN.test(sentence)
+      && GENERIC_ENVIRONMENT_CHANGE_INTENT_PATTERN.test(sentence)
+      && !HARD_ENVIRONMENT_CHANGE_INTENT_PATTERN.test(sentence)
+    ) {
+      return false;
+    }
     return true;
   }
   return false;
@@ -417,7 +438,7 @@ function loadTaskContext(
 
   if (!task) return null;
 
-  const text = normalizeText([
+  const text = normalizeRiskText([
     task.task_key,
     task.title,
     task.description ?? "",

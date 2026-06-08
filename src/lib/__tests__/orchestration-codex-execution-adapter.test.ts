@@ -677,6 +677,48 @@ async function run() {
     assert.strictEqual(approvalCount, 0, "review-only wake should not create protected runtime approval");
   });
 
+  await test("operator docs live-mode task does not require protected runtime approval", async () => {
+    const docsTask = createTask({
+      projectId: project.id,
+      title: "Update operator docs for governed live-mode boundaries",
+      description: "Document the live-mode risk language, approval boundaries, and operator waiver guidance for the MCP package.",
+      priority: "P1",
+      type: "research",
+      status: "in-progress",
+      assignee: agent.id,
+      labels: [],
+      createdBy: "test",
+    }).task;
+
+    const wake = enqueueWakeup({
+      agentId: agent.id,
+      companyId: company.id,
+      source: "explicit",
+      reason: "operator docs live-mode protected wording test",
+      invocationSource: "on_demand",
+      contextSnapshot: {
+        wakeSource: "test",
+        wakeReason: "operator_docs_live_mode",
+        taskId: docsTask.id,
+        taskStatus: "in_progress",
+        projectId: project.id,
+      },
+    }, db);
+
+    const result = await executeHeartbeatRun(wake.heartbeatRunId, db);
+    assert.strictEqual(result.status, "succeeded", result.error ?? "docs-only live-mode wording should not require approval");
+
+    const approvalCount = (
+      db.prepare(
+        `SELECT COUNT(*) AS count
+         FROM approvals
+         WHERE type = 'protected_runtime_command'
+           AND linked_task_id = ?`,
+      ).get(docsTask.id) as { count: number }
+    ).count;
+    assert.strictEqual(approvalCount, 0, "docs-only live-mode task should not create protected runtime approval");
+  });
+
   await test("review handoff with high-risk command wording still requires protected runtime approval", async () => {
     const reviewTask = createTask({
       projectId: project.id,
