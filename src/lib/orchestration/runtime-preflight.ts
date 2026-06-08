@@ -882,6 +882,7 @@ function openProviderModelCircuit(
            AND COALESCE(runner_provider, '') = COALESCE(?, '')
            AND COALESCE(runner_model, '') = COALESCE(?, '')
            AND failure_code <> 'quarantined_provider_model_fingerprint'
+           AND failure_code <> 'provider_disabled_by_policy'
          ORDER BY opened_at DESC
          LIMIT 1`,
       )

@@ -114,6 +114,15 @@ function routeAttemptSummaries(runRow: RouteRunRow): string[] {
   return routeAttempts(runRow).map((attempt) => `${attempt.runtimeProvider}:${attempt.status}`);
 }
 
+function readAuditLines(filePath: string): string[] {
+  try {
+    const contents = readFileSync(filePath, "utf8").trim();
+    return contents ? contents.split(/\n+/).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
 async function run() {
   console.log("\nExecution Route Dispatch Tests\n");
 
@@ -383,6 +392,52 @@ async function run() {
     ]);
   });
 
+  await test("configured fallback is admitted before dispatch and blocks disabled providers", async () => {
+    process.env.FAIL_ANTHROPIC = "1";
+    const originalSettings = db
+      .prepare("SELECT settings_json FROM companies WHERE id = ? LIMIT 1")
+      .get(company.id) as { settings_json: string | null } | undefined;
+    const auditCountBefore = readAuditLines(auditFile).length;
+    db.prepare("UPDATE companies SET settings_json = ?, updated_at = ? WHERE id = ?")
+      .run(
+        JSON.stringify({ governance: { runtime: { disabledProviders: ["codex"] } } }),
+        new Date().toISOString(),
+        company.id,
+      );
+    try {
+      const { result, runRow } = await executeRouteTask({
+        title: "Deep lane blocked fallback route",
+        description: "Should not dispatch Codex after policy disables it.",
+        modelLane: "deep",
+        reason: "route_dispatch_block_disabled_fallback",
+      });
+      assert.equal(result.status, "failed");
+      assert.match(result.error ?? "", /provider is disabled/i);
+      expectRunRow(runRow, {
+        runner_provider: "codex",
+        runner_model: null,
+        model_lane: "deep",
+        fallback_used: 1,
+        fallback_index: 0,
+        fallback_from_provider: "anthropic",
+        status: "failed",
+      });
+      assert.deepEqual(routeAttemptSummaries(runRow), [
+        "anthropic:failed",
+        "codex:blocked",
+      ]);
+      const auditAfter = readAuditLines(auditFile).slice(auditCountBefore).map((line) => JSON.parse(line) as { runnerProvider?: string });
+      assert.deepEqual(
+        auditAfter.map((entry) => entry.runnerProvider),
+        ["anthropic"],
+        "disabled fallback provider must not reach the runner",
+      );
+    } finally {
+      db.prepare("UPDATE companies SET settings_json = ?, updated_at = ? WHERE id = ?")
+        .run(originalSettings?.settings_json ?? null, new Date().toISOString(), company.id);
+    }
+  });
+
   await test("opaque Gemini CLI unknown-exit failure falls through to configured fallback", async () => {
     try {
       await withHiveLanes(
@@ -555,7 +610,7 @@ async function run() {
               mode: "runtime_managed",
               runtimeId: "claude-code",
               runtimeLabel: "Claude Code",
-              modelLabel: "fast no-fallback profile",
+              modelLabel: "runtime managed",
             },
             fallbacks: [],
           }
@@ -571,7 +626,7 @@ async function run() {
         assert.equal(result.status, "failed");
         expectRunRow(runRow, {
           runner_provider: "anthropic",
-          runner_model: "fast no-fallback profile",
+          runner_model: null,
           model_lane: "fast",
           fallback_used: 0,
         });

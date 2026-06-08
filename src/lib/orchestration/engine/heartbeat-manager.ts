@@ -111,6 +111,10 @@ type RuntimePreflightTerminalResult = Exclude<
   ReturnType<typeof admitHeartbeatRuntimePreflight>,
   { status: "allowed" }
 >;
+type TaskModelRoutingResult = ReturnType<typeof resolveTaskModelRouting>;
+type FallbackRouteAdmissionResult =
+  | { allowed: true }
+  | { allowed: false; result: ExecuteHeartbeatResult };
 
 type StaleRecoveryTaskRow = {
   id: string;
@@ -405,6 +409,269 @@ function finishRuntimeBudgetAdmissionBlock(input: {
     undefined,
     null,
   );
+}
+
+function finishProtectedRuntimeApprovalBlock(input: {
+  message: string;
+  approvalId: string | null;
+  runId: string;
+  run: HeartbeatRunRow;
+  agent: AgentRow;
+  adapterType: string;
+  startTime: number;
+  db: Database.Database;
+  executionRunId?: string | null;
+}): ExecuteHeartbeatResult {
+  const idleAt = new Date().toISOString();
+  input.db.prepare(
+    `UPDATE agents
+     SET last_heartbeat = ?,
+         status = CASE WHEN status IN ('paused', 'offline') THEN status ELSE 'idle' END,
+         updated_at = ?
+     WHERE id = ?`,
+  ).run(idleAt, idleAt, input.agent.id);
+  getOrCreateRuntimeState(input.agent.id, input.agent.company_id, input.db, input.adapterType);
+  updateRuntimeState(input.agent.id, {
+    lastRunId: input.runId,
+    lastRunStatus: "cancelled",
+    lastError: input.message,
+  }, input.db);
+  emitRunEvent(
+    input.runId,
+    input.agent.id,
+    "approval_required",
+    input.approvalId
+      ? `Runtime execution paused pending approval ${input.approvalId}`
+      : input.message,
+    input.db,
+  );
+  return finishRun(
+    input.runId,
+    input.run,
+    "cancelled",
+    input.message,
+    input.startTime,
+    input.db,
+    undefined,
+    input.executionRunId ?? null,
+    {
+      terminalizedBy: "approval_gate",
+      failureReason: input.message,
+      retryAllowed: false,
+      retryDecisionReason: "protected_runtime_approval_required",
+    },
+  );
+}
+
+function persistRouteAttemptAudit(input: {
+  db: Database.Database;
+  executionRunId: string | null | undefined;
+  audit: Array<Record<string, unknown>>;
+  attempt?: ResolvedExecutionRouteAttempt | null;
+  adapterTypeForFallback?: string | null;
+}): void {
+  if (!input.executionRunId) return;
+  input.db.prepare(
+    `UPDATE execution_runs
+     SET runner_provider = COALESCE(?, runner_provider),
+         runner_model = COALESCE(?, runner_model),
+         fallback_used = COALESCE(?, fallback_used),
+         fallback_index = COALESCE(?, fallback_index),
+         fallback_from_provider = COALESCE(?, fallback_from_provider),
+         route_attempts_json = ?,
+         updated_at = ?
+     WHERE id = ?`,
+  ).run(
+    input.attempt?.target.runtimeProvider ?? input.adapterTypeForFallback ?? null,
+    input.attempt?.target.model ?? null,
+    input.attempt ? (input.attempt.fallbackUsed ? 1 : 0) : null,
+    input.attempt?.fallbackIndex ?? null,
+    input.attempt?.fallbackFromProvider ?? null,
+    JSON.stringify(input.audit),
+    new Date().toISOString(),
+    input.executionRunId,
+  );
+}
+
+function recordBlockedRouteAttempt(input: {
+  db: Database.Database;
+  routeAttemptAudit: Array<Record<string, unknown>>;
+  executionRunId: string | null | undefined;
+  attempt: ResolvedExecutionRouteAttempt | null;
+  attemptAdapterType: string;
+  attemptStartedAt: string;
+  error: string | null;
+}): void {
+  input.routeAttemptAudit.push({
+    index: input.routeAttemptAudit.length,
+    runtimeProvider: input.attempt?.target.runtimeProvider ?? input.attemptAdapterType,
+    model: input.attempt?.target.model ?? null,
+    fallbackUsed: Boolean(input.attempt?.fallbackUsed),
+    status: "blocked",
+    error: input.error,
+    startedAt: input.attemptStartedAt,
+    finishedAt: new Date().toISOString(),
+  });
+  persistRouteAttemptAudit({
+    db: input.db,
+    executionRunId: input.executionRunId,
+    audit: input.routeAttemptAudit,
+    attempt: input.attempt,
+    adapterTypeForFallback: input.attemptAdapterType,
+  });
+}
+
+function admitFallbackRouteAttempt(input: {
+  index: number;
+  db: Database.Database;
+  runId: string;
+  run: HeartbeatRunRow;
+  agent: AgentRow;
+  startTime: number;
+  taskKey: string;
+  contextSnapshot: Record<string, unknown>;
+  executionRunId: string | null;
+  executionRoute: ResolvedExecutionRoute | null;
+  taskModelRouting: TaskModelRoutingResult;
+  attempt: ResolvedExecutionRouteAttempt | null;
+  attemptAdapterType: string;
+  attemptProvider: string | null;
+  attemptStartedAt: string;
+  routeAttemptAudit: Array<Record<string, unknown>>;
+}): FallbackRouteAdmissionResult {
+  const attemptGateProvider = input.attempt?.target.runtimeProvider ?? input.attemptProvider;
+  if (input.index === 0 || input.taskKey === "__heartbeat__" || !attemptGateProvider) {
+    return { allowed: true };
+  }
+
+  const attemptRunnerProvider = input.attempt?.target.runtimeProvider ?? input.attemptProvider ?? input.attemptAdapterType;
+  const attemptRunnerModel = input.attempt?.target.model ?? null;
+  const laneKey = input.executionRoute?.laneId ?? input.taskModelRouting.lane;
+  const wakeReason = typeof input.contextSnapshot.wakeReason === "string" ? input.contextSnapshot.wakeReason : null;
+  const taskStatus = typeof input.contextSnapshot.taskStatus === "string" ? input.contextSnapshot.taskStatus : null;
+
+  const protectedGate = checkProtectedRuntimeExecution({
+    db: input.db,
+    companyId: input.agent.company_id,
+    agentId: input.agent.id,
+    agentName: input.agent.name,
+    provider: attemptGateProvider,
+    taskId: input.taskKey,
+    runId: input.runId,
+    wakeReason,
+    taskStatus,
+  });
+  if (!protectedGate.allowed) {
+    recordBlockedRouteAttempt({
+      db: input.db,
+      routeAttemptAudit: input.routeAttemptAudit,
+      executionRunId: input.executionRunId,
+      attempt: input.attempt,
+      attemptAdapterType: input.attemptAdapterType,
+      attemptStartedAt: input.attemptStartedAt,
+      error: protectedGate.message,
+    });
+    return {
+      allowed: false,
+      result: finishProtectedRuntimeApprovalBlock({
+        message: protectedGate.message,
+        approvalId: protectedGate.approvalId,
+        runId: input.runId,
+        run: input.run,
+        agent: input.agent,
+        adapterType: input.attemptAdapterType,
+        startTime: input.startTime,
+        db: input.db,
+        executionRunId: input.executionRunId,
+      }),
+    };
+  }
+
+  const budgetAdmission = evaluateRuntimeBudgetAdmission({
+    db: input.db,
+    companyId: input.agent.company_id,
+    agentId: input.agent.id,
+    taskId: input.taskKey,
+    heartbeatRunId: input.runId,
+    provider: attemptGateProvider,
+    model: attemptRunnerModel,
+    laneKey,
+  });
+  if (!budgetAdmission.allowed) {
+    recordBlockedRouteAttempt({
+      db: input.db,
+      routeAttemptAudit: input.routeAttemptAudit,
+      executionRunId: input.executionRunId,
+      attempt: input.attempt,
+      attemptAdapterType: input.attemptAdapterType,
+      attemptStartedAt: input.attemptStartedAt,
+      error: budgetAdmission.message,
+    });
+    return {
+      allowed: false,
+      result: finishRuntimeBudgetAdmissionBlock({
+        admission: budgetAdmission,
+        runId: input.runId,
+        run: input.run,
+        agent: input.agent,
+        adapterType: input.attemptAdapterType,
+        startTime: input.startTime,
+        db: input.db,
+        executionRunId: input.executionRunId,
+      }),
+    };
+  }
+
+  const preflight = admitHeartbeatRuntimePreflight(input.db, {
+    agentId: input.agent.id,
+    companyId: input.agent.company_id,
+    taskId: input.taskKey,
+    heartbeatRunId: input.runId,
+    executionRunId: input.executionRunId,
+    laneKey,
+    provider: input.attemptProvider ?? attemptGateProvider,
+    runnerProvider: attemptRunnerProvider,
+    runnerModel: attemptRunnerModel,
+  });
+  if (preflight.status === "allowed") return { allowed: true };
+
+  recordBlockedRouteAttempt({
+    db: input.db,
+    routeAttemptAudit: input.routeAttemptAudit,
+    executionRunId: input.executionRunId,
+    attempt: input.attempt,
+    attemptAdapterType: input.attemptAdapterType,
+    attemptStartedAt: input.attemptStartedAt,
+    error: preflight.message,
+  });
+  if (input.executionRunId) {
+    recordExecutionRunAttemptEvent(input.db, {
+      executionRunId: input.executionRunId,
+      eventType: "preflight_blocked",
+      metadata: {
+        heartbeatRunId: input.runId,
+        provider: input.attemptProvider ?? attemptGateProvider,
+        runnerProvider: attemptRunnerProvider,
+        failureCode: preflight.failureCode,
+        circuitId: preflight.circuitId,
+        message: preflight.message,
+        routeAttemptIndex: input.index,
+      },
+    });
+  }
+  return {
+    allowed: false,
+    result: finishRuntimePreflightFailure({
+      preflight,
+      runId: input.runId,
+      run: input.run,
+      agent: input.agent,
+      adapterType: input.attemptAdapterType,
+      startTime: input.startTime,
+      db: input.db,
+      executionRunId: input.executionRunId,
+    }),
+  };
 }
 
 function emitRunEvent(
@@ -1029,13 +1296,16 @@ export async function executeHeartbeatRun(
     return finishRun(runId, run, "failed", message, startTime, db);
   }
 
-  if (executionRunProvider) {
+  const primaryGateProvider = primaryRouteAttempt?.target.runtimeProvider ?? executionRunProvider;
+  const primaryRunnerModel = primaryRouteAttempt?.target.model ?? null;
+
+  if (primaryGateProvider) {
     const protectedGate = checkProtectedRuntimeExecution({
       db,
       companyId: agent.company_id,
       agentId: agent.id,
       agentName: agent.name,
-      provider: executionRunProvider,
+      provider: primaryGateProvider,
       taskId: taskKey,
       runId,
       wakeReason: typeof contextSnapshot.wakeReason === "string" ? contextSnapshot.wakeReason : null,
@@ -1043,49 +1313,29 @@ export async function executeHeartbeatRun(
     });
 
     if (!protectedGate.allowed) {
-      const idleAt = new Date().toISOString();
-      db.prepare(
-        `UPDATE agents
-         SET last_heartbeat = ?,
-             status = CASE WHEN status IN ('paused', 'offline') THEN status ELSE 'idle' END,
-             updated_at = ?
-         WHERE id = ?`,
-      ).run(idleAt, idleAt, agent.id);
-      getOrCreateRuntimeState(agent.id, agent.company_id, db, adapterType);
-      updateRuntimeState(agent.id, {
-        lastRunId: runId,
-        lastRunStatus: "cancelled",
-        lastError: protectedGate.message,
-      }, db);
-      emitRunEvent(
-        runId,
-        agent.id,
-        "approval_required",
-        `Runtime execution paused pending approval ${protectedGate.approvalId}`,
-        db,
-      );
-      return finishRun(
+      return finishProtectedRuntimeApprovalBlock({
+        message: protectedGate.message,
+        approvalId: protectedGate.approvalId,
         runId,
         run,
-        "cancelled",
-        protectedGate.message,
+        agent,
+        adapterType,
         startTime,
         db,
-        undefined,
-        precreatedExecutionRunId,
-      );
+        executionRunId: precreatedExecutionRunId,
+      });
     }
   }
 
-  if (executionRunProvider) {
+  if (primaryGateProvider) {
     const budgetAdmission = evaluateRuntimeBudgetAdmission({
       db,
       companyId: agent.company_id,
       agentId: agent.id,
       taskId: taskKey !== "__heartbeat__" ? taskKey : null,
       heartbeatRunId: runId,
-      provider: executionRunProvider,
-      model: primaryRouteAttempt?.target.model ?? null,
+      provider: primaryGateProvider,
+      model: primaryRunnerModel,
       laneKey: executionRoute?.laneId ?? taskModelRouting.lane,
     });
 
@@ -1425,6 +1675,28 @@ export async function executeHeartbeatRun(
       : executionRunProvider;
     const executionAdapter = getExecutionAdapter(attemptAdapterType);
     const attemptStartedAt = new Date().toISOString();
+    const fallbackAdmission = admitFallbackRouteAttempt({
+      index,
+      db,
+      runId,
+      run,
+      agent,
+      startTime,
+      taskKey,
+      contextSnapshot,
+      executionRunId,
+      executionRoute,
+      taskModelRouting,
+      attempt,
+      attemptAdapterType,
+      attemptProvider,
+      attemptStartedAt,
+      routeAttemptAudit,
+    });
+    if (!fallbackAdmission.allowed) {
+      return fallbackAdmission.result;
+    }
+
     emitRunEvent(
       runId,
       agent.id,
