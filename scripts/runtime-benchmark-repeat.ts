@@ -6,6 +6,10 @@ import {
   getOrchestrationDbPath,
 } from "@/lib/orchestration/db";
 import { tick } from "@/lib/orchestration/engine/engine";
+import {
+  executionRouteAttempts,
+  resolveExecutionRoute,
+} from "@/lib/orchestration/execution-route-resolver";
 import { assertOrchestrationDbPathMigrationCompatible } from "./lib/orchestration-migration-compatibility";
 
 type CliOptions = {
@@ -17,17 +21,35 @@ type CliOptions = {
   requireIsolatedWorkspace: boolean;
   checkOnly: boolean;
   allowGeneratedTasks: boolean;
+  allowedRunnerProviders: string[];
 };
 
 const TERMINAL_TASK_STATUSES = new Set(["done", "blocked", "cancelled", "backlog"]);
+const DEFAULT_ALLOWED_RUNNER_PROVIDERS = ["codex", "anthropic"];
 
 function usage(): never {
   console.error([
     "Usage: node ./scripts/run-tsx.mjs scripts/runtime-benchmark-repeat.ts --task-keys INS-205,INS-208 [options]",
     "       [--goal INS-G006] [--out output/runtime-benchmark/repeat-window.json]",
-    "       [--max-minutes 30] [--poll-ms 5000] [--allow-live-workspace] [--allow-generated-tasks] [--check-only]",
+    "       [--max-minutes 30] [--poll-ms 5000] [--allow-live-workspace] [--allow-generated-tasks] [--allowed-runner-providers codex,anthropic] [--check-only]",
   ].join("\n"));
   process.exit(1);
+}
+
+function normalizeRunnerProvider(value: string | null | undefined): string {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized === "claude" || normalized === "claude-code" || normalized === "anthropic") return "anthropic";
+  if (normalized === "openai" || normalized === "openai-codex" || normalized === "codex") return "codex";
+  if (normalized === "google" || normalized === "gemini" || normalized === "gemini-cli") return "gemini";
+  return normalized;
+}
+
+function parseProviderList(value: string | null | undefined): string[] {
+  return Array.from(new Set(String(value ?? "")
+    .split(",")
+    .map((provider) => normalizeRunnerProvider(provider))
+    .filter(Boolean)))
+    .sort();
 }
 
 function parseArgs(argv: string[]): CliOptions {
@@ -40,6 +62,7 @@ function parseArgs(argv: string[]): CliOptions {
     requireIsolatedWorkspace: true,
     checkOnly: false,
     allowGeneratedTasks: false,
+    allowedRunnerProviders: DEFAULT_ALLOWED_RUNNER_PROVIDERS,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -71,6 +94,11 @@ function parseArgs(argv: string[]): CliOptions {
       options.requireIsolatedWorkspace = false;
     } else if (arg === "--allow-generated-tasks") {
       options.allowGeneratedTasks = true;
+    } else if (arg === "--allowed-runner-providers" && next) {
+      const providers = parseProviderList(next);
+      if (providers.length === 0) usage();
+      options.allowedRunnerProviders = providers;
+      index += 1;
     } else if (arg === "--check-only") {
       options.checkOnly = true;
     } else if (arg === "--help" || arg === "-h") {
@@ -232,7 +260,149 @@ function readGeneratedTasksInFixtureProjects(
       title: string;
       status: string;
       created_at: string;
+	    }>;
+}
+
+type RuntimeRouteProviderViolation = {
+  taskKey: string;
+  lane: string;
+  executionEngine: string;
+  runnerProvider: string;
+  fallbackUsed: boolean;
+  fallbackIndex: number | null;
+};
+
+type RuntimeRunProviderViolation = {
+  taskKey: string;
+  executionRunId: string;
+  provider: string;
+  runnerProvider: string | null;
+  concreteRunnerProvider: string;
+  status: string;
+  startedAt: string | null;
+};
+
+type ReplayScopeViolation =
+  | {
+      reason: "fixture_generated_tasks";
+      generatedTasks: ReturnType<typeof readGeneratedTasksInFixtureProjects>;
+    }
+  | {
+      reason: "disallowed_route_provider";
+      allowedRunnerProviders: string[];
+      routeViolations: RuntimeRouteProviderViolation[];
+    }
+  | {
+      reason: "disallowed_execution_run_provider";
+      allowedRunnerProviders: string[];
+      runViolations: RuntimeRunProviderViolation[];
+    };
+
+function readRouteProviderViolations(
+  db: ReturnType<typeof getOrchestrationDb>,
+  input: { taskKeys: string[]; allowedRunnerProviders: Set<string> },
+): RuntimeRouteProviderViolation[] {
+  const rows = db
+    .prepare(
+      `SELECT
+         t.task_key,
+         t.model_lane,
+         t.execution_engine,
+         COALESCE(t.company_id, p.company_id) AS company_id,
+         a.adapter_type AS assignee_adapter_type,
+         a.model AS assignee_model
+       FROM tasks t
+       INNER JOIN projects p ON p.id = t.project_id
+       LEFT JOIN agents a ON a.id = t.assignee_agent_id
+       WHERE t.task_key IN (${placeholders(input.taskKeys.length)})
+         AND t.archived_at IS NULL
+       ORDER BY t.task_key`,
+    )
+    .all(...input.taskKeys) as Array<{
+      task_key: string;
+      model_lane: string | null;
+      execution_engine: string | null;
+      company_id: string;
+      assignee_adapter_type: string | null;
+      assignee_model: string | null;
     }>;
+
+  const violations: RuntimeRouteProviderViolation[] = [];
+  for (const row of rows) {
+    const route = resolveExecutionRoute({
+      companyId: row.company_id,
+      task: {
+        modelLane: row.model_lane,
+        executionEngine: row.execution_engine,
+        assigneeAdapterType: row.assignee_adapter_type,
+        assigneeModel: row.assignee_model,
+      },
+      agent: {
+        adapterType: row.assignee_adapter_type,
+        model: row.assignee_model,
+      },
+    }, db);
+    for (const attempt of executionRouteAttempts(route)) {
+      const runnerProvider = normalizeRunnerProvider(attempt.target.runtimeProvider);
+      if (input.allowedRunnerProviders.has(runnerProvider)) continue;
+      violations.push({
+        taskKey: row.task_key,
+        lane: route.laneId,
+        executionEngine: route.executionEngine,
+        runnerProvider,
+        fallbackUsed: attempt.fallbackUsed,
+        fallbackIndex: attempt.fallbackIndex,
+      });
+    }
+  }
+  return violations;
+}
+
+function readRunProviderViolations(
+  db: ReturnType<typeof getOrchestrationDb>,
+  input: { taskKeys: string[]; allowedRunnerProviders: Set<string>; startedAt: string },
+): RuntimeRunProviderViolation[] {
+  const rows = db
+    .prepare(
+      `SELECT
+         t.task_key,
+         er.id,
+         er.provider,
+         er.runner_provider,
+         er.status,
+         er.started_at,
+         er.created_at
+       FROM execution_runs er
+       INNER JOIN tasks t ON t.id = er.task_id
+       WHERE t.task_key IN (${placeholders(input.taskKeys.length)})
+         AND COALESCE(er.started_at, er.created_at) >= ?
+       ORDER BY COALESCE(er.started_at, er.created_at), er.id`,
+    )
+    .all(...input.taskKeys, input.startedAt) as Array<{
+      task_key: string;
+      id: string;
+      provider: string;
+      runner_provider: string | null;
+      status: string;
+      started_at: string | null;
+      created_at: string | null;
+    }>;
+
+  return rows.flatMap((row) => {
+    const provider = normalizeRunnerProvider(row.provider);
+    const runnerProvider = normalizeRunnerProvider(row.runner_provider);
+    const concreteRunnerProvider = provider === "symphony" ? runnerProvider : runnerProvider || provider;
+    if (input.allowedRunnerProviders.has(concreteRunnerProvider)) return [];
+    return [{
+      taskKey: row.task_key,
+      executionRunId: row.id,
+      provider,
+      runnerProvider: runnerProvider || null,
+      concreteRunnerProvider,
+      status: row.status,
+      startedAt: row.started_at ?? row.created_at,
+    }];
+  });
 }
 
 async function main() {
@@ -263,8 +433,9 @@ async function main() {
   const startedAt = new Date().toISOString();
   const fixtureProjectIds = readSelectedTaskProjectIds(db, options.taskKeys);
   const deadline = Date.now() + options.maxMinutes * 60_000;
+  const allowedRunnerProviderSet = new Set(options.allowedRunnerProviders);
   let tickCount = 0;
-  let scopeViolation: { reason: string; generatedTasks: ReturnType<typeof readGeneratedTasksInFixtureProjects> } | null = null;
+  let scopeViolation: ReplayScopeViolation | null = null;
   const tickResults: Array<{
     tickedAt: string;
     status: string;
@@ -274,7 +445,25 @@ async function main() {
     staleExecutionRunsRecovered: number;
   }> = [];
 
+  const routeViolations = readRouteProviderViolations(db, {
+    taskKeys: options.taskKeys,
+    allowedRunnerProviders: allowedRunnerProviderSet,
+  });
+  if (routeViolations.length > 0) {
+    scopeViolation = {
+      reason: "disallowed_route_provider",
+      allowedRunnerProviders: options.allowedRunnerProviders,
+      routeViolations,
+    };
+    console.error(
+      `[repeat] provider route violation: ${routeViolations.length} disallowed route attempt(s): ${routeViolations
+        .map((violation) => `${violation.taskKey}:${violation.runnerProvider}`)
+        .join(", ")}`,
+    );
+  }
+
   while (Date.now() < deadline) {
+    if (scopeViolation) break;
     const statuses = readTaskStatuses(db, options.taskKeys);
     if (statuses.length !== options.taskKeys.length) {
       const found = new Set(statuses.map((status) => status.task_key));
@@ -315,6 +504,25 @@ async function main() {
       }
     }
 
+    const runViolations = readRunProviderViolations(db, {
+      taskKeys: options.taskKeys,
+      allowedRunnerProviders: allowedRunnerProviderSet,
+      startedAt,
+    });
+    if (runViolations.length > 0) {
+      scopeViolation = {
+        reason: "disallowed_execution_run_provider",
+        allowedRunnerProviders: options.allowedRunnerProviders,
+        runViolations,
+      };
+      console.error(
+        `[repeat] provider run violation: ${runViolations.length} disallowed execution run(s): ${runViolations
+          .map((violation) => `${violation.taskKey}:${violation.concreteRunnerProvider}`)
+          .join(", ")}`,
+      );
+      break;
+    }
+
     if (result.claimedCount === 0) {
       await sleep(options.pollMs);
     }
@@ -341,6 +549,7 @@ async function main() {
     completedAt,
     maxMinutes: options.maxMinutes,
     taskKeys: options.taskKeys,
+    allowedRunnerProviders: options.allowedRunnerProviders,
     terminal: terminal && !scopeViolation,
     scopeClean: !scopeViolation,
     allowGeneratedTasks: options.allowGeneratedTasks,
@@ -356,7 +565,7 @@ async function main() {
     fs.writeFileSync(options.outPath, `${JSON.stringify(output, null, 2)}\n`);
   }
   console.log(JSON.stringify(output, null, 2));
-  if (scopeViolation && !options.allowGeneratedTasks) {
+  if (scopeViolation) {
     process.exitCode = 2;
   } else if (!terminal) {
     process.exitCode = 3;

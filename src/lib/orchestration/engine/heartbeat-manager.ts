@@ -434,6 +434,14 @@ function finishProtectedRuntimeApprovalBlock(input: {
   executionRunId?: string | null;
 }): ExecuteHeartbeatResult {
   const idleAt = new Date().toISOString();
+  markTaskBlockedForProtectedRuntimeApproval({
+    db: input.db,
+    run: input.run,
+    agentId: input.agent.id,
+    approvalId: input.approvalId,
+    message: input.message,
+    now: idleAt,
+  });
   input.db.prepare(
     `UPDATE agents
      SET last_heartbeat = ?,
@@ -472,6 +480,76 @@ function finishProtectedRuntimeApprovalBlock(input: {
       retryAllowed: false,
       retryDecisionReason: "protected_runtime_approval_required",
     },
+  );
+}
+
+function markTaskBlockedForProtectedRuntimeApproval(input: {
+  db: Database.Database;
+  run: HeartbeatRunRow;
+  agentId: string;
+  approvalId: string | null;
+  message: string;
+  now: string;
+}): void {
+  const contextSnapshot = parseJson(input.run.context_snapshot_json);
+  const taskId = stringFromRecord(contextSnapshot.taskId);
+  if (!taskId || taskId === "__heartbeat__") return;
+
+  const task = input.db
+    .prepare(
+      `SELECT id, project_id, status, task_key
+       FROM tasks
+       WHERE id = ?
+         AND archived_at IS NULL
+       LIMIT 1`,
+    )
+    .get(taskId) as { id: string; project_id: string | null; status: string; task_key: string | null } | undefined;
+  if (!task || task.status === "done" || task.status === "blocked") return;
+
+  const blockedReason = input.approvalId
+    ? `Protected runtime approval required: ${input.approvalId}`
+    : input.message;
+  const changed = input.db.prepare(
+    `UPDATE tasks
+     SET status = 'blocked',
+         blocked_reason = ?,
+         updated_at = ?
+     WHERE id = ?
+       AND status IN ('to-do', 'in_progress', 'review')`,
+  ).run(blockedReason, input.now, task.id);
+  if (changed.changes === 0) return;
+
+  input.db.prepare(
+    `INSERT INTO task_events
+      (id, project_id, task_id, agent_id, event_type, from_status, to_status, metadata_json, created_at)
+     VALUES (?, ?, ?, ?, 'task.status_changed', ?, 'blocked', ?, ?)`,
+  ).run(
+    randomUUID(),
+    task.project_id,
+    task.id,
+    input.agentId,
+    task.status,
+    JSON.stringify({
+      source: "runtime_protected_approval_block",
+      runId: input.run.id,
+      approvalId: input.approvalId,
+      reason: "protected_runtime_approval_required",
+    }),
+    input.now,
+  );
+  input.db.prepare(
+    `INSERT OR IGNORE INTO comments
+      (id, task_id, author_agent_id, body, type, source, external_ref, created_at, updated_at)
+     VALUES (?, ?, NULL, ?, 'blocker', 'mission_control', ?, ?, ?)`,
+  ).run(
+    randomUUID(),
+    task.id,
+    input.approvalId
+      ? `Runtime execution is blocked pending protected-runtime approval ${input.approvalId}.`
+      : input.message,
+    `engine:protected-runtime-approval-block:${input.run.id}`,
+    input.now,
+    input.now,
   );
 }
 

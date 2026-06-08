@@ -1289,6 +1289,29 @@ function resolveSymphonyRuntime(db: Database.Database, input: HeartbeatRuntimePr
   return rows[0] ?? null;
 }
 
+function resolveAgentRuntime(
+  db: Database.Database,
+  input: HeartbeatRuntimePreflightInput,
+  provider: string,
+): SymphonyRuntimeRow | null {
+  const rows = db
+    .prepare(
+      `SELECT command, metadata_json
+       FROM agent_runtimes
+       WHERE company_id = ?
+         AND provider = ?
+         AND status <> 'disabled'
+         AND (agent_id = ? OR agent_id IS NULL)
+       ORDER BY
+         CASE WHEN agent_id = ? THEN 0 ELSE 1 END,
+         CASE scope WHEN 'agent' THEN 0 WHEN 'company' THEN 1 ELSE 2 END,
+         updated_at DESC
+       LIMIT 1`,
+    )
+    .all(input.companyId, provider, input.agentId, input.agentId) as SymphonyRuntimeRow[];
+  return rows[0] ?? null;
+}
+
 function resolveWorkspace(db: Database.Database, input: HeartbeatRuntimePreflightInput): {
   cwd: string | null;
   companyWorkspaceRoot: string | null;
@@ -1399,7 +1422,15 @@ function resolveHeartbeatRunnerLaunch(db: Database.Database, input: HeartbeatRun
   laneReadinessChecks: RuntimeLaneReadinessCheck[];
 } {
   if (input.provider !== "symphony") {
-    const cli = splitCommandPrefix(configuredCliCommandForRunnerProvider(input.runnerProvider, {}));
+    const runnerProvider = normalizeRunnerProvider(input.runnerProvider ?? input.provider);
+    const runtime = resolveAgentRuntime(db, input, runnerProvider);
+    const metadata = parseJson(runtime?.metadata_json);
+    const cli = splitCommandPrefix(
+      text(metadata.commandPath) ||
+      text(metadata.command) ||
+      text(runtime?.command) ||
+      configuredCliCommandForRunnerProvider(runnerProvider, metadata),
+    );
     return {
       command: null,
       commandArgs: [],

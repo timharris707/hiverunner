@@ -15,6 +15,18 @@ function writeFakeCodexCli(binDir: string): string {
 printf '%s\\n' "$PWD" > "$FAKE_CODEX_CWD_FILE"
 printf '%s\\n' "$*" > "$FAKE_CODEX_ARGS_FILE"
 printf '%s\\n' '---RUN---' >> "$FAKE_CODEX_STDIN_FILE"
+prev=""
+for arg in "$@"; do
+  if [ "$arg" = "--version" ]; then
+    printf '%s\\n' 'codex 0.0.0-test'
+    exit 0
+  fi
+  if [ "$prev" = "login" ] && [ "$arg" = "status" ]; then
+    printf '%s\\n' 'Logged in with ChatGPT subscription'
+    exit 0
+  fi
+  prev="$arg"
+done
 /bin/cat >> "$FAKE_CODEX_STDIN_FILE"
 if [ "$FAKE_CODEX_EMPTY_OUTPUT" = "1" ]; then
   printf 'Reading additional input from stdin...\\n' >&2
@@ -298,7 +310,8 @@ async function run() {
       )
       .all(executionRun!.id) as Array<{ event_kind: string; role: string | null; title: string | null; body: string }>;
     assert.ok(transcriptEvents.length >= 3);
-    assert.strictEqual(transcriptEvents[0]?.event_kind, "run_start");
+    assert.strictEqual(transcriptEvents[0]?.event_kind, "command_start");
+    assert.ok(transcriptEvents.some((event) => event.event_kind === "run_start"));
     assert.ok(transcriptEvents.some((event) => event.event_kind === "provider_event" && event.title === "Codex process started"));
     assert.ok(transcriptEvents.some((event) => event.event_kind === "provider_event" && event.title === "Codex prompt sent"));
     assert.ok(transcriptEvents.some((event) => event.event_kind === "assistant_text_delta"));
@@ -579,6 +592,11 @@ async function run() {
         .get(protectedTask.id) as { count: number }
     ).count;
     assert.strictEqual(blockedExecutionRunCount, 0, "no execution_run before approval");
+    const blockedTask = db
+      .prepare("SELECT status, blocked_reason FROM tasks WHERE id = ? LIMIT 1")
+      .get(protectedTask.id) as { status: string; blocked_reason: string | null } | undefined;
+    assert.strictEqual(blockedTask?.status, "blocked", "approval-gated task should not stay active without an execution_run");
+    assert.ok(blockedTask?.blocked_reason?.includes(approval!.id), "blocked task should point to the pending approval");
 
     updateApprovalStatus({
       approvalId: approval!.id,

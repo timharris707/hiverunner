@@ -104,6 +104,11 @@ function parseArgs(argv: string[]): CliOptions {
     }
   }
 
+  if ((options.arm || options.repeatIndex !== null) && (!options.runStartedAfter || !options.runStartedBefore)) {
+    console.error("Controlled arm/repeat benchmark summaries require --run-started-after and --run-started-before.");
+    usage();
+  }
+
   return options;
 }
 
