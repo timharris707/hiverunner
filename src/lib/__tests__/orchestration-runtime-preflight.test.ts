@@ -38,12 +38,17 @@ async function run() {
   const helperImport = path.join(libDir, "external-runner-utils.mjs");
   const missingNode = path.join(tempRoot, "bin", "missing-node");
   const missingRunner = path.join(tempRoot, "missing", "hiverunner-symphony-runner.mjs");
+  const allowedWorkspace = path.join(tempRoot, "allowed-workspace");
+  const outsideWorkspace = path.join(tempRoot, "outside-workspace");
 
   const originalDbPath = process.env.ORCHESTRATION_DB_PATH;
+  const originalOpenAiApiKey = process.env.OPENAI_API_KEY;
   process.env.ORCHESTRATION_DB_PATH = dbPath;
 
   try {
     mkdirSync(cwd, { recursive: true });
+    mkdirSync(allowedWorkspace, { recursive: true });
+    mkdirSync(outsideWorkspace, { recursive: true });
     mkdirSync(libDir, { recursive: true });
     writeFileSync(runnerScript, "console.log('runner');\n", "utf8");
     writeFileSync(helperImport, "export {};\n", "utf8");
@@ -165,6 +170,166 @@ async function run() {
       assert.match(row!.summary_json, /missing-helper\.mjs/);
     });
 
+    await test("subscription-local Codex preflight rejects API-key auth without storing secrets", () => {
+      process.env.OPENAI_API_KEY = "sk-test-secret-value";
+      const result = admitRuntimePreflight({
+        laneKey: "cli-auth",
+        provider: "symphony",
+        runnerProvider: "codex",
+        runnerModel: "gpt-5",
+        taskId: "task-cli-auth",
+        heartbeatRunId: "heartbeat-cli-auth-1",
+        nodePath: process.execPath,
+        command: runnerScript,
+        commandArgs: [],
+        runnerScriptPath: runnerScript,
+        helperImportPaths: [helperImport],
+        cwd,
+        companyWorkspaceRoot: cwd,
+        allowedWorkspaceRoots: [cwd],
+        cliCommand: "codex",
+        cliReadiness: {
+          status: "api_key_forbidden",
+          authMode: "api_key",
+          detail: "OPENAI_API_KEY=sk-test-secret-value API key auth detected",
+        },
+      }, db);
+
+      assert.strictEqual(result.status, "failed");
+      assert.strictEqual(result.failureCode, "missing_cli_auth");
+      assert.ok(result.circuitId);
+
+      const row = db
+        .prepare("SELECT summary_json FROM runtime_preflight_results WHERE id = ? LIMIT 1")
+        .get(result.circuitId) as { summary_json: string } | undefined;
+      assert.ok(row);
+      assert.ok(!row!.summary_json.includes("sk-test-secret-value"));
+      assert.ok(!row!.summary_json.includes("OPENAI_API_KEY=sk-test-secret-value"));
+      assert.match(row!.summary_json, /subscriptionLocalBoundary/);
+      assert.match(row!.summary_json, /apiEnvironmentIgnored/);
+    });
+
+    await test("invalid runner provider identity is blocked before admission", () => {
+      const result = admitRuntimePreflight({
+        laneKey: "invalid-provider",
+        provider: "symphony",
+        runnerProvider: "bedrock",
+        runnerModel: "claude-sonnet-4-6",
+        taskId: "task-invalid-provider",
+        heartbeatRunId: "heartbeat-invalid-provider-1",
+        nodePath: process.execPath,
+        command: runnerScript,
+        commandArgs: [],
+        runnerScriptPath: runnerScript,
+        helperImportPaths: [helperImport],
+        cwd,
+        companyWorkspaceRoot: cwd,
+        allowedWorkspaceRoots: [cwd],
+      }, db);
+
+      assert.strictEqual(result.status, "failed");
+      assert.strictEqual(result.failureCode, "invalid_provider_identity");
+    });
+
+    await test("inactive or unknown model identity is blocked when provider catalog is populated", () => {
+      const result = admitRuntimePreflight({
+        laneKey: "unknown-model",
+        provider: "symphony",
+        runnerProvider: "codex",
+        runnerModel: "gpt-does-not-exist",
+        taskId: "task-unknown-model",
+        heartbeatRunId: "heartbeat-unknown-model-1",
+        nodePath: process.execPath,
+        command: runnerScript,
+        commandArgs: [],
+        runnerScriptPath: runnerScript,
+        helperImportPaths: [helperImport],
+        cwd,
+        companyWorkspaceRoot: cwd,
+        allowedWorkspaceRoots: [cwd],
+        cliCommand: "codex",
+        cliReadiness: { status: "ready", authMode: "subscription", detail: "Logged in with ChatGPT" },
+      }, db);
+
+      assert.strictEqual(result.status, "failed");
+      assert.strictEqual(result.failureCode, "unavailable_model_identity");
+      assert.match(JSON.stringify(result.summary), /gpt-does-not-exist/);
+    });
+
+    await test("unsafe workspace outside allowed roots is blocked", () => {
+      const result = admitRuntimePreflight({
+        laneKey: "unsafe-workspace",
+        provider: "symphony",
+        runnerProvider: "gemini",
+        runnerModel: "gemini-2.5-pro",
+        taskId: "task-unsafe-workspace",
+        heartbeatRunId: "heartbeat-unsafe-workspace-1",
+        nodePath: process.execPath,
+        command: runnerScript,
+        commandArgs: [],
+        runnerScriptPath: runnerScript,
+        helperImportPaths: [helperImport],
+        cwd: outsideWorkspace,
+        companyWorkspaceRoot: allowedWorkspace,
+        allowedWorkspaceRoots: [allowedWorkspace],
+      }, db);
+
+      assert.strictEqual(result.status, "failed");
+      assert.strictEqual(result.failureCode, "unsafe_workspace");
+      assert.match(JSON.stringify(result.summary), /outside_allowed_workspace_roots/);
+    });
+
+    await test("provider model fingerprint quarantine blocks later clean admissions", () => {
+      const first = admitRuntimePreflight({
+        laneKey: "quarantine",
+        provider: "symphony",
+        runnerProvider: "anthropic",
+        runnerModel: "claude-sonnet-4-6",
+        taskId: "task-quarantine-a",
+        heartbeatRunId: "heartbeat-quarantine-a",
+        nodePath: process.execPath,
+        command: runnerScript,
+        commandArgs: [],
+        runnerScriptPath: runnerScript,
+        helperImportPaths: [helperImport],
+        cwd,
+        companyWorkspaceRoot: cwd,
+        allowedWorkspaceRoots: [cwd],
+        cliCommand: "claude",
+        cliReadiness: { status: "needs_login", authMode: "missing", detail: "not logged in" },
+      }, db);
+      assert.strictEqual(first.status, "failed");
+      assert.strictEqual(first.failureCode, "missing_cli_auth");
+
+      const second = admitRuntimePreflight({
+        laneKey: "quarantine",
+        provider: "symphony",
+        runnerProvider: "anthropic",
+        runnerModel: "claude-sonnet-4-6",
+        taskId: "task-quarantine-b",
+        heartbeatRunId: "heartbeat-quarantine-b",
+        nodePath: process.execPath,
+        command: runnerScript,
+        commandArgs: [],
+        runnerScriptPath: runnerScript,
+        helperImportPaths: [helperImport],
+        cwd,
+        companyWorkspaceRoot: cwd,
+        allowedWorkspaceRoots: [cwd],
+        cliCommand: "claude",
+        cliReadiness: { status: "ready", authMode: "subscription", detail: "authenticated" },
+      }, db);
+
+      assert.strictEqual(second.status, "blocked");
+      assert.strictEqual(second.failureCode, "quarantined_provider_model_fingerprint");
+      assert.strictEqual(second.circuitId, first.circuitId);
+
+      const row = db
+        .prepare("SELECT COUNT(*) AS count FROM runtime_preflight_results WHERE lane_key = 'quarantine'")
+        .get() as { count: number };
+      assert.strictEqual(row.count, 1);
+    });
+
     await test("benchmark replay metadata makes candidate bundled runner path authoritative", () => {
       const candidateSourceRoot = path.join(tempRoot, "candidate-source");
       const companyWorkspaceRoot = path.join(tempRoot, "company-workspace");
@@ -270,6 +435,8 @@ async function run() {
   } finally {
     if (originalDbPath === undefined) delete process.env.ORCHESTRATION_DB_PATH;
     else process.env.ORCHESTRATION_DB_PATH = originalDbPath;
+    if (originalOpenAiApiKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = originalOpenAiApiKey;
     rmSync(tempRoot, { recursive: true, force: true });
   }
 
