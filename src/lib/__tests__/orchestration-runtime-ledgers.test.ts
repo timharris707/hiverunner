@@ -121,19 +121,79 @@ async function run() {
     });
 
     const row = db.prepare(
-      `SELECT prompt_sha256, prompt_chars, estimated_tokens, metadata_json
+      `SELECT prompt_sha256, prompt_chars, estimated_tokens, section_count, sections_json, metadata_json
        FROM runtime_context_manifests
        WHERE idempotency_key = ?
        LIMIT 1`
     ).get("ledger-test:context") as
-      | { prompt_sha256: string; prompt_chars: number; estimated_tokens: number; metadata_json: string }
+      | {
+          prompt_sha256: string;
+          prompt_chars: number;
+          estimated_tokens: number;
+          section_count: number;
+          sections_json: string;
+          metadata_json: string;
+        }
       | undefined;
     assert.ok(row);
     assert.equal(row!.prompt_sha256.length, 64);
     assert.equal(row!.prompt_chars, prompt.length);
     assert.ok(row!.estimated_tokens > 0);
+    assert.equal(row!.section_count, 1);
+    assert.match(row!.sections_json, /estimatedTokens/);
     assert.ok(!JSON.stringify(row).includes("secret context should not be duplicated"));
     assert.match(row!.metadata_json, /test/);
+  });
+
+  await test("runtime budget policy can block an oversized prompt estimate", () => {
+    const policy = normalizeRuntimeBudgetPolicy({
+      governance: {
+        runtime: {
+          budgetThresholds: {
+            action: "stop_queue",
+            maxPromptEstimatedTokens: 200,
+          },
+        },
+      },
+    });
+    assert.equal(policy.enabled, true);
+    assert.equal(policy.action, "stop_queue");
+    assert.equal(policy.maxPromptEstimatedTokens, 200);
+
+    const company = createCompany({
+      name: `Prompt Budget ${Date.now()}`,
+      description: "fixture",
+      status: "active",
+    }).company;
+    db.prepare("UPDATE companies SET settings_json = ? WHERE id = ?").run(
+      JSON.stringify({
+        governance: {
+          runtime: {
+            budgetThresholds: {
+              action: "stop_queue",
+              maxPromptEstimatedTokens: 200,
+            },
+          },
+        },
+      }),
+      company.id,
+    );
+
+    const admission = evaluateRuntimeBudgetAdmission({
+      db,
+      companyId: company.id,
+      taskId: "prompt-budget-task",
+      provider: "codex",
+      model: "gpt-5.5",
+      laneKey: "deep",
+      promptEstimatedTokens: 240,
+      now: "2026-05-01T01:00:00.000Z",
+    });
+
+    assert.equal(admission.allowed, false);
+    assert.equal(admission.approvalId, null);
+    assert.equal(admission.exceeded[0]?.metric, "prompt_estimated_tokens");
+    assert.match(admission.message ?? "", /prompt_estimated_tokens 240\/200/);
   });
 
   await test("runtime budget policy blocks with a durable override approval before admission", () => {

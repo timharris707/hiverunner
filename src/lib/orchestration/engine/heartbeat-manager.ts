@@ -7,7 +7,7 @@ import {
   nextExecutionRunAttemptNumber,
   recordExecutionRunAttemptEvent,
 } from "@/lib/orchestration/db";
-import { recordRuntimeContextManifest } from "@/lib/orchestration/context-manifest";
+import { estimatePromptTokens, recordRuntimeContextManifest } from "@/lib/orchestration/context-manifest";
 import {
   buildCancellationRequestResult,
   recordExecutionRunCancellationSignalResult,
@@ -1616,6 +1616,7 @@ export async function executeHeartbeatRun(
   const promptBuildStart = Date.now();
   const prompt = buildHeartbeatPrompt(agent, contextSnapshot, session, db, executionRunId);
   const promptBuildMs = Date.now() - promptBuildStart;
+  const promptEstimatedTokens = estimatePromptTokens(prompt);
   try {
     recordRuntimeContextManifest(db, {
       sourceType: "heartbeat_prompt",
@@ -1633,6 +1634,7 @@ export async function executeHeartbeatRun(
         adapterType,
         executionEngine: contextExecutionEngine,
         modelLane: executionRoute?.laneId ?? taskModelRouting.lane,
+        promptEstimatedTokens,
       },
     });
   } catch (error) {
@@ -1643,9 +1645,37 @@ export async function executeHeartbeatRun(
     });
   }
 
+  if (primaryGateProvider) {
+    const promptBudgetAdmission = evaluateRuntimeBudgetAdmission({
+      db,
+      companyId: agent.company_id,
+      agentId: agent.id,
+      taskId: taskKey !== "__heartbeat__" ? taskKey : null,
+      heartbeatRunId: runId,
+      provider: primaryGateProvider,
+      model: primaryRunnerModel,
+      laneKey: executionRoute?.laneId ?? taskModelRouting.lane,
+      promptEstimatedTokens,
+    });
+
+    if (!promptBudgetAdmission.allowed) {
+      return finishRuntimeBudgetAdmissionBlock({
+        admission: promptBudgetAdmission,
+        runId,
+        run,
+        agent,
+        adapterType,
+        startTime,
+        db,
+        executionRunId,
+      });
+    }
+  }
+
   // ── Telemetry accumulator (usage_json) ──
   const telemetry: Record<string, unknown> = {
     promptChars: prompt.length,
+    promptEstimatedTokens,
     promptBuildMs,
     sessionReused: false,
     messageCountBefore: 0,

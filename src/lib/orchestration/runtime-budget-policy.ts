@@ -12,10 +12,11 @@ export type RuntimeBudgetPolicy = {
   maxFreshInputTokens: number | null;
   maxTotalTokens: number | null;
   maxCostCents: number | null;
+  maxPromptEstimatedTokens: number | null;
 };
 
 export type RuntimeBudgetExceededThreshold = {
-  metric: "fresh_input_tokens" | "total_tokens" | "cost_cents";
+  metric: "fresh_input_tokens" | "total_tokens" | "cost_cents" | "prompt_estimated_tokens";
   actual: number;
   limit: number;
 };
@@ -47,6 +48,7 @@ export type RuntimeBudgetAdmissionInput = {
   provider?: string | null;
   model?: string | null;
   laneKey?: string | null;
+  promptEstimatedTokens?: number | null;
   now?: string;
 };
 
@@ -64,6 +66,7 @@ const DEFAULT_POLICY: RuntimeBudgetPolicy = {
   maxFreshInputTokens: null,
   maxTotalTokens: null,
   maxCostCents: null,
+  maxPromptEstimatedTokens: null,
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -120,11 +123,18 @@ export function normalizeRuntimeBudgetPolicy(settings: Record<string, unknown>):
   const maxCostCents = nonNegativeLimit(
     budget.maxCostCents ?? budget.max_cost_cents ?? budget.costCents,
   );
+  const maxPromptEstimatedTokens = nonNegativeLimit(
+    budget.maxPromptEstimatedTokens ??
+      budget.max_prompt_estimated_tokens ??
+      budget.maxPromptTokens ??
+      budget.max_prompt_tokens,
+  );
   const windowHours = finiteNumber(budget.windowHours ?? budget.window_hours);
   const hasThreshold =
     maxFreshInputTokens !== null ||
     maxTotalTokens !== null ||
-    maxCostCents !== null;
+    maxCostCents !== null ||
+    maxPromptEstimatedTokens !== null;
 
   return {
     enabled: typeof budget.enabled === "boolean" ? budget.enabled : hasThreshold,
@@ -133,6 +143,7 @@ export function normalizeRuntimeBudgetPolicy(settings: Record<string, unknown>):
     maxFreshInputTokens,
     maxTotalTokens,
     maxCostCents,
+    maxPromptEstimatedTokens,
   };
 }
 
@@ -190,7 +201,11 @@ function loadWindowTotals(
   };
 }
 
-function exceededThresholds(policy: RuntimeBudgetPolicy, totals: RuntimeBudgetWindowTotals): RuntimeBudgetExceededThreshold[] {
+function exceededThresholds(
+  policy: RuntimeBudgetPolicy,
+  totals: RuntimeBudgetWindowTotals,
+  input: RuntimeBudgetAdmissionInput,
+): RuntimeBudgetExceededThreshold[] {
   const exceeded: RuntimeBudgetExceededThreshold[] = [];
   if (policy.maxFreshInputTokens !== null && totals.freshInputTokens >= policy.maxFreshInputTokens) {
     exceeded.push({ metric: "fresh_input_tokens", actual: totals.freshInputTokens, limit: policy.maxFreshInputTokens });
@@ -200,6 +215,21 @@ function exceededThresholds(policy: RuntimeBudgetPolicy, totals: RuntimeBudgetWi
   }
   if (policy.maxCostCents !== null && totals.costCents >= policy.maxCostCents) {
     exceeded.push({ metric: "cost_cents", actual: totals.costCents, limit: policy.maxCostCents });
+  }
+  const promptEstimatedTokens =
+    typeof input.promptEstimatedTokens === "number" && Number.isFinite(input.promptEstimatedTokens)
+      ? Math.max(0, Math.round(input.promptEstimatedTokens))
+      : null;
+  if (
+    policy.maxPromptEstimatedTokens !== null &&
+    promptEstimatedTokens !== null &&
+    promptEstimatedTokens >= policy.maxPromptEstimatedTokens
+  ) {
+    exceeded.push({
+      metric: "prompt_estimated_tokens",
+      actual: promptEstimatedTokens,
+      limit: policy.maxPromptEstimatedTokens,
+    });
   }
   return exceeded;
 }
@@ -253,7 +283,7 @@ export function evaluateRuntimeBudgetAdmission(input: RuntimeBudgetAdmissionInpu
   if (!policy.enabled || policy.action === "continue") {
     return { allowed: true, policy, totals, exceeded: [], approvalId: null, message: null };
   }
-  const exceeded = exceededThresholds(policy, totals);
+  const exceeded = exceededThresholds(policy, totals, input);
   if (exceeded.length === 0) {
     return { allowed: true, policy, totals, exceeded: [], approvalId: null, message: null };
   }
