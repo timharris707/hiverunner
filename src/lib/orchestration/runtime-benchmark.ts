@@ -20,6 +20,15 @@ export type RuntimeUsageTotals = {
   estimatedCostUsd: number | null;
 };
 
+type RuntimeExecutionUsageValidation = {
+  completedRunCount: number;
+  withUsageCount: number;
+  missingUsageCount: number;
+  invalidUsageCount: number;
+  missingUsageRunIds: string[];
+  invalidUsageRunIds: string[];
+};
+
 export type RuntimeFailureBuckets = {
   deterministicPreflight: number;
   intentionalCancellation: number;
@@ -83,6 +92,7 @@ export type RuntimeBenchmarkSummary = {
   averageRunsPerTask: number;
   recordedDurationMs: number;
   executionUsage: RuntimeUsageTotals;
+  executionUsageValidation: RuntimeExecutionUsageValidation;
   overseerTurnCount: number;
   overseerUsage: RuntimeUsageTotals;
   combinedUsage: RuntimeUsageTotals;
@@ -182,6 +192,15 @@ const EMPTY_LATENCY_METRICS: RuntimeLatencyMetrics = {
   detectUnhealthyMs: { sampleCount: 0, medianMs: null, p95Ms: null },
 };
 
+const EMPTY_EXECUTION_USAGE_VALIDATION: RuntimeExecutionUsageValidation = {
+  completedRunCount: 0,
+  withUsageCount: 0,
+  missingUsageCount: 0,
+  invalidUsageCount: 0,
+  missingUsageRunIds: [],
+  invalidUsageRunIds: [],
+};
+
 type SprintRow = {
   id: string;
   parent_id: string | null;
@@ -231,6 +250,26 @@ type RuntimeLatencyEventRow = {
 
 type JsonRecord = Record<string, unknown>;
 
+const USAGE_VALUE_KEYS = [
+  "inputTokens",
+  "input_tokens",
+  "promptTokens",
+  "prompt_tokens",
+  "totalInputTokens",
+  "cacheReadInputTokens",
+  "cache_read_input_tokens",
+  "cacheReadTokens",
+  "cache_read_tokens",
+  "cachedInputTokens",
+  "cached_input_tokens",
+  "outputTokens",
+  "output_tokens",
+  "completionTokens",
+  "completion_tokens",
+  "totalTokens",
+  "total_tokens",
+];
+
 function safeJson(value: string | null | undefined): JsonRecord {
   if (!value) return {};
   try {
@@ -253,6 +292,79 @@ function firstNumber(record: JsonRecord, keys: string[]): number {
     }
   }
   return 0;
+}
+
+function parseUsageRecord(value: string | null | undefined): { record: JsonRecord | null; invalid: boolean } {
+  if (value === null || value === undefined || !value.trim()) {
+    return { record: null, invalid: false };
+  }
+  try {
+    const parsed = JSON.parse(value);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { record: null, invalid: true };
+    }
+    return { record: parsed as JsonRecord, invalid: false };
+  } catch {
+    return { record: null, invalid: true };
+  }
+}
+
+function usageRecordHasNonNullUsage(record: JsonRecord): { hasUsage: boolean; invalid: boolean } {
+  let invalid = false;
+  for (const key of USAGE_VALUE_KEYS) {
+    if (!(key in record)) continue;
+    const value = record[key];
+    if (value === null || value === undefined || value === "") continue;
+    if (typeof value === "number") {
+      if (Number.isFinite(value)) return { hasUsage: true, invalid: false };
+      invalid = true;
+      continue;
+    }
+    if (typeof value === "string") {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return { hasUsage: true, invalid: false };
+      invalid = true;
+      continue;
+    }
+    invalid = true;
+  }
+  return { hasUsage: false, invalid };
+}
+
+function executionUsageValidationForRuns(runRows: RunRow[]): RuntimeExecutionUsageValidation {
+  const validation: RuntimeExecutionUsageValidation = {
+    completedRunCount: 0,
+    withUsageCount: 0,
+    missingUsageCount: 0,
+    invalidUsageCount: 0,
+    missingUsageRunIds: [],
+    invalidUsageRunIds: [],
+  };
+
+  for (const run of runRows) {
+    if (run.status !== "completed") continue;
+    validation.completedRunCount += 1;
+    const parsed = parseUsageRecord(run.token_usage_json);
+    if (parsed.invalid || !parsed.record) {
+      const target = parsed.invalid ? validation.invalidUsageRunIds : validation.missingUsageRunIds;
+      target.push(run.id);
+      if (parsed.invalid) validation.invalidUsageCount += 1;
+      else validation.missingUsageCount += 1;
+      continue;
+    }
+    const usageStatus = usageRecordHasNonNullUsage(parsed.record);
+    if (usageStatus.hasUsage) {
+      validation.withUsageCount += 1;
+    } else if (usageStatus.invalid) {
+      validation.invalidUsageCount += 1;
+      validation.invalidUsageRunIds.push(run.id);
+    } else {
+      validation.missingUsageCount += 1;
+      validation.missingUsageRunIds.push(run.id);
+    }
+  }
+
+  return validation;
 }
 
 export function usageTotalsFromJson(rows: Array<{ usage_json?: string | null; token_usage_json?: string | null }>): RuntimeUsageTotals {
@@ -681,6 +793,7 @@ export function buildRuntimeBenchmarkSummary(
   }
 
   const executionUsage = usageTotalsFromJson(runRows.map((run) => ({ token_usage_json: run.token_usage_json })));
+  const executionUsageValidation = executionUsageValidationForRuns(runRows);
   const overseerUsage = usageTotalsFromJson(overseerTurns.map((turn) => ({ usage_json: turn.usage_json })));
   let actionLedgerRows: RuntimeActionLedgerRow[] = [];
   if (taskIds.length > 0 && hasTable(db, "runtime_action_ledger")) {
@@ -773,6 +886,7 @@ export function buildRuntimeBenchmarkSummary(
     averageRunsPerTask: taskRows.length > 0 ? runRows.length / taskRows.length : 0,
     recordedDurationMs: runRows.reduce((sum, run) => sum + Math.max(0, run.duration_ms ?? 0), 0),
     executionUsage,
+    executionUsageValidation,
     overseerTurnCount: overseerTurns.length,
     overseerUsage,
     combinedUsage: {
@@ -811,6 +925,37 @@ export function buildRuntimeBenchmarkSummary(
 
 function freshInputPerCompletedTask(summary: RuntimeBenchmarkSummary): number {
   return summary.completedRunCount > 0 ? summary.combinedUsage.freshInputTokens / summary.completedRunCount : Number.POSITIVE_INFINITY;
+}
+
+function executionUsageValidationForSummary(summary: RuntimeBenchmarkSummary): RuntimeExecutionUsageValidation | null {
+  return summary.executionUsageValidation ?? null;
+}
+
+function completedRunUsageEvidenceCheck(summary: RuntimeBenchmarkSummary, label: string): RuntimePromotionGateCheck {
+  const validation = executionUsageValidationForSummary(summary);
+  if (!validation) {
+    return {
+      name: `${label} completed runs have no missing_usage/invalid usage`,
+      ok: false,
+      value: "missing validation",
+      threshold: "0 missing_usage/invalid",
+      detail: "summary does not include executionUsageValidation evidence",
+    };
+  }
+
+  const missingOrInvalid = validation.missingUsageCount + validation.invalidUsageCount;
+  const countMatches = validation.completedRunCount === summary.completedRunCount
+    && validation.withUsageCount + missingOrInvalid === validation.completedRunCount;
+  const sampleRunIds = [...validation.missingUsageRunIds, ...validation.invalidUsageRunIds].slice(0, 5);
+  return {
+    name: `${label} completed runs have no missing_usage/invalid usage`,
+    ok: countMatches && missingOrInvalid === 0,
+    value: missingOrInvalid,
+    threshold: "0 missing_usage/invalid",
+    detail: countMatches
+      ? `${validation.withUsageCount}/${validation.completedRunCount} completed runs have non-null usage${sampleRunIds.length > 0 ? `; sample run ids ${sampleRunIds.join(", ")}` : ""}`
+      : `usage validation covers ${validation.completedRunCount}/${summary.completedRunCount} completed runs`,
+  };
 }
 
 function repeatedDeterministicEnvFailureCount(summary: RuntimeBenchmarkSummary): number {
@@ -882,6 +1027,7 @@ export function evaluateRuntimeBenchmarkPromotionGate(
       value: repeatedDeterministicEnvFailureCount(summary),
       threshold: "0",
     },
+    completedRunUsageEvidenceCheck(summary, "candidate"),
     {
       name: "no non-terminal parsed actions",
       ok: summary.actionLedger.nonTerminalParsed === 0,
@@ -934,6 +1080,9 @@ export function evaluateRuntimeBenchmarkPromotionGate(
     const baselineFresh = freshInputPerCompletedTask(baseline);
     const firstEvidenceNoise = options.firstEvidenceNoiseMs ?? 0;
     const detectUnhealthyNoise = options.detectUnhealthyNoiseMs ?? 0;
+    checks.push({
+      ...completedRunUsageEvidenceCheck(baseline, "baseline"),
+    });
     checks.push({
       name: "fresh input per completed task reduced by at least 50%",
       ok: Number.isFinite(currentFresh) && Number.isFinite(baselineFresh) && currentFresh <= baselineFresh * 0.5,
@@ -1174,6 +1323,37 @@ function candidateQualityChecks(input: {
   ];
 }
 
+function repeatedUsageEvidenceCheck(summaries: RuntimeBenchmarkSummary[], label: string): RuntimePromotionGateCheck {
+  let missingValidationCount = 0;
+  let completedRunCount = 0;
+  let withUsageCount = 0;
+  let missingUsageCount = 0;
+  let invalidUsageCount = 0;
+  const sampleRunIds: string[] = [];
+
+  for (const summary of summaries) {
+    const validation = executionUsageValidationForSummary(summary);
+    if (!validation) {
+      missingValidationCount += 1;
+      continue;
+    }
+    completedRunCount += validation.completedRunCount;
+    withUsageCount += validation.withUsageCount;
+    missingUsageCount += validation.missingUsageCount;
+    invalidUsageCount += validation.invalidUsageCount;
+    sampleRunIds.push(...validation.missingUsageRunIds, ...validation.invalidUsageRunIds);
+  }
+
+  const missingOrInvalid = missingUsageCount + invalidUsageCount;
+  return {
+    name: `${label} completed runs have no missing_usage/invalid usage`,
+    ok: summaries.length > 0 && missingValidationCount === 0 && missingOrInvalid === 0,
+    value: missingValidationCount > 0 ? `${missingValidationCount} missing validation` : missingOrInvalid,
+    threshold: "0 missing_usage/invalid",
+    detail: `${withUsageCount}/${completedRunCount} completed runs have non-null usage${sampleRunIds.length > 0 ? `; sample run ids ${sampleRunIds.slice(0, 5).join(", ")}` : ""}`,
+  };
+}
+
 function externalEvidenceChecks(evidence: RuntimePromotionEvidence | null | undefined): RuntimePromotionGateCheck[] {
   return [
     {
@@ -1302,6 +1482,8 @@ export function buildRuntimeBenchmarkPromotionReport(
       candidateQualityRates,
       noRepeatedDeterministicFailures,
     }),
+    repeatedUsageEvidenceCheck(candidateSummaries, "candidate"),
+    repeatedUsageEvidenceCheck(baselineSummaries, "baseline"),
     ...externalEvidenceChecks(evidence),
     ...metricRegressionChecks({ candidate, baseline, candidateRuntimeQualityFailures }),
   ];
@@ -1320,6 +1502,7 @@ export function formatRuntimeBenchmarkMarkdown(summary: RuntimeBenchmarkSummary)
   const actionLedger = summary.actionLedger ?? EMPTY_ACTION_LEDGER_METRICS;
   const browserProof = summary.browserProof ?? EMPTY_BROWSER_PROOF_METRICS;
   const latency = summary.latency ?? EMPTY_LATENCY_METRICS;
+  const usageValidation = summary.executionUsageValidation ?? EMPTY_EXECUTION_USAGE_VALIDATION;
   const pct = (value: number, denominator: number) => denominator > 0 ? `${((value / denominator) * 100).toFixed(1)}%` : "0.0%";
   const hours = (ms: number) => (ms / 3_600_000).toFixed(2);
   const tokens = (value: number) => Math.round(value).toLocaleString("en-US");
@@ -1362,6 +1545,12 @@ export function formatRuntimeBenchmarkMarkdown(summary: RuntimeBenchmarkSummary)
     `| execution_runs | ${tokens(summary.executionUsage.inputTokens)} | ${tokens(summary.executionUsage.cacheReadInputTokens)} | ${tokens(summary.executionUsage.freshInputTokens)} | ${tokens(summary.executionUsage.outputTokens)} | ${tokens(summary.executionUsage.totalTokens)} |`,
     `| overseer_turns (${summary.overseerTurnCount}) | ${tokens(summary.overseerUsage.inputTokens)} | ${tokens(summary.overseerUsage.cacheReadInputTokens)} | ${tokens(summary.overseerUsage.freshInputTokens)} | ${tokens(summary.overseerUsage.outputTokens)} | ${tokens(summary.overseerUsage.totalTokens)} |`,
     `| combined | ${tokens(summary.combinedUsage.inputTokens)} | ${tokens(summary.combinedUsage.cacheReadInputTokens)} | ${tokens(summary.combinedUsage.freshInputTokens)} | ${tokens(summary.combinedUsage.outputTokens)} | ${tokens(summary.combinedUsage.totalTokens)} |`,
+    "",
+    "## Usage Validation",
+    "",
+    `- Completed runs with usage: ${usageValidation.withUsageCount}/${usageValidation.completedRunCount}`,
+    `- Missing usage runs: ${usageValidation.missingUsageCount}${usageValidation.missingUsageRunIds.length > 0 ? ` (${usageValidation.missingUsageRunIds.join(", ")})` : ""}`,
+    `- Invalid usage runs: ${usageValidation.invalidUsageCount}${usageValidation.invalidUsageRunIds.length > 0 ? ` (${usageValidation.invalidUsageRunIds.join(", ")})` : ""}`,
     "",
     "## Action Ledger",
     "",

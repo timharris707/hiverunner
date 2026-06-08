@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 
+import type Database from "better-sqlite3";
 import { NextRequest } from "next/server";
 
 import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import type { MCLiveEvent } from "@/lib/orchestration/live-events";
 import {
   __resetLiveRuntimeEventsForTests,
+  __liveRuntimeEventsTestHooks,
   getBufferedLiveRuntimeEvents,
   getLiveRuntimeEventsStatus,
   LIVE_RUNTIME_RING_BUFFER_SIZE,
@@ -258,6 +260,110 @@ async function run() {
     const processProviderMeta = JSON.stringify(processEvent?.metadata.providerMeta);
     assert.match(processProviderMeta, /\[REDACTED:/);
     assert.doesNotMatch(processProviderMeta, /sk-proj-[A-Za-z0-9_-]+/);
+  });
+
+  await test("durable runtime progress persistence retries transient SQLite busy writes and warns on final failure", async () => {
+    __resetLiveRuntimeEventsForTests();
+
+    let insertAttempts = 0;
+    let failUntilAttempt = 3;
+    const insertedKinds: string[] = [];
+    const fakeDb = {
+      prepare(sql: string) {
+        return {
+          get(value: string) {
+            if (sql.includes("sqlite_master")) return { name: value };
+            if (sql.includes("FROM execution_runs")) return { id: value };
+            if (sql.includes("COALESCE(MAX(sequence)")) return { next_sequence: 0, existing_count: 0 };
+            return undefined;
+          },
+          run(
+            _id: string,
+            _executionRunId: string,
+            _provider: string,
+            kind: string,
+          ) {
+            if (sql.includes("INSERT INTO execution_run_transcript_events")) {
+              insertAttempts += 1;
+              if (insertAttempts < failUntilAttempt) {
+                const error = new Error("database is locked") as Error & { code?: string };
+                error.code = "SQLITE_BUSY";
+                throw error;
+              }
+              insertedKinds.push(kind);
+            }
+            return { changes: 1 };
+          },
+        };
+      },
+      transaction(fn: () => void) {
+        return () => fn();
+      },
+    } as unknown as Database.Database;
+    const originalAttempts = process.env.HIVERUNNER_LIVE_RUNTIME_EVENT_BUSY_WRITE_ATTEMPTS;
+    const originalBackoff = process.env.HIVERUNNER_LIVE_RUNTIME_EVENT_BUSY_BACKOFF_MS;
+    const originalWarn = console.warn;
+    const warnings: unknown[] = [];
+    process.env.HIVERUNNER_LIVE_RUNTIME_EVENT_BUSY_WRITE_ATTEMPTS = "3";
+    process.env.HIVERUNNER_LIVE_RUNTIME_EVENT_BUSY_BACKOFF_MS = "1";
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args);
+    };
+
+    try {
+      __liveRuntimeEventsTestHooks.setRuntimeTraceDbResolverForTests(() => fakeDb);
+      await __liveRuntimeEventsTestHooks.persistDurableRuntimeTraceEvent(runtimeEvent({
+        kind: "runtime_progress",
+        runId: "run-busy-progress",
+        summary: "runtime progress",
+        payload: { phase: "persist", message: "Persisting runtime progress." },
+        ts: Date.parse("2026-06-08T12:01:00.000Z"),
+        seq: 10,
+      }));
+
+      assert.equal(insertAttempts, 3);
+      assert.deepEqual(insertedKinds, ["runtime_progress"]);
+      assert.equal(warnings.length, 0);
+
+      insertAttempts = 0;
+      failUntilAttempt = Number.POSITIVE_INFINITY;
+      insertedKinds.length = 0;
+      process.env.HIVERUNNER_LIVE_RUNTIME_EVENT_BUSY_WRITE_ATTEMPTS = "2";
+
+      await __liveRuntimeEventsTestHooks.persistDurableRuntimeTraceEvent(runtimeEvent({
+        kind: "runtime_progress",
+        runId: "run-busy-progress",
+        summary: "runtime progress after final failure",
+        payload: { phase: "persist", message: "Still persisting runtime progress." },
+        ts: Date.parse("2026-06-08T12:01:01.000Z"),
+        seq: 11,
+      }));
+
+      assert.equal(insertAttempts, 2);
+      assert.deepEqual(insertedKinds, []);
+      assert.equal(warnings.length, 1);
+      assert.equal((warnings[0] as unknown[])[0], "[live-runtime-events] failed to persist runtime transparency event");
+      assert.deepEqual((warnings[0] as unknown[])[1], {
+        eventId: "runtime_progress-11",
+        kind: "runtime_progress",
+        runId: "run-busy-progress",
+        companyId: "company-runtime-test",
+        agentId: "agent-runtime-test",
+        provider: "runtime-test",
+        attempts: 2,
+        error: {
+          code: "SQLITE_BUSY",
+          message: "database is locked",
+        },
+      });
+    } finally {
+      console.warn = originalWarn;
+      if (originalAttempts === undefined) delete process.env.HIVERUNNER_LIVE_RUNTIME_EVENT_BUSY_WRITE_ATTEMPTS;
+      else process.env.HIVERUNNER_LIVE_RUNTIME_EVENT_BUSY_WRITE_ATTEMPTS = originalAttempts;
+      if (originalBackoff === undefined) delete process.env.HIVERUNNER_LIVE_RUNTIME_EVENT_BUSY_BACKOFF_MS;
+      else process.env.HIVERUNNER_LIVE_RUNTIME_EVENT_BUSY_BACKOFF_MS = originalBackoff;
+      __resetLiveRuntimeEventsForTests();
+    }
   });
 
   await test("live-stream SSE replays and streams runtime events with company filtering", async () => {

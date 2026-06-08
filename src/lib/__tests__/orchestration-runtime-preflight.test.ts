@@ -55,6 +55,7 @@ async function run() {
     rmSync(dbPath, { force: true });
 
     const { getOrchestrationDb, closeOrchestrationDb } = await import("@/lib/orchestration/db");
+    const { createCompany } = await import("@/lib/orchestration/company-service");
     const { admitHeartbeatRuntimePreflight, admitRuntimePreflight } = await import("@/lib/orchestration/runtime-preflight");
     const db = getOrchestrationDb();
 
@@ -229,6 +230,40 @@ async function run() {
 
       assert.strictEqual(result.status, "failed");
       assert.strictEqual(result.failureCode, "invalid_provider_identity");
+    });
+
+    await test("company runtime policy blocks disabled runner providers before launch", () => {
+      const disabledProviderCompany = createCompany({
+        name: `Runtime Policy Co ${Date.now()}`,
+        description: "fixture",
+        status: "active",
+      }).company;
+      db.prepare("UPDATE companies SET settings_json = ? WHERE id = ?").run(
+        JSON.stringify({ governance: { runtime: { disabledProviders: ["gemini"] } } }),
+        disabledProviderCompany.id,
+      );
+
+      const result = admitRuntimePreflight({
+        laneKey: "deep",
+        provider: "symphony",
+        runnerProvider: "gemini",
+        runnerModel: "gemini-3.1-pro-preview",
+        companyId: disabledProviderCompany.id,
+        taskId: "task-disabled-provider",
+        heartbeatRunId: "heartbeat-disabled-provider-1",
+        nodePath: process.execPath,
+        command: runnerScript,
+        commandArgs: [],
+        runnerScriptPath: runnerScript,
+        helperImportPaths: [helperImport],
+        cwd,
+        companyWorkspaceRoot: cwd,
+        allowedWorkspaceRoots: [cwd],
+      }, db);
+
+      assert.strictEqual(result.status, "failed");
+      assert.strictEqual(result.failureCode, "provider_disabled_by_policy");
+      assert.match(result.message ?? "", /disabled by company runtime policy/);
     });
 
     await test("inactive or unknown model identity is blocked when provider catalog is populated", () => {

@@ -11,6 +11,7 @@ import {
   resolveCompanyWorkspaceRoot,
 } from "@/lib/workspaces/company-paths";
 import { isPathContained } from "@/lib/workspaces/delete-safety";
+import { isRuntimeProviderDisabled } from "@/lib/orchestration/service/runtime-governance";
 
 type RuntimePreflightFailureCode =
   | "missing_node_binary"
@@ -20,6 +21,7 @@ type RuntimePreflightFailureCode =
   | "missing_workspace"
   | "unsafe_workspace"
   | "invalid_provider_identity"
+  | "provider_disabled_by_policy"
   | "unavailable_model_identity"
   | "cli_not_ready"
   | "missing_cli_auth"
@@ -918,6 +920,23 @@ function detectPreflightFailure(
   input: RuntimePreflightAdmissionInput,
   db: Database.Database,
 ): RuntimePreflightFailure | null {
+  const explicitRunnerProvider = text(input.runnerProvider);
+  const policyProvider = explicitRunnerProvider
+    ? bundledRunnerProvider(explicitRunnerProvider) ?? normalizeRunnerProvider(explicitRunnerProvider)
+    : text(input.provider);
+  if (input.companyId && policyProvider && isRuntimeProviderDisabled({ companyIdOrSlug: input.companyId, provider: policyProvider, db })) {
+    const code = "provider_disabled_by_policy";
+    return {
+      code,
+      message: "Runtime preflight failed: selected runner provider is disabled by company runtime policy.",
+      summary: buildBaseSummary({
+        ...input,
+        provider: text(input.provider),
+        runnerProvider: policyProvider,
+      }, code),
+    };
+  }
+
   const hasRunnerScript = Boolean(text(input.runnerScriptPath));
   const nodePath = text(input.nodePath) || process.execPath;
   if (hasRunnerScript && !existsFile(nodePath)) {

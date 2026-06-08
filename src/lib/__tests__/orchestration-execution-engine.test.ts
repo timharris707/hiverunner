@@ -628,6 +628,85 @@ async function run() {
     assert.strictEqual(selected?.id, openQa.id);
   });
 
+  await test("review routing skips reviewers whose runtime provider is disabled by policy", () => {
+    const db = getOrchestrationDb();
+    const settingsBefore = (db
+      .prepare("SELECT settings_json FROM companies WHERE id = ?")
+      .get(company.id) as { settings_json: string | null } | undefined)?.settings_json ?? "{}";
+    db.prepare("UPDATE companies SET settings_json = ? WHERE id = ?").run(
+      JSON.stringify({ governance: { runtime: { disabledProviders: ["gemini"] } } }),
+      company.id,
+    );
+
+    try {
+      const builder = createProjectAgent({
+        projectId: project.id,
+        name: `Provider Policy Builder ${Date.now()}`,
+        emoji: "B",
+        role: "Builder",
+        personality: "Submits work.",
+        status: "idle",
+        skills: [],
+      }).agent;
+      const geminiQa = createProjectAgent({
+        projectId: project.id,
+        name: `A Gemini Visual QA ${Date.now()}`,
+        emoji: "G",
+        role: "Visual QA",
+        personality: "Would review visually if provider policy allowed it.",
+        status: "idle",
+        skills: [],
+      }).agent;
+      const codexQa = createProjectAgent({
+        projectId: project.id,
+        name: `B Codex QA ${Date.now()}`,
+        emoji: "C",
+        role: "QA",
+        personality: "Can review under provider policy.",
+        status: "idle",
+        skills: [],
+      }).agent;
+      db.prepare(
+        `UPDATE agents
+            SET adapter_type = CASE id WHEN ? THEN 'gemini' ELSE 'codex' END,
+                review_specialist_categories = '["qa","visual","general"]'
+          WHERE id IN (?, ?)`,
+      ).run(geminiQa.id, geminiQa.id, codexQa.id);
+      db.prepare("UPDATE agents SET adapter_type = 'codex' WHERE id = ?").run(builder.id);
+      db.prepare("DELETE FROM agent_runtimes WHERE agent_id IN (?, ?, ?)").run(builder.id, geminiQa.id, codexQa.id);
+
+      const task = createTask({
+        projectId: project.id,
+        title: `Visual review policy handoff ${Date.now()}`,
+        description: "Visual review routing should honor disabled provider policy.",
+        priority: "P2",
+        type: "feature",
+        status: "in-progress",
+        assignee: builder.id,
+        labels: ["visual"],
+        createdBy: "test",
+        executionEngine: "symphony",
+      }).task;
+
+      const selected = routeForReview(
+        {
+          companyId: company.id,
+          producerAgentId: builder.id,
+          task: {
+            id: task.id,
+            title: task.title,
+            type: task.type,
+            labelsJson: JSON.stringify(["visual"]),
+          },
+        },
+        db,
+      );
+      assert.strictEqual(selected?.id, codexQa.id);
+    } finally {
+      db.prepare("UPDATE companies SET settings_json = ? WHERE id = ?").run(settingsBefore, company.id);
+    }
+  });
+
   await test("protected runtime approval dedupe is scoped by command fingerprint", () => {
     const db = getOrchestrationDb();
     const firstAgent = createProjectAgent({

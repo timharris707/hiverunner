@@ -163,6 +163,14 @@ function promotionSummary(overrides: Partial<RuntimeBenchmarkSummary> = {}): Run
       totalTokens: 12_000,
       estimatedCostUsd: null,
     },
+    executionUsageValidation: {
+      completedRunCount: 10,
+      withUsageCount: 10,
+      missingUsageCount: 0,
+      invalidUsageCount: 0,
+      missingUsageRunIds: [],
+      invalidUsageRunIds: [],
+    },
     overseerTurnCount: 0,
     overseerUsage: {
       inputTokens: 0,
@@ -260,6 +268,14 @@ async function run() {
       assert.equal(summary.failureBuckets.intentionalCancellation, 1);
       assert.equal(summary.failureBuckets.runtimeQuality, 1);
       assert.equal(summary.executionUsage.freshInputTokens, 20);
+      assert.deepEqual(summary.executionUsageValidation, {
+        completedRunCount: 1,
+        withUsageCount: 1,
+        missingUsageCount: 0,
+        invalidUsageCount: 0,
+        missingUsageRunIds: [],
+        invalidUsageRunIds: [],
+      });
       assert.equal(summary.overseerTurnCount, 1);
       assert.equal(summary.overseerUsage.freshInputTokens, 10);
       assert.equal(summary.combinedUsage.freshInputTokens, 30);
@@ -274,6 +290,48 @@ async function run() {
       assert.equal(summary.latency.firstEvidenceMs.p95Ms, 5000);
       assert.equal(summary.latency.detectUnhealthyMs.sampleCount, 1);
       assert.equal(summary.latency.detectUnhealthyMs.medianMs, 4000);
+    } finally {
+      db.close();
+    }
+  });
+
+  await test("benchmark summary classifies completed runs with missing usage", () => {
+    const db = createFixtureDb();
+    try {
+      db.prepare("UPDATE execution_runs SET token_usage_json = '{}' WHERE id = 'run-2'").run();
+      const summary = buildRuntimeBenchmarkSummary(db, "INS-G006");
+
+      assert.equal(summary.completedRunCount, 1);
+      assert.deepEqual(summary.executionUsageValidation, {
+        completedRunCount: 1,
+        withUsageCount: 0,
+        missingUsageCount: 1,
+        invalidUsageCount: 0,
+        missingUsageRunIds: ["run-2"],
+        invalidUsageRunIds: [],
+      });
+      assert.equal(summary.executionUsage.totalTokens, 0);
+    } finally {
+      db.close();
+    }
+  });
+
+  await test("benchmark summary classifies completed runs with invalid usage", () => {
+    const db = createFixtureDb();
+    try {
+      db.prepare("UPDATE execution_runs SET token_usage_json = ? WHERE id = 'run-2'").run("{");
+      const summary = buildRuntimeBenchmarkSummary(db, "INS-G006");
+
+      assert.equal(summary.completedRunCount, 1);
+      assert.deepEqual(summary.executionUsageValidation, {
+        completedRunCount: 1,
+        withUsageCount: 0,
+        missingUsageCount: 0,
+        invalidUsageCount: 1,
+        missingUsageRunIds: [],
+        invalidUsageRunIds: ["run-2"],
+      });
+      assert.equal(summary.executionUsage.totalTokens, 0);
     } finally {
       db.close();
     }
@@ -333,6 +391,29 @@ async function run() {
         },
       }), baseline).ok,
       false,
+    );
+    const missingUsageResult = evaluateRuntimeBenchmarkPromotionGate(promotionSummary({
+      executionUsageValidation: {
+        completedRunCount: 10,
+        withUsageCount: 9,
+        missingUsageCount: 1,
+        invalidUsageCount: 0,
+        missingUsageRunIds: ["run-missing-usage"],
+        invalidUsageRunIds: [],
+      },
+    }), baseline);
+    assert.equal(missingUsageResult.ok, false);
+    assert.equal(
+      missingUsageResult.checks.find((check) => check.name === "candidate completed runs have no missing_usage/invalid usage")?.ok,
+      false,
+    );
+    const legacySummary = promotionSummary() as RuntimeBenchmarkSummary & { executionUsageValidation?: unknown };
+    delete legacySummary.executionUsageValidation;
+    const missingValidationResult = evaluateRuntimeBenchmarkPromotionGate(legacySummary as RuntimeBenchmarkSummary, baseline);
+    assert.equal(missingValidationResult.ok, false);
+    assert.equal(
+      missingValidationResult.checks.find((check) => check.name === "candidate completed runs have no missing_usage/invalid usage")?.value,
+      "missing validation",
     );
     assert.equal(evaluateRuntimeBenchmarkPromotionGate(current, null).ok, false);
   });
@@ -440,6 +521,33 @@ async function run() {
       false,
     );
 
+    const missingUsageReport = buildRuntimeBenchmarkPromotionReport(
+      candidateSummaries.map((summary, index) => index === 0
+        ? {
+          ...summary,
+          executionUsageValidation: {
+            completedRunCount: 10,
+            withUsageCount: 9,
+            missingUsageCount: 1,
+            invalidUsageCount: 0,
+            missingUsageRunIds: ["run-missing-usage"],
+            invalidUsageRunIds: [],
+          },
+        }
+        : summary),
+      baselineSummaries,
+      {
+        requiredTaskCount: 10,
+        requiredRepeats: 3,
+        evidence,
+      },
+    );
+    assert.equal(missingUsageReport.gate.ok, false);
+    assert.equal(
+      missingUsageReport.gate.checks.find((check) => check.name === "candidate completed runs have no missing_usage/invalid usage")?.ok,
+      false,
+    );
+
     const mismatchedFixtureReport = buildRuntimeBenchmarkPromotionReport(
       candidateSummaries.map((summary, index) => index === 0
         ? {
@@ -469,15 +577,18 @@ async function run() {
       actionLedger?: unknown;
       browserProof?: unknown;
       latency?: unknown;
+      executionUsageValidation?: unknown;
     };
     delete legacySummary.actionLedger;
     delete legacySummary.browserProof;
     delete legacySummary.latency;
+    delete legacySummary.executionUsageValidation;
 
     const markdown = formatRuntimeBenchmarkMarkdown(legacySummary as RuntimeBenchmarkSummary);
     assert.match(markdown, /Total action rows: 0/);
     assert.match(markdown, /Total proof runs: 0/);
     assert.match(markdown, /First evidence samples: 0/);
+    assert.match(markdown, /Completed runs with usage: 0\/0/);
   });
 
   finish();

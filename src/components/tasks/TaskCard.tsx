@@ -66,6 +66,8 @@ export function TaskCard({
   });
 
   const assignedModelDisplay = task.modelDisplay;
+  const isActivelyRunning = activeRun?.status === "running";
+  const shouldReserveModelSpace = isActivelyRunning ? Boolean(activeRun?.runnerModel) : Boolean(assignedModelDisplay);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [pendingModelId, setPendingModelId] = useState<string | null>(null);
   const [modelMenuPosition, setModelMenuPosition] = useState<ModelMenuPosition | null>(null);
@@ -88,7 +90,7 @@ export function TaskCard({
     cursor: dragDisabled ? "default" : "grab",
     boxShadow: hasActiveRun ? "0 0 0 1px color-mix(in srgb, var(--accent) 10%, transparent)" : "none",
     filter: isMovementTarget ? "saturate(0.8)" : "none",
-    minHeight: assignedModelDisplay ? 126 : undefined,
+    minHeight: shouldReserveModelSpace ? 126 : undefined,
   };
 
   const displayAgentReference = cleanAgentReference(task.displayAgentName);
@@ -102,7 +104,6 @@ export function TaskCard({
   const agent = displayAgent ?? assigneeAgent;
   const meta = PRIORITY_META[task.priority];
   const waitingOn = getWaitingOnLabel(task);
-  const isActivelyRunning = activeRun?.status === "running";
   const runnerModelDisplay = useMemo(() => {
     if (!isActivelyRunning || !activeRun?.runnerModel) return null;
     return resolveLiveRunnerModelDisplay({
@@ -111,7 +112,7 @@ export function TaskCard({
       executionEngine: task.executionEngine,
     });
   }, [activeRun?.runnerModel, activeRun?.runnerProvider, isActivelyRunning, task.executionEngine]);
-  const modelDisplay = runnerModelDisplay ?? assignedModelDisplay;
+  const modelDisplay = isActivelyRunning ? runnerModelDisplay : assignedModelDisplay;
   const elapsedLabel = useElapsedRunLabel(isActivelyRunning ? activeRun?.startedAt : null);
   const updatedRelativeLabel = useRelativeTimeLabel(task.updated);
   const modelLaneLabel = task.modelLane && task.modelLane !== "default" ? taskModelLaneLabel(task.modelLane) : null;
@@ -150,7 +151,7 @@ export function TaskCard({
       ...modelOptions,
     ];
   }, [agent, currentModelKey, assignedModelDisplay, modelOptions]);
-  const canSwitchModel = Boolean(!runnerModelDisplay && agent && onAgentModelChange && visibleModelOptions.length > 0);
+  const canSwitchModel = Boolean(!isActivelyRunning && agent && onAgentModelChange && visibleModelOptions.length > 0);
   const closeModelMenu = () => {
     setModelMenuOpen(false);
     setModelMenuPosition(null);

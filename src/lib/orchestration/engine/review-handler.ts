@@ -9,6 +9,7 @@ import {
   runtimeProviderLabel,
 } from "@/lib/orchestration/runtime-readiness";
 import { enqueueWakeup } from "@/lib/orchestration/engine/wakeup-queue";
+import { isRuntimeProviderDisabled } from "@/lib/orchestration/service/runtime-governance";
 
 export type ReviewHandlerTask = {
   id: string;
@@ -56,11 +57,36 @@ function reviewAgentScore(
   return score + Number(agent.review_load ?? 0) * 12;
 }
 
-function hasRunnableRegisteredRuntime(
+function isRegisteredRuntimeAllowedForAgent(
+  input: {
+    db: Database.Database;
+    companyId: string;
+    adapterType: string;
+    runtimeProvider: string | null | undefined;
+    runtimeStatus: string;
+  },
+): boolean {
+  if (input.runtimeStatus !== "online") return false;
+  const provider = normalizeRuntimeAdapter(input.runtimeProvider);
+  if (input.adapterType === "symphony" && provider !== "symphony") return false;
+  if (input.adapterType !== "symphony" && provider !== input.adapterType) return false;
+  return !isRuntimeProviderDisabled({
+    companyIdOrSlug: input.companyId,
+    provider,
+    db: input.db,
+  });
+}
+
+function hasPolicyAllowedRunnableRuntime(
   db: Database.Database,
+  companyId: string,
   agent: { id: string; adapter_type: string | null },
 ): boolean {
   const adapterType = normalizeRuntimeAdapter(agent.adapter_type);
+  if (isRuntimeProviderDisabled({ companyIdOrSlug: companyId, provider: adapterType, db })) {
+    return false;
+  }
+
   const rows = db
     .prepare(
       `SELECT provider, status
@@ -71,12 +97,13 @@ function hasRunnableRegisteredRuntime(
 
   if (rows.length === 0) return true;
 
-  return rows.some((row) => {
-    const provider = normalizeRuntimeAdapter(row.provider);
-    if (row.status !== "online") return false;
-    if (adapterType === "symphony") return provider === "symphony";
-    return provider === adapterType;
-  });
+  return rows.some((row) => isRegisteredRuntimeAllowedForAgent({
+    db,
+    companyId,
+    adapterType,
+    runtimeProvider: row.provider,
+    runtimeStatus: row.status,
+  }));
 }
 
 function hasPendingProtectedRuntimeApprovalForTask(
@@ -148,7 +175,7 @@ export function routeForReview(
   for (const candidate of candidates) {
     if (candidate.status === "paused" || candidate.status === "offline" || candidate.status === "error") continue;
     if (!isExecutableAgentRuntime(candidate.adapter_type)) continue;
-    if (!hasRunnableRegisteredRuntime(db, candidate)) continue;
+    if (!hasPolicyAllowedRunnableRuntime(db, input.companyId, candidate)) continue;
     if (hasPendingProtectedRuntimeApprovalForTask(db, { taskId: input.task?.id, agentId: candidate.id })) continue;
     const score = reviewAgentScore(candidate, Array.from(desiredCategories));
     if (!Number.isFinite(score)) continue;

@@ -10,6 +10,7 @@ import {
 } from "@/lib/orchestration/service/dev-execution-test-mode";
 import { createApproval } from "@/lib/orchestration/service/approval";
 import { recordCompanyAuditEvent } from "@/lib/orchestration/service/audit";
+import { normalizeRuntimeAdapter } from "@/lib/orchestration/runtime-readiness";
 
 type RuntimeGovernanceTaskRow = {
   id: string;
@@ -29,6 +30,7 @@ type RuntimeGovernanceApprovalRow = {
 
 export type CompanyRuntimeGovernanceSettings = {
   requireProtectedRuntimeApprovals: boolean;
+  disabledProviders: string[];
 };
 
 export type CompanyRuntimeGovernanceView = {
@@ -72,6 +74,7 @@ export type ProtectedRuntimeGate =
 
 const DEFAULT_RUNTIME_GOVERNANCE: CompanyRuntimeGovernanceSettings = {
   requireProtectedRuntimeApprovals: true,
+  disabledProviders: [],
 };
 
 const PROTECTED_RUNTIME_RULES: Array<{
@@ -142,6 +145,16 @@ function parseSettingsJson(value: string | null | undefined): Record<string, unk
   }
 }
 
+function normalizeProviderList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const providers = new Set<string>();
+  for (const item of value) {
+    const provider = normalizeRuntimeAdapter(typeof item === "string" ? item : null);
+    if (provider && provider !== "manual") providers.add(provider);
+  }
+  return Array.from(providers).sort();
+}
+
 function normalizeRuntimeSettings(settings: Record<string, unknown>): CompanyRuntimeGovernanceSettings {
   const governance = asRecord(settings.governance);
   const runtime = asRecord(governance.runtime);
@@ -150,6 +163,7 @@ function normalizeRuntimeSettings(settings: Record<string, unknown>): CompanyRun
       typeof runtime.requireProtectedRuntimeApprovals === "boolean"
         ? runtime.requireProtectedRuntimeApprovals
         : DEFAULT_RUNTIME_GOVERNANCE.requireProtectedRuntimeApprovals,
+    disabledProviders: normalizeProviderList(runtime.disabledProviders),
   };
 }
 
@@ -228,6 +242,23 @@ export function shouldRequireProtectedRuntimeApprovals(
   db = getOrchestrationDb(),
 ): boolean {
   return getCompanyRuntimeGovernanceSettings(companyIdOrSlug, db).runtime.requireProtectedRuntimeApprovals;
+}
+
+export function disabledRuntimeProvidersForCompany(
+  companyIdOrSlug: string,
+  db = getOrchestrationDb(),
+): Set<string> {
+  return new Set(getCompanyRuntimeGovernanceSettings(companyIdOrSlug, db).runtime.disabledProviders);
+}
+
+export function isRuntimeProviderDisabled(input: {
+  companyIdOrSlug: string;
+  provider: string | null | undefined;
+  db?: Database.Database;
+}): boolean {
+  const provider = normalizeRuntimeAdapter(input.provider);
+  if (provider === "manual") return false;
+  return disabledRuntimeProvidersForCompany(input.companyIdOrSlug, input.db ?? getOrchestrationDb()).has(provider);
 }
 
 function fingerprintPayload(input: {

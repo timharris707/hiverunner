@@ -1634,20 +1634,29 @@ function AgentRunCard({
     liveRun?.transcript.some(isReadableTranscriptEntry) ||
     agentStream?.events.some((event) => event.kind === "assistant_final"),
   );
-  const lastRun = liveRun ?? latestRun;
-  const lastRunModel = liveRun ? latestRun?.runnerModel ?? agent.model ?? null : latestRun?.runnerModel ?? agent.model ?? null;
-  const lastRunProvider = liveRun ? latestRun?.runnerProvider ?? latestRun?.provider ?? agent.adapterType : latestRun?.runnerProvider ?? latestRun?.provider ?? agent.adapterType;
-  const lastRunExecutionEngine = liveRun ? latestRun?.executionEngine : latestRun?.executionEngine;
-  const displayedModel = lastRunModel;
+  const runDisplayIdentity = liveRun
+    ? {
+        provider: liveRun.runnerProvider ?? null,
+        model: liveRun.runnerModel ?? null,
+        executionEngine: null,
+        timestamp: liveRun.finishedAt ?? liveRun.startedAt,
+      }
+    : {
+        provider: latestRun?.runnerProvider ?? latestRun?.provider ?? agent.adapterType ?? null,
+        model: latestRun?.runnerModel ?? agent.model ?? null,
+        executionEngine: latestRun?.executionEngine ?? null,
+        timestamp: latestRun?.completedAt ?? latestRun?.createdAt ?? null,
+      };
+  const displayedModel = runDisplayIdentity.model;
   const modelDisplay = resolveAgentModelDisplay({
-    provider: lastRunProvider,
+    provider: runDisplayIdentity.provider,
     model: displayedModel,
-    executionEngine: lastRunExecutionEngine,
+    executionEngine: runDisplayIdentity.executionEngine,
   });
-  const providerLabel = modelDisplay?.providerLabel ?? formatRunProviderLabel(lastRunProvider ?? "manual");
+  const providerLabel = modelDisplay?.providerLabel ?? formatRunProviderLabel(runDisplayIdentity.provider ?? "runtime");
   const modelLabel = formatModelLabel(modelDisplay?.model ?? displayedModel);
-  const lastRunAge = lastRun
-    ? formatAge(("finishedAt" in lastRun ? lastRun.finishedAt : undefined) ?? latestRun?.completedAt ?? latestRun?.createdAt ?? new Date().toISOString())
+  const lastRunAge = runDisplayIdentity.timestamp
+    ? formatAge(runDisplayIdentity.timestamp)
     : null;
 
   return (

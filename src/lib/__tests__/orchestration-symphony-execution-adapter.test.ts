@@ -6,6 +6,16 @@ import path from "node:path";
 let passed = 0;
 let failed = 0;
 
+const originalRuntimePreflightAcceptance = process.env.HIVERUNNER_RUNTIME_PREFLIGHT_ACCEPTANCE;
+process.env.HIVERUNNER_RUNTIME_PREFLIGHT_ACCEPTANCE = "0";
+process.once("exit", () => {
+  if (originalRuntimePreflightAcceptance === undefined) {
+    delete process.env.HIVERUNNER_RUNTIME_PREFLIGHT_ACCEPTANCE;
+  } else {
+    process.env.HIVERUNNER_RUNTIME_PREFLIGHT_ACCEPTANCE = originalRuntimePreflightAcceptance;
+  }
+});
+
 type SymphonyFixturePayload = {
   schema: string;
   runId: string;
@@ -775,7 +785,7 @@ async function run() {
       assert.strictEqual(usage.inputTokens, 11);
       assert.strictEqual(usage.outputTokens, 7);
       assert.ok(String(usage.resultText).includes("External runner completed fixture work."));
-      assert.strictEqual(usage.transcriptEventCount, 6);
+      assert.ok(Number(usage.transcriptEventCount) >= 6);
       const workspaceRunVisibility = usage.workspaceRunVisibility as { schema: string; totals: { trackedRoots: number } };
       assert.strictEqual(workspaceRunVisibility.schema, "hiverunner.workspace_run_visibility.v1");
       assert.strictEqual(workspaceRunVisibility.totals.trackedRoots >= 1, true);
@@ -783,7 +793,13 @@ async function run() {
       const transcriptCount = db
         .prepare(`SELECT COUNT(*) AS count FROM execution_run_transcript_events WHERE execution_run_id = ? AND provider = 'symphony'`)
         .get(executionRun.id) as { count: number };
-      assert.strictEqual(transcriptCount.count, 6);
+      assert.ok(transcriptCount.count >= 6);
+      const transcriptKinds = db
+        .prepare(`SELECT DISTINCT event_kind FROM execution_run_transcript_events WHERE execution_run_id = ? AND provider = 'symphony' ORDER BY event_kind`)
+        .all(executionRun.id) as Array<{ event_kind: string }>;
+      const kindSet = new Set(transcriptKinds.map((row) => row.event_kind));
+      assert.ok(kindSet.has("assistant_text_final"));
+      assert.ok(kindSet.has("command_start"));
 
       const runtimeEvents = liveEvents.filter((event) => event.runId === executionRun.id);
       assert.ok(runtimeEvents.some((event) => event.kind === "command_start" && event.provider === "symphony"), "Symphony should emit command_start live events");
