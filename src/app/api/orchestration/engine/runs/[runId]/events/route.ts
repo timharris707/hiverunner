@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import fs from "fs";
+import path from "path";
 import { pathToFileURL } from "url";
 import { errorResponse, handleRouteError } from "@/lib/orchestration/api";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
@@ -19,6 +21,7 @@ import {
   type RunTraceProofAttachment,
   type RunTraceViewModel,
 } from "@/lib/orchestration/run-trace";
+import { isPathContained } from "@/lib/workspaces/delete-safety";
 
 export const dynamic = "force-dynamic";
 
@@ -232,6 +235,8 @@ type BrowserProofAuditRow = {
   task_artifact_sha256: string | null;
   task_artifact_registered_at: string | null;
 };
+
+type BrowserProofManifestArtifact = NonNullable<RunTraceProofAttachment["artifacts"]>[number];
 
 type AgentCommentRow = {
   id: string;
@@ -1074,10 +1079,47 @@ function queryBrowserProofAttachmentsForRun(
       command: row.command,
       specs: safeJsonParseArray(row.specs_json),
       urls: safeJsonParseArray(row.urls_json),
+      artifacts: readBrowserProofArtifactSummaries(row),
       createdAt: row.created_at,
       taskArtifact: matchingTaskArtifact(row, manifestUri),
     };
   });
+}
+
+function readBrowserProofArtifactSummaries(row: BrowserProofAuditRow): BrowserProofManifestArtifact[] {
+  const manifestPath = textValue(row.manifest_path);
+  const artifactDir = textValue(row.artifact_dir);
+  if (!manifestPath || !artifactDir) return [];
+  try {
+    if (!isPathContained(artifactDir, manifestPath) || !fs.existsSync(manifestPath)) return [];
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as Record<string, unknown>;
+    if (!Array.isArray(manifest.artifacts)) return [];
+    return manifest.artifacts
+      .map((artifact) => browserProofArtifactSummary(artifact, artifactDir))
+      .filter((artifact): artifact is BrowserProofManifestArtifact => Boolean(artifact))
+      .slice(0, 12);
+  } catch {
+    return [];
+  }
+}
+
+function browserProofArtifactSummary(artifact: unknown, artifactDir: string): BrowserProofManifestArtifact | null {
+  const record = asRecord(artifact);
+  if (!record) return null;
+  const artifactPath = textValue(record.path);
+  if (!artifactPath || !isPathContained(artifactDir, artifactPath)) return null;
+  const kind = record.kind === "image" || record.kind === "video" || record.kind === "file" ? record.kind : null;
+  if (!kind) return null;
+  const sha = textValue(record.sha256);
+  const size = numberValue(record.size);
+  return {
+    path: artifactPath,
+    uri: pathToFileURL(artifactPath).href,
+    kind,
+    label: path.basename(artifactPath),
+    size: size === null ? null : Math.max(0, Math.trunc(size)),
+    sha256: sha,
+  };
 }
 
 function tableExists(db: ReturnType<typeof getOrchestrationDb>, tableName: string): boolean {

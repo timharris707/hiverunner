@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 
 import { GET as getEngineRunEventsRoute } from "@/app/api/orchestration/engine/runs/[runId]/events/route";
 import { createCompany } from "@/lib/orchestration/company-service";
@@ -79,8 +79,41 @@ async function run() {
      VALUES (?, ?, ?, 'codex', 'completed', ?, ?, '{}', ?, ?)`,
   ).run(runId, task.id, agent.id, now, now, now, now);
   const proofManifestSha = "b".repeat(64);
-  const proofManifestPath = `/tmp/hiverunner-browser-proof/${runId}/manifest.json`;
+  const proofArtifactDir = `/tmp/hiverunner-browser-proof/${runId}`;
+  const proofManifestPath = `${proofArtifactDir}/manifest.json`;
   const proofManifestUri = `file://${proofManifestPath}`;
+  const proofScreenshotPath = `${proofArtifactDir}/task-page.png`;
+  const proofVideoPath = `${proofArtifactDir}/video.webm`;
+  rmSync(proofArtifactDir, { recursive: true, force: true });
+  mkdirSync(proofArtifactDir, { recursive: true });
+  writeFileSync(proofScreenshotPath, "fake png");
+  writeFileSync(proofVideoPath, "fake video");
+  writeFileSync(proofManifestPath, JSON.stringify({
+    schema: "hiverunner.browser_proof_manifest.v1",
+    artifacts: [
+      {
+        path: proofScreenshotPath,
+        uri: `file://${proofScreenshotPath}`,
+        kind: "image",
+        size: 8,
+        sha256: "d".repeat(64),
+      },
+      {
+        path: proofVideoPath,
+        uri: `file://${proofVideoPath}`,
+        kind: "video",
+        size: 10,
+        sha256: "e".repeat(64),
+      },
+      {
+        path: "/tmp/hiverunner-proof-outside.png",
+        uri: "file:///tmp/hiverunner-proof-outside.png",
+        kind: "image",
+        size: 99,
+        sha256: "f".repeat(64),
+      },
+    ],
+  }), "utf8");
   db.prepare(
     `UPDATE tasks
         SET artifact_uri = ?,
@@ -107,7 +140,7 @@ async function run() {
     runId,
     "http://localhost:3000",
     "BASE_URL=http://localhost:3000 playwright test e2e/run-events.spec.ts --project=chromium",
-    `/tmp/hiverunner-browser-proof/${runId}`,
+    proofArtifactDir,
     proofManifestPath,
     proofManifestSha,
     JSON.stringify(["e2e/run-events.spec.ts"]),
@@ -464,7 +497,12 @@ async function run() {
         schema?: string;
         captureQuality?: { label?: string; missingRequiredEvidence?: string[] };
         evidenceSummary?: { hasProofAttachments?: boolean; proofAttachmentCount?: number };
-        proofAttachments?: Array<{ status?: string; manifest?: { sha256?: string }; screenshotCount?: number }>;
+        proofAttachments?: Array<{
+          status?: string;
+          manifest?: { sha256?: string };
+          screenshotCount?: number;
+          artifacts?: Array<{ label?: string; kind?: string; path?: string }>;
+        }>;
         evidenceGaps?: Array<{ id: string; label: string }>;
         annotations?: { schema?: string; state?: string; annotations?: unknown[]; decision?: { reason?: string } };
       };
@@ -477,12 +515,17 @@ async function run() {
         urls?: unknown[];
         screenshotCount?: number;
         videoCount?: number;
+        artifacts?: Array<{ label?: string; kind?: string; path?: string }>;
       }>;
       traceExport?: {
         schema?: string;
         summary?: { copyText?: string; annotationCount?: number; proofAttachmentCount?: number };
         redaction?: { location?: string; totalRedactions?: number };
-        proofAttachments?: Array<{ manifest?: { sha256?: string }; screenshotCount?: number }>;
+        proofAttachments?: Array<{
+          manifest?: { sha256?: string };
+          screenshotCount?: number;
+          artifacts?: Array<{ label?: string; kind?: string; path?: string }>;
+        }>;
         annotations?: { state?: string; annotations?: unknown[]; decision?: { reason?: string } };
       };
     };
@@ -500,9 +543,21 @@ async function run() {
     assert.deepStrictEqual(payload.proofAttachments?.[0]?.specs, ["e2e/run-events.spec.ts"]);
     assert.strictEqual(payload.proofAttachments?.[0]?.screenshotCount, 2);
     assert.strictEqual(payload.proofAttachments?.[0]?.videoCount, 1);
+    assert.deepStrictEqual(
+      payload.proofAttachments?.[0]?.artifacts?.map((artifact) => artifact.label),
+      ["task-page.png", "video.webm"],
+    );
+    assert.deepStrictEqual(
+      payload.proofAttachments?.[0]?.artifacts?.map((artifact) => artifact.kind),
+      ["image", "video"],
+    );
     assert.strictEqual(payload.trace?.evidenceSummary?.hasProofAttachments, true);
     assert.strictEqual(payload.trace?.evidenceSummary?.proofAttachmentCount, 1);
     assert.strictEqual(payload.trace?.proofAttachments?.[0]?.manifest?.sha256, proofManifestSha);
+    assert.deepStrictEqual(
+      payload.trace?.proofAttachments?.[0]?.artifacts?.map((artifact) => artifact.path),
+      [proofScreenshotPath, proofVideoPath],
+    );
     assert.ok(payload.trace?.evidenceGaps?.some((gap) => gap.id === "missing_raw_payload" && gap.label === "not_captured"));
     assert.strictEqual(payload.trace?.annotations?.schema, "hiverunner.run_trace_annotations.v1");
     assert.strictEqual(payload.trace?.annotations?.state, "deferred");
@@ -512,6 +567,7 @@ async function run() {
     assert.strictEqual(payload.traceExport?.summary?.annotationCount, 0);
     assert.strictEqual(payload.traceExport?.summary?.proofAttachmentCount, 1);
     assert.strictEqual(payload.traceExport?.proofAttachments?.[0]?.manifest?.sha256, proofManifestSha);
+    assert.strictEqual(payload.traceExport?.proofAttachments?.[0]?.artifacts?.[0]?.label, "task-page.png");
     assert.strictEqual(payload.traceExport?.annotations?.state, "deferred");
     assert.match(payload.traceExport?.annotations?.decision?.reason ?? "", /clean run-scoped persistence\/API path/);
     assert.ok(payload.traceExport?.summary?.copyText?.includes(`Run: ${runId}`));

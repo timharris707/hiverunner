@@ -159,6 +159,7 @@ export interface RunTraceProofAttachment {
   command: string;
   specs: unknown[];
   urls: unknown[];
+  artifacts?: RunTraceProofArtifactSummary[];
   createdAt: string;
   taskArtifact?: {
     uri: string;
@@ -166,6 +167,15 @@ export interface RunTraceProofAttachment {
     sha256: string | null;
     registeredAt: string | null;
   } | null;
+}
+
+export interface RunTraceProofArtifactSummary {
+  path: string;
+  uri: string;
+  kind: "image" | "video" | "file";
+  label: string;
+  size: number | null;
+  sha256: string | null;
 }
 
 export interface RunTraceEvidenceInput {
@@ -552,6 +562,7 @@ function normalizeRunTraceProofAttachments(
       durationMs: Math.max(0, Math.trunc(safeNumber(attachment.durationMs))),
       specs: Array.isArray(attachment.specs) ? attachment.specs : [],
       urls: Array.isArray(attachment.urls) ? attachment.urls : [],
+      artifacts: normalizeRunTraceProofArtifactSummaries(attachment.artifacts),
       taskArtifact: attachment.taskArtifact ?? null,
     }))
     .sort((a, b) => {
@@ -559,6 +570,36 @@ function normalizeRunTraceProofAttachments(
       if (createdDelta !== 0) return createdDelta;
       return a.id.localeCompare(b.id);
     });
+}
+
+function normalizeRunTraceProofArtifactSummaries(
+  artifacts: RunTraceProofAttachment["artifacts"] | null | undefined,
+): RunTraceProofArtifactSummary[] {
+  if (!Array.isArray(artifacts)) return [];
+  return artifacts
+    .map((artifact) => {
+      if (!artifact || typeof artifact !== "object") return null;
+      const record = artifact as unknown as Record<string, unknown>;
+      const artifactPath = textValue(record.path);
+      const uri = textValue(record.uri);
+      const kind = record.kind === "image" || record.kind === "video" || record.kind === "file"
+        ? record.kind
+        : null;
+      const label = textValue(record.label) ?? artifactPath?.split(/[\\/]/).pop() ?? null;
+      if (!artifactPath || !uri || !kind || !label) return null;
+      const size = isFiniteNumber(record.size) ? Math.max(0, Math.trunc(record.size)) : null;
+      const sha = textValue(record.sha256);
+      return {
+        path: artifactPath,
+        uri,
+        kind,
+        label,
+        size,
+        sha256: sha,
+      };
+    })
+    .filter((artifact): artifact is RunTraceProofArtifactSummary => Boolean(artifact))
+    .slice(0, 12);
 }
 
 function mapRunTraceTimelineCategory(event: RunTraceTimelineEventInput): RunTraceTimelineCategory {

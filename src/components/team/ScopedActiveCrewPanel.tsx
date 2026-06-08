@@ -127,7 +127,7 @@ function rosterStateLabel(state: ScopedCrewAgent["rosterState"]): string {
   if (state === "bench") return "Bench";
   if (state === "paused") return "Paused";
   if (state === "archived") return "Archived";
-  return "Active";
+  return "Crew";
 }
 
 function rosterStateTone(state: ScopedCrewAgent["rosterState"]): { fg: string; bg: string; border: string } {
@@ -210,7 +210,7 @@ export function ScopedActiveCrewPanel({
 
   return (
     <section
-      aria-label={`${scopeLabel} Active Crew`}
+      aria-label={`${scopeLabel} assigned crew`}
       data-testid="scoped-active-crew"
       style={{
         border: `0.5px solid ${color.border}`,
@@ -226,7 +226,7 @@ export function ScopedActiveCrewPanel({
         <div style={{ minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 7, color: color.textMuted, fontSize: tokenType.caption.size, fontWeight: 700, letterSpacing: 0 }}>
             <Users size={13} />
-            Active Crew
+            Assigned Crew
           </div>
           <h2 style={{ margin: "3px 0 0", color: color.text, fontSize: compact ? tokenType.cardTitle.size : 15, fontWeight: 700, lineHeight: 1.25, letterSpacing: 0 }}>
             {scopeLabel}
@@ -252,7 +252,7 @@ export function ScopedActiveCrewPanel({
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 7, minWidth: 0 }}>
         {activeCrew.length === 0 ? (
-          <span style={{ color: color.textMuted, fontSize: tokenType.bodySmall.size }}>No Active Crew yet.</span>
+          <span style={{ color: color.textMuted, fontSize: tokenType.bodySmall.size }}>No assigned crew yet.</span>
         ) : activeCrew.map((agent) => (
           <AgentCrewChip key={agent.id} agent={agent} />
         ))}

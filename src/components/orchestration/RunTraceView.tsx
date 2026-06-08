@@ -2124,6 +2124,36 @@ function BrowserProofAttachmentList({ attachments }: { attachments: RunTraceProo
               Open manifest
             </a>
 
+            {attachment.artifacts && attachment.artifacts.length > 0 ? (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {attachment.artifacts.map((artifact) => (
+                  <a
+                    key={`${attachment.id}:${artifact.path}`}
+                    href={artifact.uri}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 5,
+                      maxWidth: "100%",
+                      borderRadius: 999,
+                      border: "0.5px solid rgba(147,197,253,0.22)",
+                      background: "rgba(147,197,253,0.06)",
+                      color: "#bfdbfe",
+                      padding: "3px 7px",
+                      fontSize: 10,
+                      textDecoration: "none",
+                      fontWeight: 650,
+                    }}
+                  >
+                    <span style={{ color: A.muted }}>{artifact.kind}</span>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{artifact.label}</span>
+                  </a>
+                ))}
+              </div>
+            ) : null}
+
             <div style={{ color: A.muted, fontSize: 10, fontFamily: "monospace", lineHeight: 1.4, wordBreak: "break-all" }}>
               {attachment.manifest.path}
             </div>

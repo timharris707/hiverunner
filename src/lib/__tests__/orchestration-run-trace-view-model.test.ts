@@ -112,6 +112,16 @@ function proofAttachment(overrides: Partial<RunTraceProofAttachment> = {}): RunT
     command: "BASE_URL=http://localhost:3000 playwright test e2e/proof.spec.ts --project=chromium",
     specs: ["e2e/proof.spec.ts"],
     urls: [{ path: "/INS/tasks", label: "tasks" }],
+    artifacts: [
+      {
+        path: "/tmp/hiverunner-proof/run-1/task-page.png",
+        uri: "file:///tmp/hiverunner-proof/run-1/task-page.png",
+        kind: "image",
+        label: "task-page.png",
+        size: 4096,
+        sha256: "d".repeat(64),
+      },
+    ],
     createdAt: "2026-06-06T20:01:00.000Z",
     taskArtifact: {
       uri: "file:///tmp/hiverunner-proof/run-1/manifest.json",
@@ -238,8 +248,11 @@ async function run() {
     assert.equal(model.evidenceSummary.hasProofAttachments, true);
     assert.equal(model.evidenceSummary.proofAttachmentCount, 1);
     assert.equal(model.proofAttachments[0]?.screenshotCount, 2);
+    assert.equal(model.proofAttachments[0]?.artifacts?.[0]?.label, "task-page.png");
+    assert.equal(model.proofAttachments[0]?.artifacts?.[0]?.kind, "image");
     assert.equal(exportPayload.summary.proofAttachmentCount, 1);
     assert.equal(exportPayload.proofAttachments[0]?.manifest.sha256, "b".repeat(64));
+    assert.equal(exportPayload.proofAttachments[0]?.artifacts?.[0]?.sha256, "d".repeat(64));
     assert.ok(exportPayload.summary.copyText.includes("Proof attachments: 1"));
   });
 

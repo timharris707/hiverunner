@@ -77,6 +77,24 @@ function proofAttachment(overrides: Partial<RunTraceProofAttachment> = {}): RunT
     command: "BASE_URL=http://localhost:3000 playwright test e2e/run-trace.spec.ts --project=chromium",
     specs: ["e2e/run-trace.spec.ts"],
     urls: [{ path: "/INS/tasks", label: "tasks" }],
+    artifacts: [
+      {
+        path: "/tmp/hiverunner-browser-proof/run-1/task-page.png",
+        uri: "file:///tmp/hiverunner-browser-proof/run-1/task-page.png",
+        kind: "image",
+        label: "task-page.png",
+        size: 4096,
+        sha256: "d".repeat(64),
+      },
+      {
+        path: "/tmp/hiverunner-browser-proof/run-1/video.webm",
+        uri: "file:///tmp/hiverunner-browser-proof/run-1/video.webm",
+        kind: "video",
+        label: "video.webm",
+        size: 8192,
+        sha256: "e".repeat(64),
+      },
+    ],
     createdAt: "2026-06-06T20:01:00.000Z",
     taskArtifact: {
       uri: "file:///tmp/hiverunner-browser-proof/run-1/manifest.json",
@@ -409,6 +427,9 @@ const proofHtml = render(baseResponse({
 assert.match(proofHtml, /Browser proof attachments/);
 assert.match(proofHtml, /2 screenshots · 1 videos · 3 files/);
 assert.match(proofHtml, /Open manifest/);
+assert.match(proofHtml, /href="file:\/\/\/tmp\/hiverunner-browser-proof\/run-1\/task-page.png"/);
+assert.match(proofHtml, /task-page.png/);
+assert.match(proofHtml, /video.webm/);
 assert.match(proofHtml, /sha256 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc/);
 assert.match(proofHtml, /Registered task artifact/);
 assert.match(proofHtml, /BASE_URL=http:\/\/localhost:3000 playwright test e2e\/run-trace.spec.ts --project=chromium/);

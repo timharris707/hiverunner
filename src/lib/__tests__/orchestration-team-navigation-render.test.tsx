@@ -58,7 +58,7 @@ async function run() {
   assert.deepEqual(
     resolveScopedActiveCrew({ roster, activeAgents: roster }).map((row) => row.name),
     ["Oracle", "Samantha"],
-    "Contextual Active Crew should not render Bench agents without explicit work references",
+    "Contextual assigned crew should not render Bench agents without explicit work references",
   );
   assert.deepEqual(filterBenchAgents(roster, "ux").map((row) => row.name), ["Toby"]);
 
@@ -90,7 +90,7 @@ async function run() {
       roster={roster}
     />,
   );
-  assert.match(emptyCrewHtml, /No Active Crew yet/);
+  assert.match(emptyCrewHtml, /No assigned crew yet/);
   assert.doesNotMatch(emptyCrewHtml, /Oracle/);
   assert.doesNotMatch(emptyCrewHtml, /Samantha/);
 
@@ -110,7 +110,7 @@ async function run() {
     assert.match(
       requestedUrl,
       /\/api\/orchestration\/companies\/insight-render-default\/agents\?includeNonProduction=true&rosterState=active/,
-      "Contextual company roster reads should request Active Crew by default",
+      "Contextual company roster reads should request active roster agents by default",
     );
 
     await listCompanyAgents("insight-render-all", { rosterState: "all" });

@@ -2045,7 +2045,7 @@ export function Dock() {
       {hasCompanyContext ? (
         <>
       <SectionHeader
-        label="Active Crew"
+        label="Crew"
         collapsed={!agentsOpen}
         onToggle={() => setAgentsOpen((prev) => !prev)}
         onCreate={() => {
@@ -2060,7 +2060,7 @@ export function Dock() {
           <div style={shimmerStyle()} />
         </div>
       ) : currentCompanyAgents.length === 0 ? (
-        <p style={{ margin: "2px 8px 4px", fontSize: "10px", color: DOCK_TEXT_MUTED }}>No active agents.</p>
+        <p style={{ margin: "2px 8px 4px", fontSize: "10px", color: DOCK_TEXT_MUTED }}>No crew agents.</p>
       ) : (
         currentCompanyAgents.map((agent) => {
           const agentSlug = agent.slug || agent.id;
