@@ -48,6 +48,18 @@ type ProjectSettings = {
 
 type BenchmarkManifest = {
   protocol: {
+    allowedRunnerProviders?: string[];
+    routeSanitization?: {
+      allowedRunnerProviders: string[];
+      preferredRunnerProvider: string;
+      hivesUpdated: number;
+      primaryRoutesRewritten: number;
+      fallbacksDropped: number;
+      agentsUpdated: number;
+      agentModelsCleared: number;
+      runtimeRowsUpdated: number;
+      runtimeRowsDeleted: number;
+    } | null;
     workspaceRewrite: {
       agentRuntimeBenchmarkReplayMetadataRowsUpdated: number;
       agentRuntimeCommandRowsUpdated: number;
@@ -93,29 +105,55 @@ function createSourceDb(
       settings_json TEXT,
       updated_at TEXT
     );
-    CREATE TABLE tasks (
-      id TEXT PRIMARY KEY,
-      sprint_id TEXT,
-      project_id TEXT,
-      task_key TEXT,
-      status TEXT,
-      started_at TEXT,
-      completed_at TEXT,
-      execution_session_id TEXT,
-      consecutive_noop_wakes INTEGER DEFAULT 0,
-      blocked_reason TEXT,
-      updated_at TEXT
-    );
-    CREATE TABLE agent_runtimes (
-      id TEXT PRIMARY KEY,
-      company_id TEXT,
-      provider TEXT,
-      command TEXT,
-      metadata_json TEXT,
-      workspace_root TEXT,
-      updated_at TEXT
-    );
-  `);
+      CREATE TABLE tasks (
+        id TEXT PRIMARY KEY,
+        sprint_id TEXT,
+        project_id TEXT,
+        company_id TEXT,
+        task_key TEXT,
+        status TEXT,
+        assignee_agent_id TEXT,
+        execution_engine TEXT,
+        model_lane TEXT,
+        started_at TEXT,
+        completed_at TEXT,
+        execution_session_id TEXT,
+        consecutive_noop_wakes INTEGER DEFAULT 0,
+        blocked_reason TEXT,
+        updated_at TEXT
+      );
+      CREATE TABLE agents (
+        id TEXT PRIMARY KEY,
+        company_id TEXT,
+        name TEXT,
+        adapter_type TEXT,
+        model TEXT,
+        updated_at TEXT
+      );
+      CREATE TABLE agent_runtimes (
+        id TEXT PRIMARY KEY,
+        company_id TEXT,
+        agent_id TEXT,
+        provider TEXT,
+        runtime_slug TEXT,
+        display_name TEXT,
+        command TEXT,
+        status TEXT,
+        metadata_json TEXT,
+        workspace_root TEXT,
+        updated_at TEXT
+      );
+      CREATE TABLE company_execution_hives (
+        id TEXT PRIMARY KEY,
+        company_id TEXT,
+        slug TEXT,
+        name TEXT,
+        lanes_json TEXT,
+        is_active INTEGER,
+        archived_at TEXT,
+        updated_at TEXT
+      );
+    `);
 
   db.prepare("INSERT INTO sprints (id, parent_id, goal_key, name, status) VALUES (?, ?, ?, ?, ?)")
     .run("goal", null, "INS-G006", "Runtime benchmark", "active");
@@ -143,20 +181,67 @@ function createSourceDb(
       }),
       "2026-01-01T00:00:00.000Z",
     );
-  db.prepare("INSERT INTO tasks (id, sprint_id, project_id, task_key, status, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
-    .run("task-1", "sprint", "project", "INS-1", "in_progress", "2026-01-01T00:00:00.000Z");
-  db.prepare("INSERT INTO tasks (id, sprint_id, project_id, task_key, status, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
-    .run("task-2", "sprint", "project", "INS-2", "in_progress", "2026-01-01T00:00:00.000Z");
+    db.prepare("INSERT INTO agents (id, company_id, name, adapter_type, model, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run("agent-gemini", "company", "Flash", "gemini", "gemini-3.5-flash", "2026-01-01T00:00:00.000Z");
+    db.prepare("INSERT INTO agents (id, company_id, name, adapter_type, model, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run("agent-codex", "company", "Gator", "codex", "gpt-5.5", "2026-01-01T00:00:00.000Z");
+    db.prepare("INSERT INTO tasks (id, sprint_id, project_id, company_id, task_key, status, assignee_agent_id, execution_engine, model_lane, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run("task-1", "sprint", "project", "company", "INS-1", "in_progress", "agent-gemini", "symphony", "default", "2026-01-01T00:00:00.000Z");
+    db.prepare("INSERT INTO tasks (id, sprint_id, project_id, company_id, task_key, status, assignee_agent_id, execution_engine, model_lane, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run("task-2", "sprint", "project", "company", "INS-2", "in_progress", "agent-gemini", "symphony", "deep", "2026-01-01T00:00:00.000Z");
+    db.prepare("INSERT INTO company_execution_hives (id, company_id, slug, name, lanes_json, is_active, archived_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(
+        "hive",
+        "company",
+        "benchmark",
+        "Benchmark Hive",
+        JSON.stringify([
+          {
+            id: "default",
+            label: "Default",
+            description: "Default benchmark lane",
+            useFor: [],
+            primary: { mode: "runtime_managed", runtimeId: "gemini", runtimeLabel: "Gemini CLI" },
+            fallbacks: [
+              { mode: "runtime_managed", runtimeId: "codex", runtimeLabel: "Codex" },
+              { mode: "runtime_managed", runtimeId: "gemini", runtimeLabel: "Gemini CLI" },
+            ],
+            approvalPolicy: { mode: "none", label: "No approval" },
+            verificationStatus: "untested",
+            verificationNote: "",
+          },
+          {
+            id: "deep",
+            label: "Deep",
+            description: "Deep benchmark lane",
+            useFor: [],
+            primary: { mode: "runtime_managed", runtimeId: "anthropic", runtimeLabel: "Claude Code" },
+            fallbacks: [
+              { mode: "runtime_managed", runtimeId: "gemini", runtimeLabel: "Gemini CLI" },
+            ],
+            approvalPolicy: { mode: "none", label: "No approval" },
+            verificationStatus: "untested",
+            verificationNote: "",
+          },
+        ]),
+        1,
+        null,
+        "2026-01-01T00:00:00.000Z",
+      );
 
-  const oldSymphonyRunner = path.join(oldAppRoot, ".stable", "scripts", "hiverunner-symphony-runner.mjs");
-  db.prepare(
-    "INSERT INTO agent_runtimes (id, company_id, provider, command, metadata_json, workspace_root, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-  ).run(
-    "runtime-symphony-codex",
-    "company",
-    "symphony",
-    oldSymphonyRunner,
-    JSON.stringify({
+    const oldSymphonyRunner = path.join(oldAppRoot, ".stable", "scripts", "hiverunner-symphony-runner.mjs");
+    db.prepare(
+      "INSERT INTO agent_runtimes (id, company_id, agent_id, provider, runtime_slug, display_name, command, status, metadata_json, workspace_root, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(
+      "runtime-symphony-codex",
+      "company",
+      null,
+      "symphony",
+      "symphony-codex",
+      "Symphony Codex",
+      oldSymphonyRunner,
+      "online",
+      JSON.stringify({
       commandPath: oldSymphonyRunner,
       requestedRuntimeProvider: "codex",
       selectedRuntimeDisplayName: "codex runtime",
@@ -175,17 +260,21 @@ function createSourceDb(
         workspaceRoot: oldCompanyRoot,
       },
     }),
-    oldCompanyRoot,
-    "2026-01-01T00:00:00.000Z",
-  );
-  db.prepare(
-    "INSERT INTO agent_runtimes (id, company_id, provider, command, metadata_json, workspace_root, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-  ).run(
-    "runtime-local-symphony",
-    "company",
-    "symphony",
-    null,
-    JSON.stringify({
+      oldCompanyRoot,
+      "2026-01-01T00:00:00.000Z",
+    );
+    db.prepare(
+      "INSERT INTO agent_runtimes (id, company_id, agent_id, provider, runtime_slug, display_name, command, status, metadata_json, workspace_root, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(
+      "runtime-local-symphony",
+      "company",
+      null,
+      "symphony",
+      "local-symphony",
+      "Local Symphony",
+      null,
+      "online",
+      JSON.stringify({
       bundledRunner: true,
       health: {
         command: null,
@@ -193,20 +282,39 @@ function createSourceDb(
         workspaceRoot: oldCompanyRoot,
       },
     }),
-    oldCompanyRoot,
-    "2026-01-01T00:00:00.000Z",
-  );
-  db.prepare(
-    "INSERT INTO agent_runtimes (id, company_id, provider, command, metadata_json, workspace_root, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-  ).run(
-    "runtime-legacy-claude-wrapper",
-    "company",
-    "anthropic",
-    path.join(oldAppRoot, "scripts", "hiverunner-claude-runner.mjs"),
-    JSON.stringify({ health: { workspaceRoot: oldCompanyRoot } }),
-    oldCompanyRoot,
-    "2026-01-01T00:00:00.000Z",
-  );
+      oldCompanyRoot,
+      "2026-01-01T00:00:00.000Z",
+    );
+    db.prepare(
+      "INSERT INTO agent_runtimes (id, company_id, agent_id, provider, runtime_slug, display_name, command, status, metadata_json, workspace_root, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(
+      "runtime-legacy-claude-wrapper",
+      "company",
+      null,
+      "anthropic",
+      "legacy-claude-wrapper",
+      "Claude Wrapper",
+      path.join(oldAppRoot, "scripts", "hiverunner-claude-runner.mjs"),
+      "online",
+      JSON.stringify({ health: { workspaceRoot: oldCompanyRoot } }),
+      oldCompanyRoot,
+      "2026-01-01T00:00:00.000Z",
+    );
+    db.prepare(
+      "INSERT INTO agent_runtimes (id, company_id, agent_id, provider, runtime_slug, display_name, command, status, metadata_json, workspace_root, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(
+      "runtime-agent-gemini",
+      "company",
+      "agent-gemini",
+      "gemini",
+      "flash-runtime",
+      "Gemini Flash",
+      path.join(oldAppRoot, "scripts", "hiverunner-gemini-runner.mjs"),
+      "online",
+      JSON.stringify({ requestedRuntimeProvider: "gemini", model: "gemini-3.5-flash" }),
+      oldCompanyRoot,
+      "2026-01-01T00:00:00.000Z",
+    );
 
   db.close();
 }
@@ -338,7 +446,7 @@ async function run() {
 
         const manifest = parseJson<BenchmarkManifest>(fs.readFileSync(manifestPath, "utf8"));
         assert.equal(manifest.protocol.workspaceRewrite.agentRuntimeBenchmarkReplayMetadataRowsUpdated, 2);
-        assert.equal(manifest.protocol.workspaceRewrite.agentRuntimeCommandRowsUpdated, 2);
+        assert.equal(manifest.protocol.workspaceRewrite.agentRuntimeCommandRowsUpdated, 3);
         assert.equal(manifest.protocol.workspaceRewrite.agentRuntimeMetadataRowsUpdated, 3);
         assert.equal(manifest.protocol.workspaceRewrite.projectSettingsRowsUpdated, 1);
         assert.equal(manifest.protocol.workspaceRewrite.companySettingsRowsUpdated, 1);
@@ -411,6 +519,105 @@ async function run() {
         assert.equal(codexMetadata.model, "openai-codex/gpt-5.5");
         assert.equal(codexMetadata.hiverunnerSymphony?.sandbox, "danger-full-access");
         assert.equal(codexMetadata.hiverunnerSymphony?.approvalPolicy, "never");
+      } finally {
+        target.close();
+      }
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  await test("prepare can sanitize selected benchmark routes to allowed runner providers", () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "prepare-exec-dev-benchmark-"));
+    try {
+      const sourceDbPath = path.join(tempRoot, "source.db");
+      const targetDbPath = path.join(tempRoot, "target", "orchestration.db");
+      const manifestPath = path.join(tempRoot, "target", "benchmark-manifest.json");
+      const oldAppRoot = path.join(tempRoot, "main-app");
+      const oldCompanyRoot = path.join(tempRoot, "stable-company-workspace");
+      const candidateRoot = path.join(tempRoot, "candidate-source");
+      const candidateCompanyRoot = path.join(tempRoot, "candidate-company-workspace");
+      fs.mkdirSync(path.join(candidateRoot, "scripts"), { recursive: true });
+      createSourceDb(sourceDbPath, oldAppRoot, oldCompanyRoot);
+
+      const result = spawnSync(process.execPath, [
+        "./scripts/run-tsx.mjs",
+        "scripts/prepare-exec-dev-benchmark.ts",
+        "--source-db",
+        sourceDbPath,
+        "--target-db",
+        targetDbPath,
+        "--manifest",
+        manifestPath,
+        "--goal",
+        "INS-G006",
+        "--expected-tasks",
+        "2",
+        "--required-repeats",
+        "1",
+        "--source-workspace-root",
+        candidateRoot,
+        "--company-workspace-root",
+        candidateCompanyRoot,
+        "--sanitize-runner-routes",
+        "--allowed-runner-providers",
+        "codex,anthropic",
+        "--preferred-runner-provider",
+        "codex",
+      ], {
+        cwd: process.cwd(),
+        encoding: "utf8",
+      });
+
+      assert.equal(result.status, 0, result.stderr || result.stdout);
+      const target = new Database(targetDbPath, { readonly: true, fileMustExist: true });
+      try {
+        const agent = target
+          .prepare("SELECT adapter_type, model FROM agents WHERE id = 'agent-gemini'")
+          .get() as { adapter_type: string; model: string | null };
+        assert.equal(agent.adapter_type, "codex");
+        assert.equal(agent.model, null);
+
+        const runtime = target
+          .prepare("SELECT provider, command, status, metadata_json, workspace_root FROM agent_runtimes WHERE id = 'runtime-agent-gemini'")
+          .get() as { provider: string; command: string | null; status: string; metadata_json: string; workspace_root: string };
+        const candidateCodexRunner = path.join(candidateRoot, "scripts", "hiverunner-symphony-runner.mjs");
+        assert.equal(runtime.provider, "codex");
+        assert.equal(runtime.command, candidateCodexRunner);
+        assert.equal(runtime.status, "online");
+        assert.equal(runtime.workspace_root, candidateCompanyRoot);
+        const metadata = parseJson<{
+          requestedRuntimeProvider: string;
+          selectedRuntimeDisplayName: string;
+          model?: string;
+          commandPath: string;
+          health: { commandPath: string; workspaceRoot: string };
+        }>(runtime.metadata_json);
+        assert.equal(metadata.requestedRuntimeProvider, "codex");
+        assert.equal(metadata.selectedRuntimeDisplayName, "Codex");
+        assert.equal(metadata.model, undefined);
+        assert.equal(metadata.commandPath, candidateCodexRunner);
+        assert.equal(metadata.health.commandPath, candidateCodexRunner);
+        assert.equal(metadata.health.workspaceRoot, candidateCompanyRoot);
+
+        const hive = target
+          .prepare("SELECT lanes_json FROM company_execution_hives WHERE id = 'hive'")
+          .get() as { lanes_json: string };
+        const lanes = parseJson<Array<{ primary: { runtimeId: string }; fallbacks: Array<{ runtimeId: string }> }>>(hive.lanes_json);
+        assert.equal(lanes[0]?.primary.runtimeId, "codex");
+        assert.deepEqual(lanes[0]?.fallbacks.map((fallback) => fallback.runtimeId), ["codex"]);
+        assert.equal(lanes[1]?.primary.runtimeId, "anthropic");
+        assert.deepEqual(lanes[1]?.fallbacks, []);
+
+        const manifest = parseJson<BenchmarkManifest>(fs.readFileSync(manifestPath, "utf8"));
+        assert.deepEqual(manifest.protocol.allowedRunnerProviders, ["anthropic", "codex"]);
+        assert.equal(manifest.protocol.routeSanitization?.preferredRunnerProvider, "codex");
+        assert.equal(manifest.protocol.routeSanitization?.hivesUpdated, 1);
+        assert.equal(manifest.protocol.routeSanitization?.primaryRoutesRewritten, 1);
+        assert.equal(manifest.protocol.routeSanitization?.fallbacksDropped, 2);
+        assert.equal(manifest.protocol.routeSanitization?.agentsUpdated, 1);
+        assert.equal(manifest.protocol.routeSanitization?.agentModelsCleared, 1);
+        assert.equal(manifest.protocol.routeSanitization?.runtimeRowsUpdated, 1);
       } finally {
         target.close();
       }

@@ -17,7 +17,12 @@ type CliOptions = {
   resetSelectedTasksTo: "none" | "to-do";
   sourceWorkspaceRoot: string | null;
   companyWorkspaceRoot: string | null;
+  allowedRunnerProviders: RunnerProvider[];
+  sanitizeRunnerRoutes: boolean;
+  preferredRunnerProvider: RunnerProvider;
 };
+
+type RunnerProvider = keyof typeof BUNDLED_RUNNER_SCRIPT_BY_PROVIDER;
 
 const BUNDLED_RUNNER_SCRIPT_BY_PROVIDER = {
   anthropic: "hiverunner-claude-runner.mjs",
@@ -27,6 +32,15 @@ const BUNDLED_RUNNER_SCRIPT_BY_PROVIDER = {
   codex: "hiverunner-symphony-runner.mjs",
 } as const;
 
+const DEFAULT_ALLOWED_RUNNER_PROVIDERS: RunnerProvider[] = ["codex", "anthropic"];
+const DEFAULT_PREFERRED_RUNNER_PROVIDER: RunnerProvider = "codex";
+const RUNNER_PROVIDER_LABELS: Record<RunnerProvider, string> = {
+  anthropic: "Claude Code",
+  gemini: "Gemini CLI",
+  hermes: "Hermes",
+  openclaw: "OpenClaw",
+  codex: "Codex",
+};
 const BUNDLED_RUNNER_SCRIPT_NAMES: ReadonlySet<string> = new Set(Object.values(BUNDLED_RUNNER_SCRIPT_BY_PROVIDER));
 
 function usage(): never {
@@ -35,8 +49,30 @@ function usage(): never {
     "       [--fixture-id ins-g006-runtime-replay-v1] [--expected-tasks 10] [--required-repeats 3]",
     "       [--task-key INS-205] [--task-keys INS-205,INS-208,...] [--reset-selected-tasks-to to-do|none]",
     "       [--source-workspace-root /path/to/source-worktree] [--company-workspace-root /path/to/company-workspace]",
+    "       [--sanitize-runner-routes] [--allowed-runner-providers codex,anthropic] [--preferred-runner-provider codex]",
   ].join("\n"));
   process.exit(1);
+}
+
+function normalizeRunnerProvider(value: string | null | undefined): RunnerProvider | null {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized.includes("claude") || normalized.includes("anthropic")) return "anthropic";
+  if (normalized.includes("gemini") || normalized.includes("google")) return "gemini";
+  if (normalized.includes("hermes")) return "hermes";
+  if (normalized.includes("openclaw")) return "openclaw";
+  if (normalized.includes("codex") || normalized.includes("openai")) return "codex";
+  return null;
+}
+
+function parseProviderList(value: string | null | undefined): RunnerProvider[] {
+  const providers = Array.from(new Set(String(value ?? "")
+    .split(",")
+    .map((provider) => normalizeRunnerProvider(provider))
+    .filter((provider): provider is RunnerProvider => Boolean(provider))))
+    .sort();
+  if (providers.length === 0) usage();
+  return providers;
 }
 
 function parseArgs(argv: string[]): CliOptions {
@@ -53,6 +89,9 @@ function parseArgs(argv: string[]): CliOptions {
     resetSelectedTasksTo: "none",
     sourceWorkspaceRoot: null,
     companyWorkspaceRoot: null,
+    allowedRunnerProviders: DEFAULT_ALLOWED_RUNNER_PROVIDERS,
+    sanitizeRunnerRoutes: false,
+    preferredRunnerProvider: DEFAULT_PREFERRED_RUNNER_PROVIDER,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -100,6 +139,16 @@ function parseArgs(argv: string[]): CliOptions {
     } else if (arg === "--company-workspace-root" && next) {
       options.companyWorkspaceRoot = path.resolve(next);
       index += 1;
+    } else if (arg === "--allowed-runner-providers" && next) {
+      options.allowedRunnerProviders = parseProviderList(next);
+      index += 1;
+    } else if (arg === "--preferred-runner-provider" && next) {
+      const provider = normalizeRunnerProvider(next);
+      if (!provider) usage();
+      options.preferredRunnerProvider = provider;
+      index += 1;
+    } else if (arg === "--sanitize-runner-routes") {
+      options.sanitizeRunnerRoutes = true;
     } else if (arg === "--help" || arg === "-h") {
       usage();
     } else {
@@ -107,6 +156,9 @@ function parseArgs(argv: string[]): CliOptions {
     }
   }
 
+  if (!options.allowedRunnerProviders.includes(options.preferredRunnerProvider)) {
+    throw new Error(`Preferred runner provider ${options.preferredRunnerProvider} is not included in --allowed-runner-providers.`);
+  }
   return options;
 }
 
@@ -324,10 +376,326 @@ function candidateBundledRunnerCommands(sourceWorkspaceRoot: string): Record<str
   );
 }
 
+function bundledRunnerCommandForProvider(provider: RunnerProvider, sourceWorkspaceRoot: string | null): string | null {
+  return sourceWorkspaceRoot ? path.join(sourceWorkspaceRoot, "scripts", BUNDLED_RUNNER_SCRIPT_BY_PROVIDER[provider]) : null;
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
+}
+
+function routeTargetProvider(target: unknown): RunnerProvider | null {
+  const record = asRecord(target);
+  if (!record) return null;
+  return (
+    normalizeRunnerProvider(typeof record.runtimeId === "string" ? record.runtimeId : null) ??
+    normalizeRunnerProvider(typeof record.runtimeLabel === "string" ? record.runtimeLabel : null) ??
+    normalizeRunnerProvider(typeof record.modelSourceId === "string" ? record.modelSourceId : null) ??
+    normalizeRunnerProvider(typeof record.modelSourceLabel === "string" ? record.modelSourceLabel : null)
+  );
+}
+
+function routeTargetForProvider(provider: RunnerProvider): Record<string, unknown> {
+  return {
+    mode: "runtime_managed",
+    runtimeId: provider,
+    runtimeLabel: RUNNER_PROVIDER_LABELS[provider],
+    modelSourceId: "runtime-managed",
+    modelSourceLabel: "Runtime managed",
+    modelLabel: "Runtime default",
+  };
+}
+
+function sanitizeLanesJson(
+  lanesJson: string | null,
+  input: { allowed: Set<RunnerProvider>; preferred: RunnerProvider },
+): { lanesJson: string; changed: boolean; primaryRoutesRewritten: number; fallbacksDropped: number } {
+  let lanes: unknown;
+  try {
+    lanes = JSON.parse(lanesJson ?? "[]");
+  } catch {
+    throw new Error("Cannot sanitize benchmark runner routes: active hive lanes_json is invalid JSON.");
+  }
+  if (!Array.isArray(lanes)) {
+    throw new Error("Cannot sanitize benchmark runner routes: active hive lanes_json is not an array.");
+  }
+
+  let changed = false;
+  let primaryRoutesRewritten = 0;
+  let fallbacksDropped = 0;
+  const nextLanes = lanes.map((lane) => {
+    const laneRecord = asRecord(lane);
+    if (!laneRecord) return lane;
+    const nextLane = { ...laneRecord };
+    const primaryProvider = routeTargetProvider(nextLane.primary);
+    if (!primaryProvider || !input.allowed.has(primaryProvider)) {
+      nextLane.primary = routeTargetForProvider(input.preferred);
+      primaryRoutesRewritten += 1;
+      changed = true;
+    }
+
+    const fallbacks = Array.isArray(nextLane.fallbacks) ? nextLane.fallbacks : [];
+    const nextFallbacks = fallbacks.filter((fallback) => {
+      const provider = routeTargetProvider(fallback);
+      const keep = Boolean(provider && input.allowed.has(provider));
+      if (!keep) fallbacksDropped += 1;
+      return keep;
+    });
+    if (nextFallbacks.length !== fallbacks.length || !Array.isArray(nextLane.fallbacks)) {
+      nextLane.fallbacks = nextFallbacks;
+      changed = true;
+    }
+    return nextLane;
+  });
+
+  return {
+    lanesJson: changed ? JSON.stringify(nextLanes) : lanesJson ?? "[]",
+    changed,
+    primaryRoutesRewritten,
+    fallbacksDropped,
+  };
+}
+
+function selectedFixtureCompanyIds(db: Database.Database, taskKeys: string[]): string[] {
+  const companyExpr = columnExists(db, "tasks", "company_id") ? "COALESCE(t.company_id, p.company_id)" : "p.company_id";
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT ${companyExpr} AS company_id
+         FROM tasks t
+         INNER JOIN projects p ON p.id = t.project_id
+        WHERE t.task_key IN (${placeholders(taskKeys.length)})
+          AND ${companyExpr} IS NOT NULL
+        ORDER BY company_id`,
+    )
+    .all(...taskKeys) as Array<{ company_id: string }>;
+  return rows.map((row) => row.company_id);
+}
+
+function sanitizeBenchmarkHiveRoutes(
+  db: Database.Database,
+  companyIds: string[],
+  input: { allowed: Set<RunnerProvider>; preferred: RunnerProvider },
+): { hivesUpdated: number; primaryRoutesRewritten: number; fallbacksDropped: number } {
+  if (companyIds.length === 0 || !tableExists(db, "company_execution_hives") || !columnExists(db, "company_execution_hives", "lanes_json")) {
+    return { hivesUpdated: 0, primaryRoutesRewritten: 0, fallbacksDropped: 0 };
+  }
+
+  const rows = db
+    .prepare(
+      `SELECT id, lanes_json
+         FROM company_execution_hives
+        WHERE company_id IN (${placeholders(companyIds.length)})
+          AND archived_at IS NULL
+          AND is_active = 1`,
+    )
+    .all(...companyIds) as Array<{ id: string; lanes_json: string | null }>;
+  const now = new Date().toISOString();
+  const update = db.prepare("UPDATE company_execution_hives SET lanes_json = ?, updated_at = ? WHERE id = ?");
+  let hivesUpdated = 0;
+  let primaryRoutesRewritten = 0;
+  let fallbacksDropped = 0;
+  for (const row of rows) {
+    const sanitized = sanitizeLanesJson(row.lanes_json, input);
+    primaryRoutesRewritten += sanitized.primaryRoutesRewritten;
+    fallbacksDropped += sanitized.fallbacksDropped;
+    if (!sanitized.changed) continue;
+    hivesUpdated += update.run(sanitized.lanesJson, now, row.id).changes;
+  }
+  return { hivesUpdated, primaryRoutesRewritten, fallbacksDropped };
+}
+
+function sanitizeRuntimeMetadataJson(
+  metadataJson: string | null,
+  input: { provider: RunnerProvider; command: string | null; companyWorkspaceRoot: string | null },
+): { metadataJson: string; changed: boolean } {
+  let metadata: Record<string, unknown>;
+  try {
+    metadata = asRecord(JSON.parse(metadataJson || "{}")) ?? {};
+  } catch {
+    metadata = {};
+  }
+  const before = JSON.stringify(metadata);
+  metadata.requestedRuntimeProvider = input.provider;
+  metadata.selectedRuntimeDisplayName = RUNNER_PROVIDER_LABELS[input.provider];
+  delete metadata.model;
+  if (input.command) {
+    metadata.commandPath = input.command;
+    metadata.command = input.command;
+  }
+  if (input.companyWorkspaceRoot) {
+    metadata.workspaceRoot = input.companyWorkspaceRoot;
+  }
+  const health = asRecord(metadata.health) ? { ...(metadata.health as Record<string, unknown>) } : {};
+  if (input.command) {
+    health.command = input.command;
+    health.commandPath = input.command;
+  }
+  if (input.companyWorkspaceRoot) {
+    health.workspaceRoot = input.companyWorkspaceRoot;
+  }
+  if (Object.keys(health).length > 0) metadata.health = health;
+  metadata.hiverunnerBenchmarkRouteSanitization = {
+    schema: "hiverunner.benchmark_route_sanitization.v1",
+    provider: input.provider,
+    sanitizedAt: new Date().toISOString(),
+  };
+  const after = JSON.stringify(metadata);
+  return { metadataJson: after, changed: before !== after || !metadataJson };
+}
+
+function sanitizeSelectedTaskAssigneeRoutes(
+  db: Database.Database,
+  taskKeys: string[],
+  input: {
+    allowed: Set<RunnerProvider>;
+    preferred: RunnerProvider;
+    sourceWorkspaceRoot: string | null;
+    companyWorkspaceRoot: string | null;
+  },
+): {
+  agentsUpdated: number;
+  agentModelsCleared: number;
+  runtimeRowsUpdated: number;
+  runtimeRowsDeleted: number;
+} {
+  if (
+    taskKeys.length === 0 ||
+    !tableExists(db, "agents") ||
+    !columnExists(db, "tasks", "assignee_agent_id") ||
+    !columnExists(db, "agents", "adapter_type")
+  ) {
+    return { agentsUpdated: 0, agentModelsCleared: 0, runtimeRowsUpdated: 0, runtimeRowsDeleted: 0 };
+  }
+
+  const agentRows = db
+    .prepare(
+      `SELECT DISTINCT a.id, a.company_id, a.adapter_type, a.model
+         FROM tasks t
+         INNER JOIN agents a ON a.id = t.assignee_agent_id
+        WHERE t.task_key IN (${placeholders(taskKeys.length)})
+          AND t.assignee_agent_id IS NOT NULL
+        ORDER BY a.id`,
+    )
+    .all(...taskKeys) as Array<{
+      id: string;
+      company_id: string;
+      adapter_type: string | null;
+      model: string | null;
+    }>;
+  if (agentRows.length === 0) return { agentsUpdated: 0, agentModelsCleared: 0, runtimeRowsUpdated: 0, runtimeRowsDeleted: 0 };
+
+  const now = new Date().toISOString();
+  const agentIds = agentRows.map((row) => row.id);
+  const updateAgent = columnExists(db, "agents", "model")
+    ? db.prepare("UPDATE agents SET adapter_type = ?, model = ?, updated_at = ? WHERE id = ?")
+    : db.prepare("UPDATE agents SET adapter_type = ?, updated_at = ? WHERE id = ?");
+  let agentsUpdated = 0;
+  let agentModelsCleared = 0;
+  for (const row of agentRows) {
+    const adapterProvider = normalizeRunnerProvider(row.adapter_type);
+    const modelProvider = normalizeRunnerProvider(row.model);
+    const adapterAllowed = Boolean(adapterProvider && input.allowed.has(adapterProvider));
+    const modelDisallowed = Boolean(modelProvider && !input.allowed.has(modelProvider));
+    if (adapterAllowed && !modelDisallowed) continue;
+    if (columnExists(db, "agents", "model")) {
+      agentsUpdated += updateAgent.run(input.preferred, null, now, row.id).changes;
+      if (row.model) agentModelsCleared += 1;
+    } else {
+      agentsUpdated += updateAgent.run(input.preferred, now, row.id).changes;
+    }
+  }
+
+  if (!tableExists(db, "agent_runtimes") || !columnExists(db, "agent_runtimes", "agent_id")) {
+    return { agentsUpdated, agentModelsCleared, runtimeRowsUpdated: 0, runtimeRowsDeleted: 0 };
+  }
+
+  const runtimeRows = db
+    .prepare(
+      `SELECT id, company_id, provider, runtime_slug, command, metadata_json, workspace_root
+         FROM agent_runtimes
+        WHERE agent_id IN (${placeholders(agentIds.length)})
+        ORDER BY id`,
+    )
+    .all(...agentIds) as Array<{
+      id: string;
+      company_id: string;
+      provider: string;
+      runtime_slug: string;
+      command: string | null;
+      metadata_json: string | null;
+      workspace_root: string | null;
+    }>;
+  const updateRuntime = db.prepare(
+    "UPDATE agent_runtimes SET provider = ?, command = ?, status = 'online', metadata_json = ?, workspace_root = COALESCE(?, workspace_root), updated_at = ? WHERE id = ?",
+  );
+  const deleteRuntime = db.prepare("DELETE FROM agent_runtimes WHERE id = ?");
+  const conflictRuntime = db.prepare(
+    "SELECT id FROM agent_runtimes WHERE company_id = ? AND provider = ? AND runtime_slug = ? AND id != ? LIMIT 1",
+  );
+  let runtimeRowsUpdated = 0;
+  let runtimeRowsDeleted = 0;
+  for (const row of runtimeRows) {
+    const provider = normalizeRunnerProvider(row.provider);
+    if (provider && input.allowed.has(provider)) continue;
+    const conflict = conflictRuntime.get(row.company_id, input.preferred, row.runtime_slug, row.id) as { id: string } | undefined;
+    if (conflict) {
+      runtimeRowsDeleted += deleteRuntime.run(row.id).changes;
+      continue;
+    }
+    const command = bundledRunnerCommandForProvider(input.preferred, input.sourceWorkspaceRoot) ?? row.command;
+    const metadata = sanitizeRuntimeMetadataJson(row.metadata_json, {
+      provider: input.preferred,
+      command,
+      companyWorkspaceRoot: input.companyWorkspaceRoot,
+    });
+    runtimeRowsUpdated += updateRuntime.run(
+      input.preferred,
+      command,
+      metadata.metadataJson,
+      input.companyWorkspaceRoot,
+      now,
+      row.id,
+    ).changes;
+  }
+
+  return { agentsUpdated, agentModelsCleared, runtimeRowsUpdated, runtimeRowsDeleted };
+}
+
+function sanitizeBenchmarkRunnerRoutes(
+  db: Database.Database,
+  taskKeys: string[],
+  input: {
+    allowedRunnerProviders: RunnerProvider[];
+    preferredRunnerProvider: RunnerProvider;
+    sourceWorkspaceRoot: string | null;
+    companyWorkspaceRoot: string | null;
+  },
+) {
+  if (taskKeys.length === 0) {
+    throw new Error("Runner-route sanitization requires a non-empty frozen task-key list.");
+  }
+  const allowed = new Set(input.allowedRunnerProviders);
+  const companyIds = selectedFixtureCompanyIds(db, taskKeys);
+  const hiveSummary = sanitizeBenchmarkHiveRoutes(db, companyIds, {
+    allowed,
+    preferred: input.preferredRunnerProvider,
+  });
+  const assigneeSummary = sanitizeSelectedTaskAssigneeRoutes(db, taskKeys, {
+    allowed,
+    preferred: input.preferredRunnerProvider,
+    sourceWorkspaceRoot: input.sourceWorkspaceRoot,
+    companyWorkspaceRoot: input.companyWorkspaceRoot,
+  });
+  return {
+    schema: "hiverunner.exec_dev_runner_route_sanitization.v1",
+    allowedRunnerProviders: input.allowedRunnerProviders,
+    preferredRunnerProvider: input.preferredRunnerProvider,
+    companyIds,
+    ...hiveSummary,
+    ...assigneeSummary,
+  };
 }
 
 function rewriteWorkspaceString(value: string, context: WorkspaceRewriteContext): string {
@@ -749,6 +1117,7 @@ function replaySummaryCommands(input: {
   requiredRepeats: number;
   expectedTaskCount: number;
   taskKeys: string[];
+  allowedRunnerProviders: RunnerProvider[];
 }): string[] {
   const commands: string[] = [];
   const taskKeyArgs = input.taskKeys.map((taskKey) => `--task-key ${taskKey}`).join(" ");
@@ -819,10 +1188,25 @@ async function main() {
     }
 
     let workspaceRewrite: ReturnType<typeof rewriteWorkspaceRoots> | null = null;
+    let routeSanitization: ReturnType<typeof sanitizeBenchmarkRunnerRoutes> | null = null;
     if (options.sourceWorkspaceRoot || options.companyWorkspaceRoot) {
       const writable = new Database(options.targetDbPath, { fileMustExist: true });
       try {
         workspaceRewrite = rewriteWorkspaceRoots(writable, taskKeys, {
+          sourceWorkspaceRoot: options.sourceWorkspaceRoot,
+          companyWorkspaceRoot: options.companyWorkspaceRoot,
+        });
+      } finally {
+        writable.close();
+      }
+    }
+
+    if (options.sanitizeRunnerRoutes) {
+      const writable = new Database(options.targetDbPath, { fileMustExist: true });
+      try {
+        routeSanitization = sanitizeBenchmarkRunnerRoutes(writable, taskKeys, {
+          allowedRunnerProviders: options.allowedRunnerProviders,
+          preferredRunnerProvider: options.preferredRunnerProvider,
           sourceWorkspaceRoot: options.sourceWorkspaceRoot,
           companyWorkspaceRoot: options.companyWorkspaceRoot,
         });
@@ -863,6 +1247,8 @@ async function main() {
         requiredRepeats: options.requiredRepeats,
         resetSelectedTasksTo: options.resetSelectedTasksTo,
         workspaceRewrite,
+        allowedRunnerProviders: options.allowedRunnerProviders,
+        routeSanitization,
         report: "Run each arm against the same frozen fixture DB in an isolated execution-dev lane, then pass all repeat summary JSON files to scripts/runtime-promotion-gate.ts.",
         summaryCommands: replaySummaryCommands({
           dbPath: path.resolve(options.targetDbPath),
@@ -871,11 +1257,13 @@ async function main() {
           requiredRepeats: options.requiredRepeats,
           expectedTaskCount: options.expectedTaskCount,
           taskKeys,
+          allowedRunnerProviders: options.allowedRunnerProviders,
         }),
       },
       notes: [
         "Copied with better-sqlite3 backup from a readonly/query_only source handle.",
         "Target is intended for an execution-dev lane only, not stable 3001 or observer-only 3010.",
+        "If routeSanitization is present, selected benchmark tasks were restricted to the manifest's allowedRunnerProviders before replay.",
         "Promotion requires baseline and candidate arms, at least three repeats per arm, UI consistency proof, and untracked-action proof.",
       ],
     };

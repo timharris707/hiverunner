@@ -413,13 +413,21 @@ async function main() {
   if (options.requireIsolatedWorkspace) {
     assertIsolatedWorkspace(db, options.taskKeys);
   }
+  const allowedRunnerProviderSet = new Set(options.allowedRunnerProviders);
   if (options.checkOnly) {
     const statuses = readTaskStatuses(db, options.taskKeys);
+    const routeProviderViolations = readRouteProviderViolations(db, {
+      taskKeys: options.taskKeys,
+      allowedRunnerProviders: allowedRunnerProviderSet,
+    });
     const output = {
       schema: "hiverunner.runtime-benchmark-repeat-check.v1",
       goalKey: options.goalKey,
       checkedAt: new Date().toISOString(),
       taskKeys: options.taskKeys,
+      allowedRunnerProviders: options.allowedRunnerProviders,
+      routeProviderClean: routeProviderViolations.length === 0,
+      routeProviderViolations,
       finalStatuses: statuses,
     };
     if (options.outPath) {
@@ -427,13 +435,20 @@ async function main() {
       fs.writeFileSync(options.outPath, `${JSON.stringify(output, null, 2)}\n`);
     }
     console.log(JSON.stringify(output, null, 2));
+    if (routeProviderViolations.length > 0) {
+      console.error(
+        `[repeat] provider route violation: ${routeProviderViolations.length} disallowed route attempt(s): ${routeProviderViolations
+          .map((violation) => `${violation.taskKey}:${violation.runnerProvider}`)
+          .join(", ")}`,
+      );
+      process.exitCode = 2;
+    }
     return;
   }
 
   const startedAt = new Date().toISOString();
   const fixtureProjectIds = readSelectedTaskProjectIds(db, options.taskKeys);
   const deadline = Date.now() + options.maxMinutes * 60_000;
-  const allowedRunnerProviderSet = new Set(options.allowedRunnerProviders);
   let tickCount = 0;
   let scopeViolation: ReplayScopeViolation | null = null;
   const tickResults: Array<{
