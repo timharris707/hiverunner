@@ -17,9 +17,16 @@ const { finish, test } = createTestRunner({ passLabel: "pass", failLabel: "fail"
 
 type BenchmarkReplayMetadata = {
   commandPath?: string;
+  requestedRuntimeProvider?: string;
+  selectedRuntimeDisplayName?: string;
+  model?: string;
   workspaceRoot?: string;
   nested?: {
     sourceLogPath?: string;
+  };
+  hiverunnerSymphony?: {
+    sandbox?: string;
+    approvalPolicy?: string;
   };
   health?: {
     command?: string | null;
@@ -57,8 +64,14 @@ function parseJson<T>(value: string): T {
   return JSON.parse(value) as T;
 }
 
-function createSourceDb(dbPath: string, oldAppRoot: string, oldCompanyRoot: string) {
+function createSourceDb(
+  dbPath: string,
+  oldAppRoot: string,
+  oldCompanyRoot: string,
+  options: { sourceWorkspaceRoot?: string } = {},
+) {
   const db = new Database(dbPath);
+  const sourceWorkspaceRoot = options.sourceWorkspaceRoot ?? path.join(oldAppRoot, ".stable");
   db.exec(`
     CREATE TABLE sprints (
       id TEXT PRIMARY KEY,
@@ -125,8 +138,8 @@ function createSourceDb(dbPath: string, oldAppRoot: string, oldCompanyRoot: stri
       "project",
       "company",
       JSON.stringify({
-        sourceWorkspaceRoot: path.join(oldAppRoot, ".stable"),
-        workspace: { sourceRoot: path.join(oldAppRoot, ".stable") },
+        sourceWorkspaceRoot,
+        workspace: { sourceRoot: sourceWorkspaceRoot },
       }),
       "2026-01-01T00:00:00.000Z",
     );
@@ -145,9 +158,16 @@ function createSourceDb(dbPath: string, oldAppRoot: string, oldCompanyRoot: stri
     oldSymphonyRunner,
     JSON.stringify({
       commandPath: oldSymphonyRunner,
+      requestedRuntimeProvider: "codex",
+      selectedRuntimeDisplayName: "codex runtime",
+      model: "openai-codex/gpt-5.5",
       workspaceRoot: oldCompanyRoot,
       nested: {
         sourceLogPath: path.join(oldAppRoot, ".stable", "scratch", "runner.log"),
+      },
+      hiverunnerSymphony: {
+        sandbox: "danger-full-access",
+        approvalPolicy: "never",
       },
       health: {
         command: oldSymphonyRunner,
@@ -282,6 +302,11 @@ async function run() {
         assert.equal(codexRuntime.command, candidateSymphonyRunner);
         const codexMetadata = parseJson<BenchmarkReplayMetadata>(codexRuntime.metadata_json ?? "{}");
         assert.equal(codexMetadata.commandPath, candidateSymphonyRunner);
+        assert.equal(codexMetadata.requestedRuntimeProvider, "codex");
+        assert.equal(codexMetadata.selectedRuntimeDisplayName, "codex runtime");
+        assert.equal(codexMetadata.model, "openai-codex/gpt-5.5");
+        assert.equal(codexMetadata.hiverunnerSymphony?.sandbox, "danger-full-access");
+        assert.equal(codexMetadata.hiverunnerSymphony?.approvalPolicy, "never");
         assert.equal(codexMetadata.workspaceRoot, candidateCompanyRoot);
         assert.equal(codexMetadata.nested?.sourceLogPath, path.join(candidateRoot, "scratch", "runner.log"));
         assert.equal(codexMetadata.health.command, candidateSymphonyRunner);
@@ -330,6 +355,62 @@ async function run() {
         });
         assert.equal(rowJson.includes(oldCompanyRoot), false, "old company root should not remain in rewritten runtime/config rows");
         assert.equal(rowJson.includes(path.join(oldAppRoot, ".stable")), false, "old source root should not remain in rewritten runtime/config rows");
+      } finally {
+        target.close();
+      }
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  await test("prepare does not rewrite non-path runtime metadata strings", () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "prepare-exec-dev-benchmark-"));
+    try {
+      const sourceDbPath = path.join(tempRoot, "source.db");
+      const targetDbPath = path.join(tempRoot, "target", "orchestration.db");
+      const manifestPath = path.join(tempRoot, "target", "benchmark-manifest.json");
+      const oldAppRoot = process.cwd();
+      const oldCompanyRoot = path.join(tempRoot, "stable-company-workspace");
+      const candidateRoot = path.join(tempRoot, "candidate-source");
+      const candidateCompanyRoot = path.join(tempRoot, "candidate-company-workspace");
+      fs.mkdirSync(path.join(candidateRoot, "scripts"), { recursive: true });
+      createSourceDb(sourceDbPath, oldAppRoot, oldCompanyRoot, { sourceWorkspaceRoot: oldAppRoot });
+
+      const result = spawnSync(process.execPath, [
+        "./scripts/run-tsx.mjs",
+        "scripts/prepare-exec-dev-benchmark.ts",
+        "--source-db",
+        sourceDbPath,
+        "--target-db",
+        targetDbPath,
+        "--manifest",
+        manifestPath,
+        "--goal",
+        "INS-G006",
+        "--expected-tasks",
+        "2",
+        "--required-repeats",
+        "1",
+        "--source-workspace-root",
+        candidateRoot,
+        "--company-workspace-root",
+        candidateCompanyRoot,
+      ], {
+        cwd: process.cwd(),
+        encoding: "utf8",
+      });
+
+      assert.equal(result.status, 0, result.stderr || result.stdout);
+      const target = new Database(targetDbPath, { readonly: true, fileMustExist: true });
+      try {
+        const codexRuntime = readRuntime(target, "runtime-symphony-codex");
+        const codexMetadata = parseJson<BenchmarkReplayMetadata>(codexRuntime.metadata_json ?? "{}");
+        assert.equal(codexMetadata.commandPath, path.join(candidateRoot, "scripts", "hiverunner-symphony-runner.mjs"));
+        assert.equal(codexMetadata.requestedRuntimeProvider, "codex");
+        assert.equal(codexMetadata.selectedRuntimeDisplayName, "codex runtime");
+        assert.equal(codexMetadata.model, "openai-codex/gpt-5.5");
+        assert.equal(codexMetadata.hiverunnerSymphony?.sandbox, "danger-full-access");
+        assert.equal(codexMetadata.hiverunnerSymphony?.approvalPolicy, "never");
       } finally {
         target.close();
       }

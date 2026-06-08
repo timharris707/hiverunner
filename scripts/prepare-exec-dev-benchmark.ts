@@ -278,6 +278,7 @@ function companyWorkspaceRootCandidatesFromJson(metadataJson: string | null | un
 
 function replaceAnyWorkspacePrefix(value: string, fromRoots: string[], toRoot: string | null): string {
   if (!toRoot) return value;
+  if (!path.isAbsolute(value)) return value;
   for (const fromRoot of fromRoots) {
     const relative = path.relative(fromRoot, value);
     if (relative === "") return toRoot;
