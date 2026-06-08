@@ -46,6 +46,10 @@ HiveRunner to hand work to that runtime.
    Code CLI login is separate from `ANTHROPIC_API_KEY`.
 5. Confirm readiness from the runtime inventory before assigning autonomous work
    to a runtime-backed agent.
+6. Codex and Claude Code runtime lanes use the operator's local subscription
+   CLI login only. Do not treat `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
+   `CLAUDE_API_KEY`, or OpenRouter credentials as fallback auth for those lanes;
+   direct API-backed provider routes must be selected explicitly.
 
 ## Environment Variables
 

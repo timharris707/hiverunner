@@ -35,6 +35,12 @@ the execution surface the external runner, with Codex as the default bundled run
 Codex is the OpenAI coding/execution surface for this integration, so there is no separate
 ChatGPT/OpenAI runner option in HiveRunner.
 
+Codex and Claude Code bundled wrappers are subscription-CLI runtimes. They must use the operator's
+local CLI login and must not silently fall back to `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
+`CLAUDE_API_KEY`, OpenRouter, or another direct API credential. If an operator wants direct OpenAI or
+Anthropic API execution, that must be modeled and labeled as an explicit direct provider route, not as
+Codex or Claude Code.
+
 ```json
 {
   "sessionId": "codex-session-or-run-id",

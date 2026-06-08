@@ -20,6 +20,8 @@ Here, "through Codex" means the Codex working environment coordinates the projec
 
 Continuity rule: if the Codex-backed CLI lane is itself the failure surface during this refactor, pause the affected slice, preserve evidence, and use another available runtime for review, verification, or narrowly scoped implementation work rather than forcing a broken runtime to repair itself blindly.
 
+Subscription-auth rule: Codex and Claude Code lanes must run through the operator's local subscription-authenticated CLIs. Do not use `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `CLAUDE_API_KEY`, OpenRouter, or any direct API key as a hidden fallback for those lanes. Direct OpenAI or Anthropic API routes are separate explicit provider choices; they must never masquerade as Codex or Claude Code execution.
+
 ## Lane rule
 
 Do not use `3010` for replay benchmarks or active execution. The `3010` lane is observer-only by design: `MC_ENGINE_TICK=off`, role `observer`, UI/build validation only.
