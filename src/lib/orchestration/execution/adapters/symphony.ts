@@ -142,13 +142,15 @@ type MergeRunnerMetadataOptions = {
 const DEFAULT_SYMPHONY_MAX_BUFFER = 10 * 1024 * 1024;
 const RUNNER_LIVE_EVENT_SCHEMA = "hiverunner.external-runner.live-event.v1";
 const RUNNER_LIVE_EVENT_PREFIX = "::hiverunner-live-event ";
-const BUNDLED_RUNNER_SCRIPT_NAMES = new Set([
-  "hiverunner-symphony-runner.mjs",
-  "hiverunner-claude-runner.mjs",
-  "hiverunner-gemini-runner.mjs",
-  "hiverunner-hermes-runner.mjs",
-  "hiverunner-openclaw-runner.mjs",
-]);
+const BUNDLED_RUNNER_SCRIPT_BY_PROVIDER = {
+  codex: "hiverunner-symphony-runner.mjs",
+  anthropic: "hiverunner-claude-runner.mjs",
+  gemini: "hiverunner-gemini-runner.mjs",
+  hermes: "hiverunner-hermes-runner.mjs",
+  openclaw: "hiverunner-openclaw-runner.mjs",
+} as const;
+
+const BUNDLED_RUNNER_SCRIPT_NAMES: ReadonlySet<string> = new Set(Object.values(BUNDLED_RUNNER_SCRIPT_BY_PROVIDER));
 
 function getDb(): Database.Database {
   // Lazy require keeps adapter registry imports from opening a live DB.
@@ -1004,19 +1006,45 @@ function splitCommandLine(value: string): string[] {
   return parts;
 }
 
-function defaultRunnerCommandForProvider(runnerProvider: string): string | null {
-  const provider = normalizeRunnerProvider(runnerProvider);
-  const scriptName = provider === "anthropic"
-    ? "hiverunner-claude-runner.mjs"
-    : provider === "gemini"
-      ? "hiverunner-gemini-runner.mjs"
-      : provider === "hermes"
-        ? "hiverunner-hermes-runner.mjs"
-        : provider === "openclaw"
-          ? "hiverunner-openclaw-runner.mjs"
-          : provider === "codex"
-            ? "hiverunner-symphony-runner.mjs"
-            : null;
+type BundledRunnerProvider = keyof typeof BUNDLED_RUNNER_SCRIPT_BY_PROVIDER;
+
+function bundledRunnerProvider(value: string | null | undefined): BundledRunnerProvider | null {
+  const provider = normalizeRunnerProvider(value);
+  return Object.prototype.hasOwnProperty.call(BUNDLED_RUNNER_SCRIPT_BY_PROVIDER, provider)
+    ? provider as BundledRunnerProvider
+    : null;
+}
+
+function bundledRunnerScriptNameForProvider(runnerProvider: string | null | undefined): string | null {
+  const provider = bundledRunnerProvider(runnerProvider);
+  return provider ? BUNDLED_RUNNER_SCRIPT_BY_PROVIDER[provider] : null;
+}
+
+function benchmarkReplayBundledRunnerCommand(
+  metadata: Record<string, unknown>,
+  runnerProvider: string,
+): string | null {
+  const replay = asRecord(metadata.hiverunnerBenchmarkReplay);
+  if (!replay) return null;
+
+  const provider = bundledRunnerProvider(runnerProvider);
+  const commands = asRecord(replay.bundledRunnerCommands);
+  const explicitCommand = provider ? optionalString(commands?.[provider]) : undefined;
+  if (explicitCommand) return explicitCommand;
+
+  const scriptRoot = optionalString(replay.bundledRunnerScriptRoot);
+  const scriptName = bundledRunnerScriptNameForProvider(runnerProvider);
+  return scriptRoot && scriptName ? path.join(scriptRoot, "scripts", scriptName) : null;
+}
+
+function defaultRunnerCommandForProvider(
+  runnerProvider: string,
+  metadata: Record<string, unknown> = {},
+): string | null {
+  const replayCommand = benchmarkReplayBundledRunnerCommand(metadata, runnerProvider);
+  if (replayCommand) return replayCommand;
+
+  const scriptName = bundledRunnerScriptNameForProvider(runnerProvider);
   if (!scriptName) return null;
   const command = path.join(process.cwd(), "scripts", scriptName);
   return fs.existsSync(command) ? command : null;
@@ -1122,7 +1150,7 @@ function resolveCommandConfig(
     routeAttempt?.target.runtimeProvider ?? matrixDefaults.runnerProvider ?? resolveRunnerProvider(metadata),
   );
   const envCommand = stringFrom(process.env.SYMPHONY_EXEC_COMMAND);
-  const defaultRunner = defaultRunnerCommandForProvider(runnerProvider);
+  const defaultRunner = defaultRunnerCommandForProvider(runnerProvider, metadata);
   const configuredCommand =
     stringFrom(metadata.commandPath) ||
     stringFrom(metadata.command) ||

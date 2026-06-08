@@ -81,13 +81,15 @@ type WorkspaceRow = {
 };
 
 const SUMMARY_SCHEMA = "hiverunner.runtime_preflight_summary.v1";
-const BUNDLED_RUNNER_SCRIPT_NAMES = new Set([
-  "hiverunner-symphony-runner.mjs",
-  "hiverunner-claude-runner.mjs",
-  "hiverunner-gemini-runner.mjs",
-  "hiverunner-hermes-runner.mjs",
-  "hiverunner-openclaw-runner.mjs",
-]);
+const BUNDLED_RUNNER_SCRIPT_BY_PROVIDER = {
+  codex: "hiverunner-symphony-runner.mjs",
+  anthropic: "hiverunner-claude-runner.mjs",
+  gemini: "hiverunner-gemini-runner.mjs",
+  hermes: "hiverunner-hermes-runner.mjs",
+  openclaw: "hiverunner-openclaw-runner.mjs",
+} as const;
+
+const BUNDLED_RUNNER_SCRIPT_NAMES: ReadonlySet<string> = new Set(Object.values(BUNDLED_RUNNER_SCRIPT_BY_PROVIDER));
 
 function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -134,19 +136,45 @@ function normalizeRunnerProvider(value: string | null | undefined): string {
   return provider || "codex";
 }
 
-function defaultRunnerScriptPathForProvider(runnerProvider: string | null | undefined): string | null {
-  const provider = normalizeRunnerProvider(runnerProvider);
-  const scriptName = provider === "anthropic"
-    ? "hiverunner-claude-runner.mjs"
-    : provider === "gemini"
-      ? "hiverunner-gemini-runner.mjs"
-      : provider === "hermes"
-        ? "hiverunner-hermes-runner.mjs"
-        : provider === "openclaw"
-          ? "hiverunner-openclaw-runner.mjs"
-          : provider === "codex"
-            ? "hiverunner-symphony-runner.mjs"
-            : null;
+type BundledRunnerProvider = keyof typeof BUNDLED_RUNNER_SCRIPT_BY_PROVIDER;
+
+function bundledRunnerProvider(value: string | null | undefined): BundledRunnerProvider | null {
+  const provider = normalizeRunnerProvider(value);
+  return Object.prototype.hasOwnProperty.call(BUNDLED_RUNNER_SCRIPT_BY_PROVIDER, provider)
+    ? provider as BundledRunnerProvider
+    : null;
+}
+
+function bundledRunnerScriptNameForProvider(runnerProvider: string | null | undefined): string | null {
+  const provider = bundledRunnerProvider(runnerProvider);
+  return provider ? BUNDLED_RUNNER_SCRIPT_BY_PROVIDER[provider] : null;
+}
+
+function benchmarkReplayBundledRunnerScriptPath(
+  metadata: Record<string, unknown>,
+  runnerProvider: string | null | undefined,
+): string | null {
+  const replay = asRecord(metadata.hiverunnerBenchmarkReplay);
+  if (!replay) return null;
+
+  const provider = bundledRunnerProvider(runnerProvider);
+  const commands = asRecord(replay.bundledRunnerCommands);
+  const explicitCommand = provider ? text(commands?.[provider]) : "";
+  if (explicitCommand) return explicitCommand;
+
+  const scriptRoot = text(replay.bundledRunnerScriptRoot);
+  const scriptName = bundledRunnerScriptNameForProvider(runnerProvider);
+  return scriptRoot && scriptName ? path.join(scriptRoot, "scripts", scriptName) : null;
+}
+
+function defaultRunnerScriptPathForProvider(
+  runnerProvider: string | null | undefined,
+  metadata: Record<string, unknown> = {},
+): string | null {
+  const replayCommand = benchmarkReplayBundledRunnerScriptPath(metadata, runnerProvider);
+  if (replayCommand) return replayCommand;
+
+  const scriptName = bundledRunnerScriptNameForProvider(runnerProvider);
   return scriptName ? path.join(process.cwd(), "scripts", scriptName) : null;
 }
 
@@ -503,7 +531,7 @@ function resolveHeartbeatRunnerLaunch(db: Database.Database, input: HeartbeatRun
   const runtime = resolveSymphonyRuntime(db, input);
   const metadata = parseJson(runtime?.metadata_json);
   const runnerProvider = normalizeRunnerProvider(input.runnerProvider);
-  const defaultRunner = defaultRunnerScriptPathForProvider(runnerProvider);
+  const defaultRunner = defaultRunnerScriptPathForProvider(runnerProvider, metadata);
   const configuredCommand =
     text(metadata.commandPath) ||
     text(metadata.command) ||

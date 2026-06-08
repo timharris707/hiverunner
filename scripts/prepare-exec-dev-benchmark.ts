@@ -17,13 +17,15 @@ type CliOptions = {
   companyWorkspaceRoot: string | null;
 };
 
-const BUNDLED_RUNNER_SCRIPT_NAMES = new Set([
-  "hiverunner-claude-runner.mjs",
-  "hiverunner-gemini-runner.mjs",
-  "hiverunner-hermes-runner.mjs",
-  "hiverunner-openclaw-runner.mjs",
-  "hiverunner-symphony-runner.mjs",
-]);
+const BUNDLED_RUNNER_SCRIPT_BY_PROVIDER = {
+  anthropic: "hiverunner-claude-runner.mjs",
+  gemini: "hiverunner-gemini-runner.mjs",
+  hermes: "hiverunner-hermes-runner.mjs",
+  openclaw: "hiverunner-openclaw-runner.mjs",
+  codex: "hiverunner-symphony-runner.mjs",
+} as const;
+
+const BUNDLED_RUNNER_SCRIPT_NAMES: ReadonlySet<string> = new Set(Object.values(BUNDLED_RUNNER_SCRIPT_BY_PROVIDER));
 
 function usage(): never {
   console.error([
@@ -238,19 +240,54 @@ function rewriteBundledRunnerCommand(command: string | null, sourceWorkspaceRoot
   return [path.join(sourceWorkspaceRoot, "scripts", scriptName), ...parts.slice(1)].join(" ");
 }
 
+function candidateBundledRunnerCommands(sourceWorkspaceRoot: string): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(BUNDLED_RUNNER_SCRIPT_BY_PROVIDER).map(([provider, scriptName]) => [
+      provider,
+      path.join(sourceWorkspaceRoot, "scripts", scriptName),
+    ]),
+  );
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function rewriteBenchmarkReplayBundledRunnerMetadata(
+  metadata: Record<string, unknown>,
+  sourceWorkspaceRoot: string,
+): boolean {
+  const existing = asRecord(metadata.hiverunnerBenchmarkReplay) ?? {};
+  const next = {
+    ...existing,
+    schema: "hiverunner.benchmark_replay_runtime_paths.v1",
+    bundledRunnerScriptRoot: sourceWorkspaceRoot,
+    bundledRunnerCommands: candidateBundledRunnerCommands(sourceWorkspaceRoot),
+  };
+  if (JSON.stringify(existing) === JSON.stringify(next)) return false;
+  metadata.hiverunnerBenchmarkReplay = next;
+  return true;
+}
+
 function rewriteMetadataBundledRunnerCommands(
   metadataJson: string | null,
   sourceWorkspaceRoot: string | null,
-): { metadataJson: string | null; changed: boolean } {
-  if (!metadataJson || !sourceWorkspaceRoot) return { metadataJson, changed: false };
+  options: { stampBenchmarkReplayBundledRunners?: boolean } = {},
+): { metadataJson: string | null; changed: boolean; benchmarkReplayMetadataChanged: boolean } {
+  if (!sourceWorkspaceRoot || (!metadataJson && !options.stampBenchmarkReplayBundledRunners)) {
+    return { metadataJson, changed: false, benchmarkReplayMetadataChanged: false };
+  }
   let metadata: Record<string, unknown>;
   try {
-    metadata = JSON.parse(metadataJson) as Record<string, unknown>;
+    metadata = asRecord(JSON.parse(metadataJson || "{}")) ?? {};
   } catch {
-    return { metadataJson, changed: false };
+    return { metadataJson, changed: false, benchmarkReplayMetadataChanged: false };
   }
 
   let changed = false;
+  let benchmarkReplayMetadataChanged = false;
   const rewriteStringKey = (target: Record<string, unknown>, key: string) => {
     if (typeof target[key] !== "string") return;
     const rewritten = rewriteBundledRunnerCommand(target[key], sourceWorkspaceRoot);
@@ -269,7 +306,16 @@ function rewriteMetadataBundledRunnerCommands(
     if (changed) metadata.health = health;
   }
 
-  return { metadataJson: changed ? JSON.stringify(metadata) : metadataJson, changed };
+  if (options.stampBenchmarkReplayBundledRunners) {
+    benchmarkReplayMetadataChanged = rewriteBenchmarkReplayBundledRunnerMetadata(metadata, sourceWorkspaceRoot);
+    changed = changed || benchmarkReplayMetadataChanged;
+  }
+
+  return {
+    metadataJson: changed ? JSON.stringify(metadata) : metadataJson,
+    changed,
+    benchmarkReplayMetadataChanged,
+  };
 }
 
 function rewriteWorkspaceRoots(
@@ -287,6 +333,7 @@ function rewriteWorkspaceRoots(
   agentRuntimeRowsUpdated: number;
   agentRuntimeCommandRowsUpdated: number;
   agentRuntimeMetadataRowsUpdated: number;
+  agentRuntimeBenchmarkReplayMetadataRowsUpdated: number;
 } {
   if (!input.sourceWorkspaceRoot && !input.companyWorkspaceRoot) {
     return {
@@ -297,6 +344,7 @@ function rewriteWorkspaceRoots(
       agentRuntimeRowsUpdated: 0,
       agentRuntimeCommandRowsUpdated: 0,
       agentRuntimeMetadataRowsUpdated: 0,
+      agentRuntimeBenchmarkReplayMetadataRowsUpdated: 0,
     };
   }
   if (taskKeys.length === 0) {
@@ -350,6 +398,7 @@ function rewriteWorkspaceRoots(
   let agentRuntimeRowsUpdated = 0;
   let agentRuntimeCommandRowsUpdated = 0;
   let agentRuntimeMetadataRowsUpdated = 0;
+  let agentRuntimeBenchmarkReplayMetadataRowsUpdated = 0;
   if (input.companyWorkspaceRoot) {
     const companyId = companyIds[0];
     const oldCompanyRoot = projectRows.find((row) => row.company_id === companyId)?.company_workspace_root?.trim() || null;
@@ -370,16 +419,19 @@ function rewriteWorkspaceRoots(
 
   if (input.sourceWorkspaceRoot && columnExists(db, "agent_runtimes", "command")) {
     const runtimeRows = db
-      .prepare("SELECT id, command, metadata_json FROM agent_runtimes WHERE command IS NOT NULL OR metadata_json IS NOT NULL")
-      .all() as Array<{ id: string; command: string | null; metadata_json: string | null }>;
+      .prepare("SELECT id, provider, command, metadata_json FROM agent_runtimes WHERE command IS NOT NULL OR metadata_json IS NOT NULL OR provider = 'symphony'")
+      .all() as Array<{ id: string; provider: string; command: string | null; metadata_json: string | null }>;
     const updateCommand = db.prepare("UPDATE agent_runtimes SET command = ?, metadata_json = ?, updated_at = ? WHERE id = ?");
     for (const row of runtimeRows) {
       const rewritten = rewriteBundledRunnerCommand(row.command, input.sourceWorkspaceRoot);
-      const metadata = rewriteMetadataBundledRunnerCommands(row.metadata_json, input.sourceWorkspaceRoot);
+      const metadata = rewriteMetadataBundledRunnerCommands(row.metadata_json, input.sourceWorkspaceRoot, {
+        stampBenchmarkReplayBundledRunners: row.provider === "symphony",
+      });
       if (rewritten === row.command && !metadata.changed) continue;
       const changes = updateCommand.run(rewritten, metadata.metadataJson, now, row.id).changes;
       if (rewritten !== row.command) agentRuntimeCommandRowsUpdated += changes;
       if (metadata.changed) agentRuntimeMetadataRowsUpdated += changes;
+      if (metadata.benchmarkReplayMetadataChanged) agentRuntimeBenchmarkReplayMetadataRowsUpdated += changes;
     }
   }
 
@@ -391,6 +443,7 @@ function rewriteWorkspaceRoots(
     agentRuntimeRowsUpdated,
     agentRuntimeCommandRowsUpdated,
     agentRuntimeMetadataRowsUpdated,
+    agentRuntimeBenchmarkReplayMetadataRowsUpdated,
   };
 }
 

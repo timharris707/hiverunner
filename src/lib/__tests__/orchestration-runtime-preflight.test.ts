@@ -50,7 +50,7 @@ async function run() {
     rmSync(dbPath, { force: true });
 
     const { getOrchestrationDb, closeOrchestrationDb } = await import("@/lib/orchestration/db");
-    const { admitRuntimePreflight } = await import("@/lib/orchestration/runtime-preflight");
+    const { admitHeartbeatRuntimePreflight, admitRuntimePreflight } = await import("@/lib/orchestration/runtime-preflight");
     const db = getOrchestrationDb();
 
     await test("migration creates runtime_preflight_results with open circuit index", () => {
@@ -163,6 +163,107 @@ async function run() {
       assert.ok(!row!.summary_json.includes("secret-token-value"));
       assert.ok(!row!.summary_json.includes(tempRoot));
       assert.match(row!.summary_json, /missing-helper\.mjs/);
+    });
+
+    await test("benchmark replay metadata makes candidate bundled runner path authoritative", () => {
+      const candidateSourceRoot = path.join(tempRoot, "candidate-source");
+      const companyWorkspaceRoot = path.join(tempRoot, "company-workspace");
+      mkdirSync(candidateSourceRoot, { recursive: true });
+      mkdirSync(companyWorkspaceRoot, { recursive: true });
+
+      db.prepare(
+        `INSERT INTO companies (id, slug, name, description, status, company_code, workspace_root, workspace_source)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        "company-replay",
+        "company-replay",
+        "Replay Company",
+        "Fixture company",
+        "active",
+        "REP",
+        companyWorkspaceRoot,
+        "manual",
+      );
+      db.prepare(
+        `INSERT INTO projects (id, slug, name, company_id, settings_json)
+         VALUES (?, ?, ?, ?, ?)`,
+      ).run(
+        "project-replay",
+        "project-replay",
+        "Replay Project",
+        "company-replay",
+        JSON.stringify({ workspace: { sourceRoot: candidateSourceRoot } }),
+      );
+      db.prepare(
+        `INSERT INTO agents (id, company_id, project_id, name, role, personality, status, adapter_type, runtime_slug)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        "agent-replay",
+        "company-replay",
+        "project-replay",
+        "Replay Agent",
+        "Engineer",
+        "Runs replay tasks.",
+        "idle",
+        "symphony",
+        "replay-symphony",
+      );
+      db.prepare(
+        `INSERT INTO tasks (id, project_id, title, description, priority, type, status, created_by, task_key, company_id, execution_engine, assignee_agent_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        "task-replay",
+        "project-replay",
+        "Replay task",
+        "Exercise candidate bundled runner resolution.",
+        "medium",
+        "feature",
+        "in_progress",
+        "test",
+        "REP-1",
+        "company-replay",
+        "symphony",
+        "agent-replay",
+      );
+      db.prepare(
+        `INSERT INTO agent_runtimes
+           (id, company_id, agent_id, provider, runtime_kind, scope, runtime_slug, display_name, command, status, metadata_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        "runtime-replay-symphony",
+        "company-replay",
+        "agent-replay",
+        "symphony",
+        "external",
+        "agent",
+        "replay-symphony",
+        "Replay Symphony",
+        null,
+        "online",
+        JSON.stringify({
+          hiverunnerBenchmarkReplay: {
+            schema: "hiverunner.benchmark_replay_runtime_paths.v1",
+            bundledRunnerScriptRoot: candidateSourceRoot,
+            bundledRunnerCommands: {
+              anthropic: path.join(candidateSourceRoot, "scripts", "hiverunner-claude-runner.mjs"),
+            },
+          },
+        }),
+      );
+
+      const result = admitHeartbeatRuntimePreflight(db, {
+        agentId: "agent-replay",
+        companyId: "company-replay",
+        taskId: "task-replay",
+        heartbeatRunId: "heartbeat-replay",
+        provider: "symphony",
+        runnerProvider: "anthropic",
+        runnerModel: "claude-sonnet-4-6",
+      });
+
+      assert.strictEqual(result.status, "failed");
+      assert.strictEqual(result.failureCode, "missing_runner_script");
+      assert.match(JSON.stringify(result.summary), /hiverunner-claude-runner\.mjs/);
     });
 
     closeOrchestrationDb();
