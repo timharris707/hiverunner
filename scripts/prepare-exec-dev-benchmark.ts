@@ -773,9 +773,9 @@ function sanitizeRuntimeMetadataJson(
   return { metadataJson: after, changed: before !== after || !metadataJson };
 }
 
-function sanitizeSelectedTaskAssigneeRoutes(
+function sanitizeFixtureCompanyRunnerRoutes(
   db: Database.Database,
-  taskKeys: string[],
+  companyIds: string[],
   input: {
     allowed: Set<RunnerProvider>;
     preferred: RunnerProvider;
@@ -789,24 +789,22 @@ function sanitizeSelectedTaskAssigneeRoutes(
   runtimeRowsDeleted: number;
 } {
   if (
-    taskKeys.length === 0 ||
+    companyIds.length === 0 ||
     !tableExists(db, "agents") ||
-    !columnExists(db, "tasks", "assignee_agent_id") ||
     !columnExists(db, "agents", "adapter_type")
   ) {
     return { agentsUpdated: 0, agentModelsCleared: 0, runtimeRowsUpdated: 0, runtimeRowsDeleted: 0 };
   }
 
+  const hasAgentModel = columnExists(db, "agents", "model");
   const agentRows = db
     .prepare(
-      `SELECT DISTINCT a.id, a.company_id, a.adapter_type, a.model
-         FROM tasks t
-         INNER JOIN agents a ON a.id = t.assignee_agent_id
-        WHERE t.task_key IN (${placeholders(taskKeys.length)})
-          AND t.assignee_agent_id IS NOT NULL
-        ORDER BY a.id`,
+      `SELECT id, company_id, adapter_type, ${hasAgentModel ? "model" : "NULL AS model"}
+         FROM agents
+        WHERE company_id IN (${placeholders(companyIds.length)})
+        ORDER BY id`,
     )
-    .all(...taskKeys) as Array<{
+    .all(...companyIds) as Array<{
       id: string;
       company_id: string;
       adapter_type: string | null;
@@ -815,8 +813,7 @@ function sanitizeSelectedTaskAssigneeRoutes(
   if (agentRows.length === 0) return { agentsUpdated: 0, agentModelsCleared: 0, runtimeRowsUpdated: 0, runtimeRowsDeleted: 0 };
 
   const now = new Date().toISOString();
-  const agentIds = agentRows.map((row) => row.id);
-  const updateAgent = columnExists(db, "agents", "model")
+  const updateAgent = hasAgentModel
     ? db.prepare("UPDATE agents SET adapter_type = ?, model = ?, updated_at = ? WHERE id = ?")
     : db.prepare("UPDATE agents SET adapter_type = ?, updated_at = ? WHERE id = ?");
   let agentsUpdated = 0;
@@ -827,7 +824,7 @@ function sanitizeSelectedTaskAssigneeRoutes(
     const adapterAllowed = Boolean(adapterProvider && input.allowed.has(adapterProvider));
     const modelDisallowed = Boolean(modelProvider && !input.allowed.has(modelProvider));
     if (adapterAllowed && !modelDisallowed) continue;
-    if (columnExists(db, "agents", "model")) {
+    if (hasAgentModel) {
       agentsUpdated += updateAgent.run(input.preferred, null, now, row.id).changes;
       if (row.model) agentModelsCleared += 1;
     } else {
@@ -835,7 +832,7 @@ function sanitizeSelectedTaskAssigneeRoutes(
     }
   }
 
-  if (!tableExists(db, "agent_runtimes") || !columnExists(db, "agent_runtimes", "agent_id")) {
+  if (!tableExists(db, "agent_runtimes")) {
     return { agentsUpdated, agentModelsCleared, runtimeRowsUpdated: 0, runtimeRowsDeleted: 0 };
   }
 
@@ -843,10 +840,10 @@ function sanitizeSelectedTaskAssigneeRoutes(
     .prepare(
       `SELECT id, company_id, provider, runtime_slug, command, metadata_json, workspace_root
          FROM agent_runtimes
-        WHERE agent_id IN (${placeholders(agentIds.length)})
+        WHERE company_id IN (${placeholders(companyIds.length)})
         ORDER BY id`,
     )
-    .all(...agentIds) as Array<{
+    .all(...companyIds) as Array<{
       id: string;
       company_id: string;
       provider: string;
@@ -910,7 +907,7 @@ function sanitizeBenchmarkRunnerRoutes(
     allowed,
     preferred: input.preferredRunnerProvider,
   });
-  const assigneeSummary = sanitizeSelectedTaskAssigneeRoutes(db, taskKeys, {
+  const runnerSummary = sanitizeFixtureCompanyRunnerRoutes(db, companyIds, {
     allowed,
     preferred: input.preferredRunnerProvider,
     sourceWorkspaceRoot: input.sourceWorkspaceRoot,
@@ -922,7 +919,7 @@ function sanitizeBenchmarkRunnerRoutes(
     preferredRunnerProvider: input.preferredRunnerProvider,
     companyIds,
     ...hiveSummary,
-    ...assigneeSummary,
+    ...runnerSummary,
   };
 }
 

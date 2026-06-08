@@ -1,18 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import {
-  getOrchestrationDb,
-  getOrchestrationDbPath,
-} from "@/lib/orchestration/db";
-import { tick } from "@/lib/orchestration/engine/engine";
-import {
-  executionRouteAttempts,
-  resolveExecutionRoute,
+import type Database from "better-sqlite3";
+import type {
+  executionRouteAttempts as executionRouteAttemptsFn,
+  resolveExecutionRoute as resolveExecutionRouteFn,
 } from "@/lib/orchestration/execution-route-resolver";
-import { assertOrchestrationDbPathMigrationCompatible } from "./lib/orchestration-migration-compatibility";
 
 type CliOptions = {
+  dbPath: string | null;
   goalKey: string;
   taskKeys: string[];
   outPath: string | null;
@@ -24,12 +20,28 @@ type CliOptions = {
   allowedRunnerProviders: string[];
 };
 
+type RuntimeModules = {
+  getOrchestrationDb: () => Database.Database;
+  getOrchestrationDbPath: () => string;
+  tick: (db: Database.Database) => Promise<{
+    tickedAt: string;
+    status: string;
+    claimedCount: number;
+    durationMs: number;
+    staleRunsRecovered: number;
+    staleExecutionRunsRecovered: number;
+  }>;
+  resolveExecutionRoute: typeof resolveExecutionRouteFn;
+  executionRouteAttempts: typeof executionRouteAttemptsFn;
+  assertOrchestrationDbPathMigrationCompatible: (input: { dbPath: string; label: string }) => void;
+};
+
 const TERMINAL_TASK_STATUSES = new Set(["done", "blocked", "cancelled", "backlog"]);
 const DEFAULT_ALLOWED_RUNNER_PROVIDERS = ["codex", "anthropic"];
 
 function usage(): never {
   console.error([
-    "Usage: node ./scripts/run-tsx.mjs scripts/runtime-benchmark-repeat.ts --task-keys INS-205,INS-208 [options]",
+    "Usage: node ./scripts/run-tsx.mjs scripts/runtime-benchmark-repeat.ts --db data-exec-dev/orchestration.db --task-keys INS-205,INS-208 [options]",
     "       [--goal INS-G006] [--out output/runtime-benchmark/repeat-window.json]",
     "       [--max-minutes 30] [--poll-ms 5000] [--allow-live-workspace] [--allow-generated-tasks] [--allowed-runner-providers codex,anthropic] [--check-only]",
   ].join("\n"));
@@ -54,6 +66,7 @@ function parseProviderList(value: string | null | undefined): string[] {
 
 function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
+    dbPath: null,
     goalKey: "INS-G006",
     taskKeys: [],
     outPath: null,
@@ -68,7 +81,10 @@ function parseArgs(argv: string[]): CliOptions {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     const next = argv[index + 1];
-    if (arg === "--goal" && next) {
+    if (arg === "--db" && next) {
+      options.dbPath = path.resolve(next);
+      index += 1;
+    } else if (arg === "--goal" && next) {
       options.goalKey = next;
       index += 1;
     } else if (arg === "--task-key" && next) {
@@ -113,6 +129,31 @@ function parseArgs(argv: string[]): CliOptions {
   return options;
 }
 
+async function loadRuntimeModules(options: CliOptions): Promise<RuntimeModules> {
+  if (options.dbPath) {
+    process.env.ORCHESTRATION_DB_PATH = options.dbPath;
+  }
+  const [
+    dbModule,
+    engineModule,
+    routeModule,
+    compatibilityModule,
+  ] = await Promise.all([
+    import("@/lib/orchestration/db"),
+    import("@/lib/orchestration/engine/engine"),
+    import("@/lib/orchestration/execution-route-resolver"),
+    import("./lib/orchestration-migration-compatibility"),
+  ]);
+  return {
+    getOrchestrationDb: dbModule.getOrchestrationDb,
+    getOrchestrationDbPath: dbModule.getOrchestrationDbPath,
+    tick: engineModule.tick,
+    resolveExecutionRoute: routeModule.resolveExecutionRoute,
+    executionRouteAttempts: routeModule.executionRouteAttempts,
+    assertOrchestrationDbPathMigrationCompatible: compatibilityModule.assertOrchestrationDbPathMigrationCompatible,
+  };
+}
+
 function placeholders(count: number): string {
   return Array.from({ length: count }, () => "?").join(",");
 }
@@ -121,9 +162,9 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function assertConfiguredDbMigrationCompatible(label: string): void {
-  const dbPath = getOrchestrationDbPath();
-  assertOrchestrationDbPathMigrationCompatible({
+function assertConfiguredDbMigrationCompatible(runtime: RuntimeModules, label: string): void {
+  const dbPath = runtime.getOrchestrationDbPath();
+  runtime.assertOrchestrationDbPathMigrationCompatible({
     dbPath,
     label: `${label} with migration-incompatible orchestration DB`,
   });
@@ -156,7 +197,7 @@ function isDangerousWorkspace(workspaceRoot: string | null): boolean {
   });
 }
 
-function assertIsolatedWorkspace(db: ReturnType<typeof getOrchestrationDb>, taskKeys: string[]): void {
+function assertIsolatedWorkspace(db: Database.Database, taskKeys: string[]): void {
   const rows = db
     .prepare(
       `SELECT DISTINCT
@@ -213,7 +254,7 @@ function assertIsolatedWorkspace(db: ReturnType<typeof getOrchestrationDb>, task
   }
 }
 
-function readTaskStatuses(db: ReturnType<typeof getOrchestrationDb>, taskKeys: string[]) {
+function readTaskStatuses(db: Database.Database, taskKeys: string[]) {
   return db
     .prepare(
       `SELECT task_key, status, assignee_agent_id, updated_at
@@ -229,7 +270,7 @@ function readTaskStatuses(db: ReturnType<typeof getOrchestrationDb>, taskKeys: s
     }>;
 }
 
-function readSelectedTaskProjectIds(db: ReturnType<typeof getOrchestrationDb>, taskKeys: string[]): string[] {
+function readSelectedTaskProjectIds(db: Database.Database, taskKeys: string[]): string[] {
   const rows = db
     .prepare(
       `SELECT DISTINCT project_id
@@ -242,7 +283,7 @@ function readSelectedTaskProjectIds(db: ReturnType<typeof getOrchestrationDb>, t
 }
 
 function readGeneratedTasksInFixtureProjects(
-  db: ReturnType<typeof getOrchestrationDb>,
+  db: Database.Database,
   input: { projectIds: string[]; taskKeys: string[]; startedAt: string },
 ) {
   if (input.projectIds.length === 0) return [];
@@ -299,8 +340,13 @@ type ReplayScopeViolation =
     };
 
 function readRouteProviderViolations(
-  db: ReturnType<typeof getOrchestrationDb>,
-  input: { taskKeys: string[]; allowedRunnerProviders: Set<string> },
+  db: Database.Database,
+  input: {
+    taskKeys: string[];
+    allowedRunnerProviders: Set<string>;
+    resolveExecutionRoute: RuntimeModules["resolveExecutionRoute"];
+    executionRouteAttempts: RuntimeModules["executionRouteAttempts"];
+  },
 ): RuntimeRouteProviderViolation[] {
   const rows = db
     .prepare(
@@ -329,7 +375,7 @@ function readRouteProviderViolations(
 
   const violations: RuntimeRouteProviderViolation[] = [];
   for (const row of rows) {
-    const route = resolveExecutionRoute({
+    const route = input.resolveExecutionRoute({
       companyId: row.company_id,
       task: {
         modelLane: row.model_lane,
@@ -342,7 +388,7 @@ function readRouteProviderViolations(
         model: row.assignee_model,
       },
     }, db);
-    for (const attempt of executionRouteAttempts(route)) {
+    for (const attempt of input.executionRouteAttempts(route)) {
       const runnerProvider = normalizeRunnerProvider(attempt.target.runtimeProvider);
       if (input.allowedRunnerProviders.has(runnerProvider)) continue;
       violations.push({
@@ -359,7 +405,7 @@ function readRouteProviderViolations(
 }
 
 function readRunProviderViolations(
-  db: ReturnType<typeof getOrchestrationDb>,
+  db: Database.Database,
   input: { taskKeys: string[]; allowedRunnerProviders: Set<string>; startedAt: string },
 ): RuntimeRunProviderViolation[] {
   const rows = db
@@ -407,9 +453,11 @@ function readRunProviderViolations(
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  assertConfiguredDbMigrationCompatible(options.checkOnly ? "benchmark replay check-only" : "benchmark replay");
+  const runtime = await loadRuntimeModules(options);
+  const resolvedDbPath = runtime.getOrchestrationDbPath();
+  assertConfiguredDbMigrationCompatible(runtime, options.checkOnly ? "benchmark replay check-only" : "benchmark replay");
 
-  const db = getOrchestrationDb();
+  const db = runtime.getOrchestrationDb();
   if (options.requireIsolatedWorkspace) {
     assertIsolatedWorkspace(db, options.taskKeys);
   }
@@ -419,10 +467,13 @@ async function main() {
     const routeProviderViolations = readRouteProviderViolations(db, {
       taskKeys: options.taskKeys,
       allowedRunnerProviders: allowedRunnerProviderSet,
+      resolveExecutionRoute: runtime.resolveExecutionRoute,
+      executionRouteAttempts: runtime.executionRouteAttempts,
     });
     const output = {
       schema: "hiverunner.runtime-benchmark-repeat-check.v1",
       goalKey: options.goalKey,
+      dbPath: resolvedDbPath,
       checkedAt: new Date().toISOString(),
       taskKeys: options.taskKeys,
       allowedRunnerProviders: options.allowedRunnerProviders,
@@ -463,6 +514,8 @@ async function main() {
   const routeViolations = readRouteProviderViolations(db, {
     taskKeys: options.taskKeys,
     allowedRunnerProviders: allowedRunnerProviderSet,
+    resolveExecutionRoute: runtime.resolveExecutionRoute,
+    executionRouteAttempts: runtime.executionRouteAttempts,
   });
   if (routeViolations.length > 0) {
     scopeViolation = {
@@ -489,7 +542,7 @@ async function main() {
       break;
     }
 
-    const result = await tick(db);
+    const result = await runtime.tick(db);
     tickCount += 1;
     tickResults.push({
       tickedAt: result.tickedAt,
@@ -565,6 +618,7 @@ async function main() {
     maxMinutes: options.maxMinutes,
     taskKeys: options.taskKeys,
     allowedRunnerProviders: options.allowedRunnerProviders,
+    dbPath: resolvedDbPath,
     terminal: terminal && !scopeViolation,
     scopeClean: !scopeViolation,
     allowGeneratedTasks: options.allowGeneratedTasks,

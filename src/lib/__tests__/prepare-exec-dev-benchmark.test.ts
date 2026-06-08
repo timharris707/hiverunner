@@ -616,7 +616,7 @@ async function run() {
     }
   });
 
-  await test("prepare can sanitize selected benchmark routes to allowed runner providers", () => {
+  await test("prepare can sanitize fixture-company benchmark routes to allowed runner providers", () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "prepare-exec-dev-benchmark-"));
     try {
       const sourceDbPath = path.join(tempRoot, "source.db");
@@ -689,6 +689,19 @@ async function run() {
         assert.equal(metadata.health.commandPath, candidateCodexRunner);
         assert.equal(metadata.health.workspaceRoot, candidateCompanyRoot);
 
+        const symphonyRuntime = target
+          .prepare("SELECT provider, command, status, workspace_root FROM agent_runtimes WHERE id = 'runtime-symphony-codex'")
+          .get() as { provider: string; command: string | null; status: string; workspace_root: string };
+        assert.equal(symphonyRuntime.provider, "codex");
+        assert.equal(symphonyRuntime.command, candidateCodexRunner);
+        assert.equal(symphonyRuntime.status, "online");
+        assert.equal(symphonyRuntime.workspace_root, candidateCompanyRoot);
+
+        const disallowedRuntimeRows = target
+          .prepare("SELECT id, provider FROM agent_runtimes WHERE company_id = 'company' AND provider NOT IN ('codex', 'anthropic') ORDER BY id")
+          .all() as Array<{ id: string; provider: string }>;
+        assert.deepEqual(disallowedRuntimeRows, []);
+
         const hive = target
           .prepare("SELECT lanes_json FROM company_execution_hives WHERE id = 'hive'")
           .get() as { lanes_json: string };
@@ -706,7 +719,7 @@ async function run() {
         assert.equal(manifest.protocol.routeSanitization?.fallbacksDropped, 2);
         assert.equal(manifest.protocol.routeSanitization?.agentsUpdated, 1);
         assert.equal(manifest.protocol.routeSanitization?.agentModelsCleared, 1);
-        assert.equal(manifest.protocol.routeSanitization?.runtimeRowsUpdated, 1);
+        assert.equal(manifest.protocol.routeSanitization?.runtimeRowsUpdated, 3);
       } finally {
         target.close();
       }
@@ -1050,6 +1063,8 @@ async function run() {
       const result = spawnSync(process.execPath, [
         "./scripts/run-tsx.mjs",
         "scripts/runtime-benchmark-repeat.ts",
+        "--db",
+        dbPath,
         "--task-key",
         "INS-1",
         "--check-only",
@@ -1058,7 +1073,7 @@ async function run() {
         encoding: "utf8",
         env: {
           ...process.env,
-          ORCHESTRATION_DB_PATH: dbPath,
+          ORCHESTRATION_DB_PATH: path.join(tempRoot, "wrong-lane.db"),
         },
       });
 
@@ -1072,6 +1087,7 @@ async function run() {
       } finally {
         db.close();
       }
+      assert.equal(fs.existsSync(path.join(tempRoot, "wrong-lane.db")), false);
     } finally {
       fs.rmSync(tempRoot, { recursive: true, force: true });
     }
