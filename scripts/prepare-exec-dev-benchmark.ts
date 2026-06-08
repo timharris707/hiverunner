@@ -238,6 +238,40 @@ function rewriteBundledRunnerCommand(command: string | null, sourceWorkspaceRoot
   return [path.join(sourceWorkspaceRoot, "scripts", scriptName), ...parts.slice(1)].join(" ");
 }
 
+function rewriteMetadataBundledRunnerCommands(
+  metadataJson: string | null,
+  sourceWorkspaceRoot: string | null,
+): { metadataJson: string | null; changed: boolean } {
+  if (!metadataJson || !sourceWorkspaceRoot) return { metadataJson, changed: false };
+  let metadata: Record<string, unknown>;
+  try {
+    metadata = JSON.parse(metadataJson) as Record<string, unknown>;
+  } catch {
+    return { metadataJson, changed: false };
+  }
+
+  let changed = false;
+  const rewriteStringKey = (target: Record<string, unknown>, key: string) => {
+    if (typeof target[key] !== "string") return;
+    const rewritten = rewriteBundledRunnerCommand(target[key], sourceWorkspaceRoot);
+    if (rewritten === target[key]) return;
+    target[key] = rewritten;
+    changed = true;
+  };
+
+  rewriteStringKey(metadata, "command");
+  rewriteStringKey(metadata, "commandPath");
+
+  if (metadata.health && typeof metadata.health === "object" && !Array.isArray(metadata.health)) {
+    const health = { ...(metadata.health as Record<string, unknown>) };
+    rewriteStringKey(health, "command");
+    rewriteStringKey(health, "commandPath");
+    if (changed) metadata.health = health;
+  }
+
+  return { metadataJson: changed ? JSON.stringify(metadata) : metadataJson, changed };
+}
+
 function rewriteWorkspaceRoots(
   db: Database.Database,
   taskKeys: string[],
@@ -252,6 +286,7 @@ function rewriteWorkspaceRoots(
   projectIds: string[];
   agentRuntimeRowsUpdated: number;
   agentRuntimeCommandRowsUpdated: number;
+  agentRuntimeMetadataRowsUpdated: number;
 } {
   if (!input.sourceWorkspaceRoot && !input.companyWorkspaceRoot) {
     return {
@@ -261,6 +296,7 @@ function rewriteWorkspaceRoots(
       projectIds: [],
       agentRuntimeRowsUpdated: 0,
       agentRuntimeCommandRowsUpdated: 0,
+      agentRuntimeMetadataRowsUpdated: 0,
     };
   }
   if (taskKeys.length === 0) {
@@ -313,6 +349,7 @@ function rewriteWorkspaceRoots(
 
   let agentRuntimeRowsUpdated = 0;
   let agentRuntimeCommandRowsUpdated = 0;
+  let agentRuntimeMetadataRowsUpdated = 0;
   if (input.companyWorkspaceRoot) {
     const companyId = companyIds[0];
     const oldCompanyRoot = projectRows.find((row) => row.company_id === companyId)?.company_workspace_root?.trim() || null;
@@ -333,13 +370,16 @@ function rewriteWorkspaceRoots(
 
   if (input.sourceWorkspaceRoot && columnExists(db, "agent_runtimes", "command")) {
     const runtimeRows = db
-      .prepare("SELECT id, command FROM agent_runtimes WHERE command IS NOT NULL")
-      .all() as Array<{ id: string; command: string | null }>;
-    const updateCommand = db.prepare("UPDATE agent_runtimes SET command = ?, updated_at = ? WHERE id = ?");
+      .prepare("SELECT id, command, metadata_json FROM agent_runtimes WHERE command IS NOT NULL OR metadata_json IS NOT NULL")
+      .all() as Array<{ id: string; command: string | null; metadata_json: string | null }>;
+    const updateCommand = db.prepare("UPDATE agent_runtimes SET command = ?, metadata_json = ?, updated_at = ? WHERE id = ?");
     for (const row of runtimeRows) {
       const rewritten = rewriteBundledRunnerCommand(row.command, input.sourceWorkspaceRoot);
-      if (rewritten === row.command) continue;
-      agentRuntimeCommandRowsUpdated += updateCommand.run(rewritten, now, row.id).changes;
+      const metadata = rewriteMetadataBundledRunnerCommands(row.metadata_json, input.sourceWorkspaceRoot);
+      if (rewritten === row.command && !metadata.changed) continue;
+      const changes = updateCommand.run(rewritten, metadata.metadataJson, now, row.id).changes;
+      if (rewritten !== row.command) agentRuntimeCommandRowsUpdated += changes;
+      if (metadata.changed) agentRuntimeMetadataRowsUpdated += changes;
     }
   }
 
@@ -350,6 +390,7 @@ function rewriteWorkspaceRoots(
     projectIds,
     agentRuntimeRowsUpdated,
     agentRuntimeCommandRowsUpdated,
+    agentRuntimeMetadataRowsUpdated,
   };
 }
 
