@@ -1,4 +1,5 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type Database from "better-sqlite3";
 import { z, ZodError } from "zod";
 
 import { OrchestrationApiError } from "@/lib/orchestration/api";
@@ -19,10 +20,13 @@ import {
   normalizeMcpCompanyCode,
 } from "@/lib/orchestration/mcp/registry";
 import {
+  buildCanonicalActivityPath,
+  buildCanonicalCompanyPath,
   buildApprovalDetailPath,
   buildCanonicalEvalCasePath,
   buildCanonicalEvalsPath,
   buildCanonicalImprovePath,
+  buildTaskRunTracePath,
 } from "@/lib/orchestration/route-paths";
 import { createApproval } from "@/lib/orchestration/service/approval";
 import {
@@ -47,6 +51,33 @@ type ToolInput = {
   name: HiveRunnerMcpToolName;
   args: Record<string, unknown>;
   context: McpRequestContext;
+};
+
+type McpEvalSourceRunRow = {
+  id: string;
+  task_id: string | null;
+  agent_id: string | null;
+  provider: string;
+  execution_engine: "hiverunner" | "symphony" | "manual" | null;
+  runner_provider: string | null;
+  runner_model: string | null;
+  status: string;
+  token_usage_json: string;
+  task_title: string | null;
+  task_key: string | null;
+  task_status: string | null;
+  task_type: string | null;
+  task_sprint_id: string | null;
+  project_id: string | null;
+  company_id: string | null;
+  company_slug: string | null;
+  company_code: string | null;
+  agent_name: string | null;
+  sprint_key: string | null;
+  company_goal_id: string | null;
+  company_goal_key: string | null;
+  source_template_version_id: string | null;
+  template_intake_answer_id: string | null;
 };
 
 const approvalTypes = [
@@ -231,6 +262,22 @@ function safeJson(value: unknown): string {
   return JSON.stringify(value ?? null);
 }
 
+function textValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function parseJsonRecord(raw: string | null | undefined): Record<string, unknown> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
+  }
+}
+
 function resolveToolCompany(input: { requestedCompany?: string; context: McpRequestContext }): McpRequestContext {
   const requested = input.requestedCompany?.trim();
   if (!requested) return input.context;
@@ -261,6 +308,252 @@ function evalLinks(input: {
     evalsLibrary: buildCanonicalEvalsPath(input.context.companyCode),
     runTrace: input.traceRoute,
   };
+}
+
+function fetchMcpEvalSourceRun(input: {
+  db: Database.Database;
+  companyId: string;
+  runId: string;
+}): McpEvalSourceRunRow | null {
+  return input.db
+    .prepare(
+      `SELECT
+         r.id, r.task_id, r.agent_id, r.provider, r.execution_engine, r.runner_provider,
+         r.runner_model, r.status, r.token_usage_json,
+         t.title AS task_title, t.task_key, t.status AS task_status, t.type AS task_type,
+         t.sprint_id AS task_sprint_id,
+         p.id AS project_id,
+         c.id AS company_id, c.slug AS company_slug, c.company_code,
+         a.name AS agent_name,
+         s.sprint_key AS sprint_key,
+         parent_s.id AS company_goal_id, parent_s.goal_key AS company_goal_key,
+         COALESCE(r.source_template_version_id, t.source_template_version_id, s.source_template_version_id, parent_s.source_template_version_id) AS source_template_version_id,
+         COALESCE(r.template_intake_answer_id, t.template_intake_answer_id, s.template_intake_answer_id, parent_s.template_intake_answer_id) AS template_intake_answer_id
+       FROM execution_runs r
+       LEFT JOIN tasks t ON t.id = r.task_id
+       LEFT JOIN projects p ON p.id = t.project_id
+       LEFT JOIN companies c ON c.id = p.company_id
+       LEFT JOIN agents a ON a.id = r.agent_id
+       LEFT JOIN sprints s ON s.id = t.sprint_id
+       LEFT JOIN sprints parent_s ON parent_s.id = s.parent_id
+       WHERE r.id = ?
+         AND c.id = ?
+       LIMIT 1`,
+    )
+    .get(input.runId, input.companyId) as McpEvalSourceRunRow | undefined ?? null;
+}
+
+function requireMcpEvalSourceContext(row: McpEvalSourceRunRow): {
+  companyId: string;
+  companySlug: string;
+  companyCode: string;
+  projectId: string;
+  taskId: string;
+  taskKey: string;
+  taskTitle: string;
+} {
+  const companyId = textValue(row.company_id);
+  const companySlug = textValue(row.company_slug);
+  const companyCode = textValue(row.company_code) ?? companySlug?.toUpperCase();
+  const projectId = textValue(row.project_id);
+  const taskId = textValue(row.task_id);
+  const taskKey = textValue(row.task_key) ?? taskId;
+  const taskTitle = textValue(row.task_title);
+
+  if (!companyId || !companySlug || !companyCode || !projectId || !taskId || !taskKey || !taskTitle) {
+    throw new OrchestrationApiError(
+      409,
+      "ambiguous_run_context",
+      "Run must resolve to one source task, project, and company before it can be saved as an eval case",
+    );
+  }
+
+  return { companyId, companySlug, companyCode, projectId, taskId, taskKey, taskTitle };
+}
+
+function assertMcpSourcePayloadMatches(input: {
+  row: McpEvalSourceRunRow;
+  sourceTask: { id: string; key: string };
+}): void {
+  if (input.row.task_id !== input.sourceTask.id || input.row.task_key !== input.sourceTask.key) {
+    throw new OrchestrationApiError(
+      409,
+      "source_mismatch",
+      "MCP eval save sourceTask must match the persisted source run task",
+    );
+  }
+}
+
+function isTerminalExecutionStatus(status: string): boolean {
+  return ["completed", "failed", "cancelled"].includes(status);
+}
+
+function hasReturnedReviewEvent(input: {
+  db: Database.Database;
+  taskId: string | null;
+  runId: string;
+}): boolean {
+  if (!input.taskId) return false;
+  const event = input.db
+    .prepare(
+      `SELECT id
+       FROM task_events
+       WHERE task_id = ?
+         AND event_type = 'task.status_changed'
+         AND from_status = 'review'
+         AND to_status IN ('in_progress', 'to-do')
+         AND json_extract(metadata_json, '$.runId') = ?
+       LIMIT 1`,
+    )
+    .get(input.taskId, input.runId) as { id: string } | undefined;
+  return Boolean(event);
+}
+
+function assertMcpEvalSaveGovernance(input: {
+  db: Database.Database;
+  row: McpEvalSourceRunRow;
+  review: {
+    outcome: EvalCaseReviewOutcome;
+    reviewerAgentId?: string | null;
+    reviewerName?: string | null;
+  };
+  createdByUserId?: string | null;
+}): void {
+  if (!isTerminalExecutionStatus(input.row.status)) {
+    throw new OrchestrationApiError(
+      409,
+      "run_not_terminal",
+      "Run must be terminal before it can be saved as an eval case",
+    );
+  }
+
+  const taskStatus = input.row.task_status;
+  const reviewedByState = taskStatus === "review" || taskStatus === "done" || taskStatus === "blocked";
+  const returnedByReviewEvent = input.review.outcome === "returned"
+    && hasReturnedReviewEvent({ db: input.db, taskId: input.row.task_id, runId: input.row.id });
+  const hasReviewer = Boolean(
+    textValue(input.review.reviewerAgentId)
+    || textValue(input.review.reviewerName)
+    || textValue(input.createdByUserId),
+  );
+
+  if (!hasReviewer) {
+    throw new OrchestrationApiError(
+      400,
+      "unreviewed_run",
+      "Saving an eval case requires reviewer identity or operator user identity",
+    );
+  }
+
+  if (!reviewedByState && !returnedByReviewEvent) {
+    throw new OrchestrationApiError(
+      409,
+      "unreviewed_run",
+      "Run must be reviewed before it can be saved as an eval case",
+    );
+  }
+}
+
+function assertMcpSnapshotMatchesSource(input: {
+  redactedSnapshot: RunTraceRedactedExport;
+  runId: string;
+  taskKey: string;
+}): void {
+  const snapshotRunId = textValue(input.redactedSnapshot.summary?.runId)
+    ?? textValue(input.redactedSnapshot.run?.id);
+  const snapshotTaskKey = textValue(input.redactedSnapshot.summary?.taskKey)
+    ?? textValue(input.redactedSnapshot.task?.key);
+
+  if (snapshotRunId && snapshotRunId !== input.runId) {
+    throw new OrchestrationApiError(
+      409,
+      "source_mismatch",
+      "MCP eval save redactedSnapshot run id must match the persisted source run",
+    );
+  }
+  if (snapshotTaskKey && snapshotTaskKey !== input.taskKey) {
+    throw new OrchestrationApiError(
+      409,
+      "source_mismatch",
+      "MCP eval save redactedSnapshot task key must match the persisted source task",
+    );
+  }
+}
+
+function recordMcpEvalCaseActivity(input: {
+  db: Database.Database;
+  evalCase: ReturnType<typeof createEvalCase>;
+  row: McpEvalSourceRunRow;
+  projectId: string;
+  taskId: string;
+  taskKey: string;
+  taskTitle: string;
+  companyCode: string;
+  links: {
+    activity: string;
+    evalCase: string;
+    evalsLibrary: string;
+    runTrace: string;
+  };
+}): void {
+  const evalCase = input.evalCase;
+  const metadata = {
+    schema: "hiverunner.eval_case_activity.v1",
+    source: "mcp_tool",
+    evalCaseId: evalCase.id,
+    evalCaseVersion: evalCase.version,
+    reviewOutcome: evalCase.review.outcome,
+    links: input.links,
+    sourceTask: {
+      id: input.taskId,
+      key: input.taskKey,
+      title: input.taskTitle,
+      route: buildCanonicalCompanyPath(input.companyCode, `/tasks/${encodeURIComponent(input.taskKey)}`),
+    },
+    sourceRun: {
+      id: evalCase.sourceRun.id,
+      traceRoute: evalCase.sourceRun.traceRoute,
+      executionEngine: evalCase.sourceRun.executionEngine,
+      runnerProvider: evalCase.sourceRun.runnerProvider,
+      providerId: evalCase.sourceRun.providerId,
+      runnerModel: evalCase.sourceRun.runnerModel,
+      agentId: evalCase.sourceRun.agentId,
+      agentName: evalCase.sourceRun.agentName,
+    },
+    reviewer: {
+      agentId: evalCase.review.reviewerAgentId,
+      name: evalCase.review.reviewerName,
+      reviewedAt: evalCase.review.reviewedAt,
+      createdByAgentId: evalCase.createdByAgentId,
+      createdByUserId: evalCase.createdByUserId,
+    },
+    snapshotEvidence: {
+      schema: evalCase.redactedSnapshot.schema,
+      sha256: evalCase.snapshotSha256,
+      route: `${input.links.evalCase}#snapshot`,
+      redactionPolicy: evalCase.redactedSnapshot.redaction?.policy ?? null,
+      redactionCount: evalCase.redactedSnapshot.redaction?.totalRedactions ?? 0,
+      captureQuality: evalCase.captureQuality,
+      evidenceGapCount: evalCase.evidenceGaps.length,
+      annotationState: evalCase.annotationSnapshot.state,
+    },
+  };
+
+  input.db
+    .prepare(
+      `INSERT OR IGNORE INTO task_events
+        (id, project_id, task_id, agent_id, user_id, event_type, metadata_json, created_at)
+       VALUES (?, ?, ?, ?, ?, 'task.eval_case_saved', ?, ?)`,
+    )
+    .run(
+      `eval-case:${evalCase.id}:saved`,
+      input.projectId,
+      input.taskId,
+      evalCase.review.reviewerAgentId ?? evalCase.createdByAgentId,
+      evalCase.createdByUserId,
+      JSON.stringify(metadata),
+      evalCase.createdAt,
+    );
 }
 
 function improveLink(context: McpRequestContext, recommendationId?: string | null): string {
@@ -316,17 +609,67 @@ function saveEvalCase(args: Record<string, unknown>, context: McpRequestContext)
   const toolContext = resolveToolCompany({ requestedCompany: parsed.companyCode, context });
   const redactedSnapshot = parsed.redactedSnapshot as RunTraceRedactedExport;
   assertRedactedSnapshot(redactedSnapshot, safeJson(redactedSnapshot));
+  const row = fetchMcpEvalSourceRun({
+    db: toolContext.db,
+    companyId: toolContext.companyId,
+    runId: parsed.sourceRun.id,
+  });
+  if (!row) {
+    throw new OrchestrationApiError(404, "run_not_found", "Source run not found in this company");
+  }
+  const sourceContext = requireMcpEvalSourceContext(row);
+  assertMcpSourcePayloadMatches({ row, sourceTask: parsed.sourceTask });
+  assertMcpEvalSaveGovernance({
+    db: toolContext.db,
+    row,
+    review: parsed.review,
+    createdByUserId: parsed.createdByUserId,
+  });
+  assertMcpSnapshotMatchesSource({
+    redactedSnapshot,
+    runId: row.id,
+    taskKey: sourceContext.taskKey,
+  });
+  const usageForSourceRun = parseJsonRecord(row.token_usage_json);
+  const traceRoute = buildTaskRunTracePath({
+    companyCode: sourceContext.companyCode,
+    companySlug: sourceContext.companySlug,
+    taskKey: sourceContext.taskKey,
+    runId: row.id,
+  });
+  const sourceTemplateVersionId = parsed.sourceTemplateVersionId ?? row.source_template_version_id;
+  const templateIntakeAnswerId = parsed.templateIntakeAnswerId ?? row.template_intake_answer_id;
 
   const evalCase = createEvalCase({
     companyId: toolContext.companyId,
-    projectId: parsed.projectId ?? null,
-    sourceTask: parsed.sourceTask,
-    sourceRun: parsed.sourceRun,
-    sourceSprint: parsed.sourceSprint,
-    sourceGoal: parsed.sourceGoal,
+    projectId: sourceContext.projectId,
+    sourceTask: {
+      id: sourceContext.taskId,
+      key: sourceContext.taskKey,
+      title: sourceContext.taskTitle,
+      type: row.task_type,
+    },
+    sourceRun: {
+      id: row.id,
+      traceRoute,
+      executionEngine: row.execution_engine ?? (row.provider === "symphony" ? "symphony" : "hiverunner"),
+      runnerProvider: row.runner_provider ?? textValue(usageForSourceRun.runnerProvider) ?? row.provider,
+      providerId: row.provider,
+      runnerModel: row.runner_model ?? textValue(usageForSourceRun.runnerModel),
+      agentId: row.agent_id,
+      agentName: row.agent_name,
+    },
+    sourceSprint: {
+      id: row.task_sprint_id,
+      key: row.sprint_key,
+    },
+    sourceGoal: {
+      id: row.company_goal_id,
+      key: row.company_goal_key,
+    },
     templateContext: parsed.templateContext,
-    sourceTemplateVersionId: parsed.sourceTemplateVersionId,
-    templateIntakeAnswerId: parsed.templateIntakeAnswerId,
+    sourceTemplateVersionId,
+    templateIntakeAnswerId,
     review: parsed.review,
     captureQuality: parsed.captureQuality,
     evidenceGaps: parsed.evidenceGaps as RunTraceEvidenceGap[],
@@ -338,16 +681,31 @@ function saveEvalCase(args: Record<string, unknown>, context: McpRequestContext)
     createdByAgentId: parsed.createdByAgentId,
     createdByUserId: parsed.createdByUserId,
   }, toolContext.db);
+  const links = {
+    activity: `${buildCanonicalActivityPath(sourceContext.companyCode)}?evalCase=${encodeURIComponent(evalCase.id)}`,
+    ...evalLinks({
+      context: toolContext,
+      evalCaseId: evalCase.id,
+      traceRoute,
+    }),
+  };
+  recordMcpEvalCaseActivity({
+    db: toolContext.db,
+    evalCase,
+    row,
+    projectId: sourceContext.projectId,
+    taskId: sourceContext.taskId,
+    taskKey: sourceContext.taskKey,
+    taskTitle: sourceContext.taskTitle,
+    companyCode: sourceContext.companyCode,
+    links,
+  });
 
   return jsonResult({
     schema: "mcp.tool.save_eval_case.output.v1",
     evalCaseId: evalCase.id,
     snapshotSha256: evalCase.snapshotSha256,
-    links: evalLinks({
-      context: toolContext,
-      evalCaseId: evalCase.id,
-      traceRoute: evalCase.sourceRun.traceRoute,
-    }),
+    links,
     governance: {
       mode: "append_only",
       durableStateMutated: true,

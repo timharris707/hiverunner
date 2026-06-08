@@ -87,6 +87,84 @@ function redactedSnapshot(input: { runId: string; taskKey: string }) {
   };
 }
 
+function insertExecutionRun(input: {
+  db: ReturnType<typeof getOrchestrationDb>;
+  id: string;
+  taskId: string;
+  agentId?: string | null;
+  provider?: string;
+  status?: "completed" | "running" | "failed" | "cancelled";
+  executionEngine?: "hiverunner" | "symphony" | "manual";
+  runnerProvider?: string;
+  runnerModel?: string;
+}) {
+  const now = new Date().toISOString();
+  input.db
+    .prepare(
+      `INSERT INTO execution_runs (
+         id, task_id, agent_id, provider, status, started_at, completed_at,
+         token_usage_json, duration_ms, execution_engine, runner_provider, runner_model
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      input.id,
+      input.taskId,
+      input.agentId ?? null,
+      input.provider ?? "codex",
+      input.status ?? "completed",
+      now,
+      input.status === "running" ? null : now,
+      JSON.stringify({
+        inputTokens: 10,
+        outputTokens: 5,
+        runnerProvider: input.runnerProvider ?? input.provider ?? "codex",
+        runnerModel: input.runnerModel ?? "gpt-5.5",
+      }),
+      input.status === "running" ? null : 1,
+      input.executionEngine ?? "hiverunner",
+      input.runnerProvider ?? input.provider ?? "codex",
+      input.runnerModel ?? "gpt-5.5",
+    );
+}
+
+function saveCaseArgs(input: {
+  projectId: string;
+  task: { id: string; key?: string | null; title: string; type: string };
+  taskKey: string;
+  sourceRunId: string;
+  companyCode: string;
+  idempotencyKey: string;
+}) {
+  return {
+    projectId: input.projectId,
+    sourceTask: {
+      id: input.task.id,
+      key: input.taskKey,
+      title: input.task.title,
+      type: input.task.type,
+    },
+    sourceRun: {
+      id: input.sourceRunId,
+      traceRoute: `/${input.companyCode}/tasks/${input.taskKey}/runs/${input.sourceRunId}/trace`,
+      executionEngine: "hiverunner",
+      runnerProvider: "codex",
+      providerId: "codex",
+      runnerModel: "gpt-5.5",
+    },
+    review: {
+      outcome: "accepted",
+      rationale: "The reviewed run satisfies the task contract.",
+      reviewerName: "Gator",
+    },
+    captureQuality: "complete",
+    evidenceGaps: [],
+    redactedSnapshot: redactedSnapshot({ runId: input.sourceRunId, taskKey: input.taskKey }),
+    idempotencyKey: input.idempotencyKey,
+    createdByUserId: "mcp-test",
+  };
+}
+
 async function run() {
   console.log("\nHiveRunner MCP Governed Tool Tests\n");
 
@@ -122,35 +200,22 @@ async function run() {
   const server = createHiveRunnerMcpServer({ context });
   const taskKey = task.key ?? task.id;
   const sourceRunId = "mcp-governed-run-1";
+  insertExecutionRun({
+    db,
+    id: sourceRunId,
+    taskId: task.id,
+    agentId: task.assigneeAgentId ?? null,
+  });
 
   await test("save_case creates the same immutable eval case record shape as the eval service", async () => {
-    const { result, payload } = await callTool(server, "hiverunner.eval.save_case", {
+    const { result, payload } = await callTool(server, "hiverunner.eval.save_case", saveCaseArgs({
       projectId: project.id,
-      sourceTask: {
-        id: task.id,
-        key: taskKey,
-        title: task.title,
-        type: task.type,
-      },
-      sourceRun: {
-        id: sourceRunId,
-        traceRoute: `/${company.code}/tasks/${taskKey}/runs/${sourceRunId}/trace`,
-        executionEngine: "hiverunner",
-        runnerProvider: "codex",
-        providerId: "codex",
-        runnerModel: "gpt-5.5",
-      },
-      review: {
-        outcome: "accepted",
-        rationale: "The reviewed run satisfies the task contract.",
-        reviewerName: "Gator",
-      },
-      captureQuality: "complete",
-      evidenceGaps: [],
-      redactedSnapshot: redactedSnapshot({ runId: sourceRunId, taskKey }),
+      task,
+      taskKey,
+      sourceRunId,
+      companyCode: company.code,
       idempotencyKey: "mcp-governed-eval-save",
-      createdByUserId: "mcp-test",
-    });
+    }));
 
     assert.equal(result.isError, false);
     assert.equal(payload.schema, "mcp.tool.save_eval_case.output.v1");
@@ -164,6 +229,84 @@ async function run() {
     assert.equal(row.project_id, project.id);
     assert.equal(row.review_outcome, "accepted");
     assert.equal(row.snapshot_sha256, payload.snapshotSha256);
+
+    const activity = db
+      .prepare("SELECT event_type, metadata_json FROM task_events WHERE task_id = ? AND event_type = 'task.eval_case_saved'")
+      .get(task.id) as { event_type: string; metadata_json: string };
+    assert.equal(activity.event_type, "task.eval_case_saved");
+    assert.match(activity.metadata_json, /mcp_tool/);
+    assert.match(activity.metadata_json, /mcp-governed-run-1/);
+  });
+
+  await test("save_case rejects a source run that does not exist in the company", async () => {
+    const { result, payload } = await callTool(server, "hiverunner.eval.save_case", saveCaseArgs({
+      projectId: project.id,
+      task,
+      taskKey,
+      sourceRunId: "missing-mcp-run",
+      companyCode: company.code,
+      idempotencyKey: "mcp-governed-missing-run",
+    }));
+
+    assert.equal(result.isError, true);
+    assert.equal(payload.schema, "mcp.tool.error.v1");
+    assert.equal(payload.code, "run_not_found");
+  });
+
+  await test("save_case rejects non-terminal source runs", async () => {
+    const runningRunId = "mcp-governed-running-run";
+    insertExecutionRun({
+      db,
+      id: runningRunId,
+      taskId: task.id,
+      status: "running",
+    });
+
+    const { result, payload } = await callTool(server, "hiverunner.eval.save_case", saveCaseArgs({
+      projectId: project.id,
+      task,
+      taskKey,
+      sourceRunId: runningRunId,
+      companyCode: company.code,
+      idempotencyKey: "mcp-governed-running-run",
+    }));
+
+    assert.equal(result.isError, true);
+    assert.equal(payload.schema, "mcp.tool.error.v1");
+    assert.equal(payload.code, "run_not_terminal");
+  });
+
+  await test("save_case rejects unreviewed source tasks", async () => {
+    const unreviewedTask = createTask({
+      projectId: project.id,
+      title: "Unreviewed MCP save source",
+      description: "Fixture task that should not be eligible for eval save.",
+      priority: "P1",
+      type: "feature",
+      status: "in-progress",
+      labels: [],
+      createdBy: "test",
+    }).task;
+    const unreviewedTaskKey = unreviewedTask.key ?? unreviewedTask.id;
+    const unreviewedRunId = "mcp-governed-unreviewed-run";
+    insertExecutionRun({
+      db,
+      id: unreviewedRunId,
+      taskId: unreviewedTask.id,
+    });
+
+    const { result, payload } = await callTool(server, "hiverunner.eval.save_case", saveCaseArgs({
+      projectId: project.id,
+      task: unreviewedTask,
+      taskKey: unreviewedTaskKey,
+      sourceRunId: unreviewedRunId,
+      companyCode: company.code,
+      idempotencyKey: "mcp-governed-unreviewed-run",
+    }));
+
+    assert.equal(result.isError, true);
+    assert.equal(payload.schema, "mcp.tool.error.v1");
+    assert.equal(payload.code, "unreviewed_run");
   });
 
   let recommendationId = "";
