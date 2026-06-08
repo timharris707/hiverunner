@@ -381,20 +381,7 @@ function createRunnerLiveProtocolStripper() {
 
 function isMeaningfulRunnerLiveProtocolEvent(event: LiveTranscriptEventInput | null): boolean {
   if (!event) return false;
-  if (event.kind === "runtime_progress") {
-    const metadata = event.metadata ?? {};
-    const childOutputBytes =
-      numberFrom(metadata.stdoutBytes) ??
-      numberFrom(metadata.childStdoutBytes) ??
-      numberFrom(metadata.codexStdoutBytes) ??
-      0;
-    const childErrorBytes =
-      numberFrom(metadata.stderrBytes) ??
-      numberFrom(metadata.childStderrBytes) ??
-      numberFrom(metadata.codexStderrBytes) ??
-      0;
-    return childOutputBytes + childErrorBytes > 0;
-  }
+  if (event.kind === "runtime_progress") return false;
   return Boolean((event.body ?? "").trim() || (event.title ?? "").trim());
 }
 
@@ -904,7 +891,7 @@ function createMeaningfulOutputDetector(): (chunk: Buffer) => boolean {
     const text = line.trim();
     if (!text) return false;
     if (isProgressDiagnosticLine(text)) return false;
-    if (isWrapperChildProgressDiagnosticLine(text)) return true;
+    if (isWrapperChildProgressDiagnosticLine(text)) return false;
     if (text.startsWith(RUNNER_LIVE_EVENT_PREFIX)) {
       return isMeaningfulRunnerLiveProtocolEvent(parseRunnerLiveProtocolLine(text));
     }
