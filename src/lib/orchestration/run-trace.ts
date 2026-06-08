@@ -8,6 +8,7 @@ const RUN_TRACE_VIEW_MODEL_SCHEMA = "hiverunner.run_trace_view.v1" as const;
 export const RUN_TRACE_REDACTED_EXPORT_SCHEMA = "hiverunner.run_trace_redacted_export.v1" as const;
 export const RUN_TRACE_REDACTION_POLICY = "hiverunner.run_trace_redaction.v1" as const;
 const RUN_TRACE_ANNOTATION_SNAPSHOT_SCHEMA = "hiverunner.run_trace_annotations.v1" as const;
+const RUN_TRACE_PROOF_ATTACHMENT_SCHEMA = "hiverunner.run_trace_proof_attachment.v1" as const;
 const RUN_TRACE_ANNOTATION_DEFERRAL_REASON =
   "Trace annotations are deferred for Run Trace v1 because the Sprint 1 gate did not confirm a clean run-scoped persistence/API path, and existing marker systems are voice-session or task-comment scoped rather than execution-run evidence markers.";
 
@@ -130,6 +131,40 @@ export interface RunTraceProviderExecutionEvidence {
   note?: string | null;
 }
 
+export interface RunTraceProofAttachment {
+  schema: typeof RUN_TRACE_PROOF_ATTACHMENT_SCHEMA;
+  id: string;
+  source: "browser_proof";
+  status: "succeeded" | "failed";
+  taskId?: string | null;
+  taskKey?: string | null;
+  heartbeatRunId?: string | null;
+  executionRunId?: string | null;
+  manifest: {
+    path: string;
+    uri: string;
+    sha256: string;
+  };
+  artifactDir: string;
+  artifactCount: number;
+  screenshotCount: number;
+  videoCount: number;
+  exitCode: number;
+  durationMs: number;
+  baseUrl: string;
+  project: string;
+  command: string;
+  specs: unknown[];
+  urls: unknown[];
+  createdAt: string;
+  taskArtifact?: {
+    uri: string;
+    kind: string | null;
+    sha256: string | null;
+    registeredAt: string | null;
+  } | null;
+}
+
 export interface RunTraceEvidenceInput {
   run: RunTraceRunEvidence;
   task?: {
@@ -144,6 +179,7 @@ export interface RunTraceEvidenceInput {
   transcript?: RunTraceTranscriptEvidence | null;
   timeline?: RunTraceTimelineEventInput[] | null;
   providerExecution?: RunTraceProviderExecutionEvidence | null;
+  proofAttachments?: RunTraceProofAttachment[] | null;
   workspaceRunVisibility?: unknown;
   memoryEvidence?: unknown;
   template?: {
@@ -177,10 +213,12 @@ export interface RunTraceEvidenceSummary {
   hasWorkspaceVisibility: boolean;
   hasMemoryEvidence: boolean;
   hasSkillEvidence: boolean;
+  hasProofAttachments: boolean;
   hasProviderSummary: boolean;
   hasRawPayload: boolean;
   transcriptEntryCount: number;
   timelineEventCount: number;
+  proofAttachmentCount: number;
   categoryCounts: Record<RunTraceTimelineCategory, number>;
 }
 
@@ -234,6 +272,7 @@ export interface RunTraceViewModel {
   status: string;
   providerId: string;
   timeline: RunTraceTimelineEvent[];
+  proofAttachments: RunTraceProofAttachment[];
   evidenceSummary: RunTraceEvidenceSummary;
   evidenceGaps: RunTraceEvidenceGap[];
   captureQuality: RunTraceCaptureQualitySummary;
@@ -263,6 +302,7 @@ export interface RunTraceRedactedExport {
     providerId: string;
     captureQuality: RunTraceCaptureQuality;
     timelineEventCount: number;
+    proofAttachmentCount: number;
     evidenceGapCount: number;
     annotationCount: number;
   };
@@ -272,6 +312,7 @@ export interface RunTraceRedactedExport {
   provider: Record<string, unknown>;
   metrics: Record<string, unknown>;
   timeline: Array<Record<string, unknown>>;
+  proofAttachments: RunTraceProofAttachment[];
   transcript: Record<string, unknown>;
   providerExecution: RunTraceProviderExecutionEvidence | null;
   workspaceRunVisibility: unknown;
@@ -331,6 +372,7 @@ const WORKSPACE_VISIBILITY_PROVIDERS = new Set(["codex", "symphony"]);
 
 export function buildRunTraceViewModel(input: RunTraceEvidenceInput): RunTraceViewModel {
   const timeline = normalizeRunTraceTimeline(input.timeline ?? []);
+  const proofAttachments = normalizeRunTraceProofAttachments(input.proofAttachments);
   const evidenceSummary = summarizeRunTraceEvidence(input, timeline);
   const evidenceGaps = deriveRunTraceEvidenceGaps(input, evidenceSummary);
   const captureQuality = deriveRunTraceCaptureQuality(input, evidenceSummary, evidenceGaps);
@@ -343,6 +385,7 @@ export function buildRunTraceViewModel(input: RunTraceEvidenceInput): RunTraceVi
     status: input.run.status,
     providerId,
     timeline,
+    proofAttachments,
     evidenceSummary,
     evidenceGaps,
     captureQuality,
@@ -363,6 +406,7 @@ export function buildRedactedRunTraceExport(input: RunTraceEvidenceInput): RunTr
       providerId: trace.providerId,
       captureQuality: trace.captureQuality.label,
       timelineEventCount: trace.timeline.length,
+      proofAttachmentCount: trace.proofAttachments.length,
       evidenceGapCount: trace.evidenceGaps.length,
       annotationCount: trace.annotations.annotations.length,
     },
@@ -409,6 +453,7 @@ export function buildRedactedRunTraceExport(input: RunTraceEvidenceInput): RunTr
       order: event.order,
       isTerminal: event.isTerminal,
     })),
+    proofAttachments: trace.proofAttachments,
     transcript: {
       provenance: input.transcript?.provenance ?? null,
       entries: input.transcript?.entries ?? [],
@@ -433,6 +478,7 @@ export function buildRedactedRunTraceExport(input: RunTraceEvidenceInput): RunTr
     provider: redactedBody.provider,
     metrics: redactedBody.metrics,
     timeline: redactedBody.timeline,
+    proofAttachments: redactedBody.proofAttachments,
     transcript: redactedBody.transcript,
     providerExecution: redactedBody.providerExecution,
     workspaceRunVisibility: redactedBody.workspaceRunVisibility,
@@ -487,6 +533,31 @@ export function normalizeRunTraceTimeline(events: RunTraceTimelineEventInput[]):
     });
 }
 
+function normalizeRunTraceProofAttachments(
+  attachments: RunTraceProofAttachment[] | null | undefined,
+): RunTraceProofAttachment[] {
+  if (!Array.isArray(attachments)) return [];
+  return attachments
+    .filter((attachment) => attachment && attachment.source === "browser_proof" && textValue(attachment.id))
+    .map((attachment) => ({
+      ...attachment,
+      schema: RUN_TRACE_PROOF_ATTACHMENT_SCHEMA,
+      artifactCount: Math.max(0, Math.trunc(safeNumber(attachment.artifactCount))),
+      screenshotCount: Math.max(0, Math.trunc(safeNumber(attachment.screenshotCount))),
+      videoCount: Math.max(0, Math.trunc(safeNumber(attachment.videoCount))),
+      exitCode: Math.trunc(safeNumber(attachment.exitCode)),
+      durationMs: Math.max(0, Math.trunc(safeNumber(attachment.durationMs))),
+      specs: Array.isArray(attachment.specs) ? attachment.specs : [],
+      urls: Array.isArray(attachment.urls) ? attachment.urls : [],
+      taskArtifact: attachment.taskArtifact ?? null,
+    }))
+    .sort((a, b) => {
+      const createdDelta = safeDateMs(b.createdAt) - safeDateMs(a.createdAt);
+      if (createdDelta !== 0) return createdDelta;
+      return a.id.localeCompare(b.id);
+    });
+}
+
 function mapRunTraceTimelineCategory(event: RunTraceTimelineEventInput): RunTraceTimelineCategory {
   const kind = String(event.kind || "");
   const searchText = searchableEventText(event);
@@ -535,6 +606,7 @@ function summarizeRunTraceEvidence(
   for (const event of timeline) {
     categoryCounts[event.category] += 1;
   }
+  const proofAttachmentCount = normalizeRunTraceProofAttachments(input.proofAttachments).length;
 
   const hasCost = isFiniteNumber(metrics.totalCostUsd);
   const hasTokenUsage = [
@@ -564,10 +636,12 @@ function summarizeRunTraceEvidence(
     hasWorkspaceVisibility: Boolean(input.workspaceRunVisibility),
     hasMemoryEvidence: hasMeaningfulMemoryEvidence(input.memoryEvidence) || categoryCounts.memory > 0,
     hasSkillEvidence: Boolean(input.skillEffectiveness?.events?.length),
+    hasProofAttachments: proofAttachmentCount > 0,
     hasProviderSummary: hasProviderExecutionSummary(input.providerExecution),
     hasRawPayload: input.rawPayload !== undefined && input.rawPayload !== null,
     transcriptEntryCount,
     timelineEventCount: timeline.length,
+    proofAttachmentCount,
     categoryCounts,
   };
 }
@@ -788,6 +862,7 @@ function hasUsefulTraceEvidence(evidenceSummary: RunTraceEvidenceSummary): boole
     evidenceSummary.hasWorkspaceVisibility ||
     evidenceSummary.hasMemoryEvidence ||
     evidenceSummary.hasSkillEvidence ||
+    evidenceSummary.hasProofAttachments ||
     evidenceSummary.hasProviderSummary;
 }
 
@@ -909,6 +984,12 @@ function safeNumber(value: unknown): number {
   return isFiniteNumber(value) ? value : 0;
 }
 
+function safeDateMs(value: unknown): number {
+  if (typeof value !== "string") return 0;
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function textValue(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
@@ -1004,6 +1085,7 @@ function buildRunTraceCopySummary(
     `Provider: ${trace.providerId}`,
     `Capture quality: ${trace.captureQuality.title} (${trace.captureQuality.label})`,
     `Timeline events: ${trace.timeline.length}`,
+    `Proof attachments: ${trace.proofAttachments.length}`,
     `Annotations: ${trace.annotations.state} (${trace.annotations.annotations.length})`,
     `Evidence gaps: ${evidenceGapSummary}`,
     usageParts.length > 0 ? `Usage: ${usageParts.join(" / ")}` : null,

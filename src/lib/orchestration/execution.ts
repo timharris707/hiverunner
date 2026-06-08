@@ -25,7 +25,7 @@ import {
   type ParsedMcActionBlock,
 } from "@/lib/orchestration/engine/engine";
 import { emitHarnessWarningComment } from "@/lib/orchestration/engine/harness-warning";
-import { recordRuntimeActionLedgerEntry } from "@/lib/orchestration/runtime-action-ledger";
+import { recordRuntimeActionLedgerEntry, requireRuntimeActionLedgerEntry } from "@/lib/orchestration/runtime-action-ledger";
 import { cleanupRunArtifacts } from "@/lib/orchestration/execution/cleanup";
 import { getExecutionAdapter } from "@/lib/orchestration/execution/adapters";
 import { buildTaskGoalContextSection } from "@/lib/orchestration/goal-context";
@@ -1892,6 +1892,22 @@ export async function pollTaskExecutionStatus(taskId: string): Promise<PollTaskE
         const action = block.action;
         if (!action) continue;
         const actionStart = Date.now();
+        try {
+          requireLegacyPollActionLedger({
+            db,
+            task,
+            run,
+            block,
+            messageIndex,
+            status: "parsed",
+            statusReason: "reserved_for_execution",
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          actionStats.failed += 1;
+          actionStats.errors.push(`Skipped ${action.action}: ${message}`);
+          continue;
+        }
         const outcome = await executeMcAction(
           action,
           {
@@ -1904,7 +1920,7 @@ export async function pollTaskExecutionStatus(taskId: string): Promise<PollTaskE
           db,
         );
         applyActionOutcome(actionStats, action.action, outcome);
-        recordLegacyPollActionLedger({
+        const terminalLedgerId = recordLegacyPollActionLedger({
           db,
           task,
           run,
@@ -1916,6 +1932,9 @@ export async function pollTaskExecutionStatus(taskId: string): Promise<PollTaskE
           outcome: outcome as unknown as Record<string, unknown>,
           durationMs: Date.now() - actionStart,
         });
+        if (!terminalLedgerId) {
+          actionStats.errors.push(`${action.action}: terminal action ledger write failed`);
+        }
       }
     } else if (actions.length > 0 && !task.assigneeAgentId) {
       actionStats.failed += actions.length;
@@ -2116,7 +2135,7 @@ function runtimeActionLedgerStatusForOutcome(outcome: McActionExecutionOutcome):
   return "executed";
 }
 
-function recordLegacyPollActionLedger(input: {
+type LegacyPollActionLedgerInput = {
   db: Database.Database;
   task: BridgeTaskRecord;
   run: ExecutionRunRecord;
@@ -2128,8 +2147,10 @@ function recordLegacyPollActionLedger(input: {
   approvalId?: string | null;
   outcome?: Record<string, unknown> | null;
   durationMs?: number | null;
-}): void {
-  recordRuntimeActionLedgerEntry(input.db, {
+};
+
+function legacyPollActionLedgerPayload(input: LegacyPollActionLedgerInput) {
+  return {
     source: "legacy_execution_poll",
     status: input.status,
     companyId: input.task.companyId,
@@ -2147,7 +2168,15 @@ function recordLegacyPollActionLedger(input: {
     parseError: input.parseError ?? null,
     outcome: input.outcome ?? null,
     durationMs: input.durationMs ?? null,
-  });
+  } as const;
+}
+
+function recordLegacyPollActionLedger(input: LegacyPollActionLedgerInput): string | null {
+  return recordRuntimeActionLedgerEntry(input.db, legacyPollActionLedgerPayload(input));
+}
+
+function requireLegacyPollActionLedger(input: LegacyPollActionLedgerInput): string {
+  return requireRuntimeActionLedgerEntry(input.db, legacyPollActionLedgerPayload(input));
 }
 
 export async function triggerTaskNudge(

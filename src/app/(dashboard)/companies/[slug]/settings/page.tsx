@@ -65,7 +65,7 @@ type DevExecutionLease = {
   note?: string;
 };
 type DevExecutionTestModeView = {
-  lane: "dev" | "stable";
+  lane: "dev" | "exec-dev" | "stable";
   gateEnabled: boolean;
   available: boolean;
   reason?: string;

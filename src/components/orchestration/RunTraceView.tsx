@@ -30,7 +30,7 @@ import { ExperimentLaunchPanel } from "@/components/orchestration/ExperimentLaun
 import type { MCLiveEventKind } from "@/lib/orchestration/live-events";
 import type { ProviderCapabilities } from "@/lib/orchestration/adapters/types";
 import { buildRunTraceExperimentLaunchModel } from "@/lib/orchestration/experiment-launch";
-import type { RunTraceRedactedExport, RunTraceViewModel } from "@/lib/orchestration/run-trace";
+import type { RunTraceProofAttachment, RunTraceRedactedExport, RunTraceViewModel } from "@/lib/orchestration/run-trace";
 import type { OrchestrationExperimentReportEvidence } from "@/lib/orchestration/types";
 import { CapabilityGrid, TierBadge } from "@/components/orchestration/ProviderPresentation";
 import { formatOrchestrationModeLabel as formatSharedOrchestrationModeLabel } from "@/lib/orchestration/execution-hives";
@@ -306,6 +306,7 @@ export interface RunEventsResponse {
   };
   workspaceRunVisibility?: WorkspaceRunVisibility | null;
   providerExecution: ProviderExecutionInfo;
+  proofAttachments?: RunTraceProofAttachment[];
   skillEffectiveness: RunSkillEffectiveness;
   memoryEvidence?: unknown;
   transcript: { entries: TranscriptEntry[]; provenance: TranscriptProvenance };
@@ -1439,11 +1440,13 @@ function RunTraceEvidenceCard({
     task: data.task,
     invocation: data.invocation,
     providerExecution: data.providerExecution,
+    proofAttachments: trace.proofAttachments,
     trace,
     provenance: data.provenance,
   };
   const evalSuggestion = data.evalCaseSuggestion ?? null;
   const experimentReports = data.experimentReports ?? [];
+  const proofAttachments = trace.proofAttachments.length > 0 ? trace.proofAttachments : data.proofAttachments ?? [];
 
   return (
     <div style={{
@@ -1477,7 +1480,8 @@ function RunTraceEvidenceCard({
         <TelemetryChip label="transcript" value={String(summary.transcriptEntryCount)} />
         <TelemetryChip label="usage" value={summary.hasUsage ? "yes" : "no"} />
         <TelemetryChip label="result" value={summary.hasRunMetadata ? "yes" : "no"} />
-        <TelemetryChip label="artifacts" value={String(categoryCounts.artifact)} />
+        <TelemetryChip label="artifacts" value={String(categoryCounts.artifact + summary.proofAttachmentCount)} />
+        <TelemetryChip label="proof" value={String(summary.proofAttachmentCount)} />
         <TelemetryChip label="memory" value={summary.hasMemoryEvidence ? "yes" : String(categoryCounts.memory)} />
         <TelemetryChip label="workspace" value={summary.hasWorkspaceVisibility ? "yes" : "no"} />
         <TelemetryChip label="skills" value={summary.hasSkillEvidence ? "yes" : "no"} />
@@ -1519,6 +1523,10 @@ function RunTraceEvidenceCard({
             </div>
           )}
         </div>
+      )}
+
+      {proofAttachments.length > 0 && (
+        <BrowserProofAttachmentList attachments={proofAttachments} />
       )}
 
       {experimentReports.length > 0 && (
@@ -2039,6 +2047,96 @@ function EvalSuggestionSavedMessage({ saveState }: { saveState: EvalSuggestionSa
           {saveState.message}
         </Link>
       ) : saveState.message}
+    </div>
+  );
+}
+
+function BrowserProofAttachmentList({ attachments }: { attachments: RunTraceProofAttachment[] }) {
+  return (
+    <div style={{
+      marginTop: 10,
+      padding: "9px 10px",
+      borderRadius: 6,
+      background: "rgba(96,165,250,0.055)",
+      border: "0.5px solid rgba(96,165,250,0.18)",
+      display: "grid",
+      gap: 8,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+        <FileText size={11} style={{ color: "#93c5fd" }} />
+        <span style={{ fontSize: 11, color: A.text, fontWeight: 650 }}>Browser proof attachments</span>
+        <span style={{ fontSize: 9, color: A.muted, marginLeft: "auto" }}>
+          {attachments.length} proof{attachments.length === 1 ? "" : "s"}
+        </span>
+      </div>
+
+      <div style={{ display: "grid", gap: 7 }}>
+        {attachments.map((attachment) => (
+          <div
+            key={attachment.id}
+            id={`browser-proof-${attachment.id}`}
+            style={{
+              display: "grid",
+              gap: 6,
+              minWidth: 0,
+              padding: "7px 8px",
+              borderRadius: 6,
+              background: "rgba(255,255,255,0.025)",
+              border: "0.5px solid rgba(255,255,255,0.06)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, flexWrap: "wrap" }}>
+              <span style={{ color: A.text, fontSize: 12, fontWeight: 650 }}>
+                {attachment.taskKey ?? "Browser proof"}
+              </span>
+              <span style={{
+                borderRadius: 999,
+                border: `0.5px solid ${attachment.status === "succeeded" ? "rgba(34,197,94,0.25)" : "rgba(248,113,113,0.25)"}`,
+                background: attachment.status === "succeeded" ? "rgba(34,197,94,0.08)" : "rgba(248,113,113,0.08)",
+                color: attachment.status === "succeeded" ? "#22c55e" : "#f87171",
+                fontSize: 9,
+                padding: "1px 6px",
+                fontWeight: 700,
+              }}>
+                {attachment.status}
+              </span>
+              <span style={{ color: A.muted, fontSize: 10 }}>
+                {attachment.screenshotCount} screenshots · {attachment.videoCount} videos · {attachment.artifactCount} files
+              </span>
+            </div>
+
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              <TelemetryChip label="exit" value={String(attachment.exitCode)} />
+              <TelemetryChip label="duration" value={formatDuration(attachment.durationMs)} />
+              <TelemetryChip label="project" value={attachment.project} />
+            </div>
+
+            <a
+              href={attachment.manifest.uri}
+              target="_blank"
+              rel="noreferrer"
+              style={{ color: "#93c5fd", fontSize: 11, textDecoration: "none", fontWeight: 650, width: "fit-content" }}
+            >
+              Open manifest
+            </a>
+
+            <div style={{ color: A.muted, fontSize: 10, fontFamily: "monospace", lineHeight: 1.4, wordBreak: "break-all" }}>
+              {attachment.manifest.path}
+            </div>
+            <div style={{ color: A.muted, fontSize: 10, fontFamily: "monospace", lineHeight: 1.4, wordBreak: "break-all" }}>
+              sha256 {attachment.manifest.sha256}
+            </div>
+            <div style={{ color: A.textSec, fontSize: 10, fontFamily: "monospace", lineHeight: 1.4, wordBreak: "break-word" }}>
+              {attachment.command}
+            </div>
+            {attachment.taskArtifact && (
+              <div style={{ color: A.muted, fontSize: 10, lineHeight: 1.4 }}>
+                Registered task artifact · {attachment.taskArtifact.kind ?? "file"} · {attachment.taskArtifact.registeredAt ?? "timestamp unavailable"}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

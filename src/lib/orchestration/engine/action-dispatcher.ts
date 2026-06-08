@@ -521,7 +521,7 @@ export async function executeMcAction(
             companyId: input.companyId,
             agentId: input.agentId,
             taskId: proofTask?.id ?? null,
-            taskKey: proofTask?.task_key ?? action.taskKey,
+            taskKey: proofTask?.taskKey ?? action.taskKey,
           },
         });
         const result = executeRegisterArtifact(

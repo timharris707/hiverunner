@@ -275,6 +275,13 @@ Build:
 - Single-source UI-truth test that diffs board cards, task detail, Run Trace, active crew counts, and engine icons against the canonical run-identity/progress record.
 - Promotion gate wired into the promotion path, before stable deploy, so passing the benchmark is mechanical rather than procedural.
 
+Promotion protocol:
+
+- Prepare the replay DB with `scripts/prepare-exec-dev-benchmark.ts`; it must emit a manifest for a frozen 10-task fixture, including task keys and a fingerprint.
+- Run both arms against that same fixture in an execution-dev lane: old/baseline and new/candidate, at least 3 repeats each.
+- Export each repeat with `scripts/runtime-benchmark.ts --format json --fixture-id ... --arm baseline|candidate --repeat N`.
+- Run `scripts/runtime-promotion-gate.ts` with all baseline and candidate summary JSON files plus explicit UI consistency and untracked-action proof JSON. The gate report must show median/p95 side-by-side metrics and fail on missing repeats, missing proof, latency regressions beyond measured baseline replay noise, or non-10-task fixture data.
+
 Acceptance:
 
 - Simple screenshot proof can be captured and attached in under 30 seconds.

@@ -344,8 +344,8 @@ export function ContextualRecommendationRollup({
         <CountChip label={`${normalizedCounts.total} open`} />
         <CountChip label={countLabel(normalizedCounts.critical, "critical")} tone="critical" />
         <CountChip label={countLabel(normalizedCounts.high, "high")} tone="high" />
-        {normalizedCounts.acceptedForApproval > 0 ? (
-          <CountChip label={`${normalizedCounts.acceptedForApproval} accepted`} tone="accepted" />
+        {(normalizedCounts.acceptedForApproval ?? 0) > 0 ? (
+          <CountChip label={`${normalizedCounts.acceptedForApproval ?? 0} accepted`} tone="accepted" />
         ) : null}
       </div>
 

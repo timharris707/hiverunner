@@ -78,6 +78,42 @@ async function run() {
        (id, task_id, agent_id, provider, status, started_at, completed_at, metadata_json, created_at, updated_at)
      VALUES (?, ?, ?, 'codex', 'completed', ?, ?, '{}', ?, ?)`,
   ).run(runId, task.id, agent.id, now, now, now, now);
+  const proofManifestSha = "b".repeat(64);
+  const proofManifestPath = `/tmp/hiverunner-browser-proof/${runId}/manifest.json`;
+  const proofManifestUri = `file://${proofManifestPath}`;
+  db.prepare(
+    `UPDATE tasks
+        SET artifact_uri = ?,
+            artifact_kind = 'file',
+            artifact_sha256 = ?,
+            artifact_registered_at = ?,
+            updated_at = ?
+      WHERE id = ?`,
+  ).run(proofManifestUri, proofManifestSha, now, now, task.id);
+  db.prepare(
+    `INSERT INTO runtime_browser_proof_audit
+       (id, company_id, agent_id, task_id, task_key, heartbeat_run_id, execution_run_id,
+        status, exit_code, duration_ms, base_url, project, command, artifact_dir,
+        manifest_path, manifest_sha256, artifact_count, screenshot_count, video_count,
+        specs_json, urls_json, created_at)
+     VALUES (?, ?, ?, ?, ?, NULL, ?, 'succeeded', 0, 4200, ?, 'chromium', ?, ?,
+             ?, ?, 3, 2, 1, ?, ?, ?)`,
+  ).run(
+    `proof-${runId}`,
+    company.id,
+    agent.id,
+    task.id,
+    task.key,
+    runId,
+    "http://localhost:3000",
+    "BASE_URL=http://localhost:3000 playwright test e2e/run-events.spec.ts --project=chromium",
+    `/tmp/hiverunner-browser-proof/${runId}`,
+    proofManifestPath,
+    proofManifestSha,
+    JSON.stringify(["e2e/run-events.spec.ts"]),
+    JSON.stringify([{ path: "/INS/tasks", label: "tasks" }]),
+    now,
+  );
 
   db.prepare(
     `INSERT INTO memory_source_index
@@ -299,13 +335,26 @@ async function run() {
       trace?: {
         schema?: string;
         captureQuality?: { label?: string; missingRequiredEvidence?: string[] };
+        evidenceSummary?: { hasProofAttachments?: boolean; proofAttachmentCount?: number };
+        proofAttachments?: Array<{ status?: string; manifest?: { sha256?: string }; screenshotCount?: number }>;
         evidenceGaps?: Array<{ id: string; label: string }>;
         annotations?: { schema?: string; state?: string; annotations?: unknown[]; decision?: { reason?: string } };
       };
+      proofAttachments?: Array<{
+        source?: string;
+        status?: string;
+        manifest?: { uri?: string; path?: string; sha256?: string };
+        taskArtifact?: { uri?: string; sha256?: string };
+        specs?: unknown[];
+        urls?: unknown[];
+        screenshotCount?: number;
+        videoCount?: number;
+      }>;
       traceExport?: {
         schema?: string;
-        summary?: { copyText?: string; annotationCount?: number };
+        summary?: { copyText?: string; annotationCount?: number; proofAttachmentCount?: number };
         redaction?: { location?: string; totalRedactions?: number };
+        proofAttachments?: Array<{ manifest?: { sha256?: string }; screenshotCount?: number }>;
         annotations?: { state?: string; annotations?: unknown[]; decision?: { reason?: string } };
       };
     };
@@ -314,6 +363,18 @@ async function run() {
     assert.strictEqual(payload.trace?.schema, "hiverunner.run_trace_view.v1");
     assert.strictEqual(payload.trace?.captureQuality?.label, "partial");
     assert.ok(payload.trace?.captureQuality?.missingRequiredEvidence?.includes("missing_transcript"));
+    assert.strictEqual(payload.proofAttachments?.[0]?.source, "browser_proof");
+    assert.strictEqual(payload.proofAttachments?.[0]?.status, "succeeded");
+    assert.strictEqual(payload.proofAttachments?.[0]?.manifest?.path, proofManifestPath);
+    assert.strictEqual(payload.proofAttachments?.[0]?.manifest?.uri, proofManifestUri);
+    assert.strictEqual(payload.proofAttachments?.[0]?.manifest?.sha256, proofManifestSha);
+    assert.strictEqual(payload.proofAttachments?.[0]?.taskArtifact?.sha256, proofManifestSha);
+    assert.deepStrictEqual(payload.proofAttachments?.[0]?.specs, ["e2e/run-events.spec.ts"]);
+    assert.strictEqual(payload.proofAttachments?.[0]?.screenshotCount, 2);
+    assert.strictEqual(payload.proofAttachments?.[0]?.videoCount, 1);
+    assert.strictEqual(payload.trace?.evidenceSummary?.hasProofAttachments, true);
+    assert.strictEqual(payload.trace?.evidenceSummary?.proofAttachmentCount, 1);
+    assert.strictEqual(payload.trace?.proofAttachments?.[0]?.manifest?.sha256, proofManifestSha);
     assert.ok(payload.trace?.evidenceGaps?.some((gap) => gap.id === "missing_raw_payload" && gap.label === "not_captured"));
     assert.strictEqual(payload.trace?.annotations?.schema, "hiverunner.run_trace_annotations.v1");
     assert.strictEqual(payload.trace?.annotations?.state, "deferred");
@@ -321,6 +382,8 @@ async function run() {
     assert.strictEqual(payload.traceExport?.schema, "hiverunner.run_trace_redacted_export.v1");
     assert.strictEqual(payload.traceExport?.redaction?.location, "server");
     assert.strictEqual(payload.traceExport?.summary?.annotationCount, 0);
+    assert.strictEqual(payload.traceExport?.summary?.proofAttachmentCount, 1);
+    assert.strictEqual(payload.traceExport?.proofAttachments?.[0]?.manifest?.sha256, proofManifestSha);
     assert.strictEqual(payload.traceExport?.annotations?.state, "deferred");
     assert.match(payload.traceExport?.annotations?.decision?.reason ?? "", /clean run-scoped persistence\/API path/);
     assert.ok(payload.traceExport?.summary?.copyText?.includes(`Run: ${runId}`));

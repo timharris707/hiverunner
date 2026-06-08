@@ -356,7 +356,7 @@ function redactedJson(value: unknown, label: string): { value: Record<string, un
   const serialized = jsonString(redacted.value);
   return {
     value: redacted.value as Record<string, unknown>,
-    redaction: redacted.redaction as Record<string, unknown>,
+    redaction: redacted.redaction as unknown as Record<string, unknown>,
     serialized,
     sha256: sha256(serialized),
   };

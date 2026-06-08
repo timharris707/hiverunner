@@ -7,7 +7,7 @@ import {
   type RunEventsResponse,
   type TimelineEvent,
 } from "@/components/orchestration/RunTraceView";
-import { buildRunTraceViewModel } from "@/lib/orchestration/run-trace";
+import { buildRunTraceViewModel, type RunTraceProofAttachment } from "@/lib/orchestration/run-trace";
 
 const now = Date.parse("2026-06-06T20:00:00.000Z");
 
@@ -47,6 +47,43 @@ function metrics(overrides: Partial<RunEventsResponse["metrics"]> = {}): RunEven
     assistantTextLength: 140,
     plainTextLength: null,
     errorCount: null,
+    ...overrides,
+  };
+}
+
+function proofAttachment(overrides: Partial<RunTraceProofAttachment> = {}): RunTraceProofAttachment {
+  return {
+    schema: "hiverunner.run_trace_proof_attachment.v1",
+    id: "proof-1",
+    source: "browser_proof",
+    status: "succeeded",
+    taskId: "task-1",
+    taskKey: "INS-210",
+    heartbeatRunId: "heartbeat-1",
+    executionRunId: "run-1",
+    manifest: {
+      path: "/tmp/hiverunner-browser-proof/run-1/manifest.json",
+      uri: "file:///tmp/hiverunner-browser-proof/run-1/manifest.json",
+      sha256: "c".repeat(64),
+    },
+    artifactDir: "/tmp/hiverunner-browser-proof/run-1",
+    artifactCount: 3,
+    screenshotCount: 2,
+    videoCount: 1,
+    exitCode: 0,
+    durationMs: 4200,
+    baseUrl: "http://localhost:3000",
+    project: "chromium",
+    command: "BASE_URL=http://localhost:3000 playwright test e2e/run-trace.spec.ts --project=chromium",
+    specs: ["e2e/run-trace.spec.ts"],
+    urls: [{ path: "/INS/tasks", label: "tasks" }],
+    createdAt: "2026-06-06T20:01:00.000Z",
+    taskArtifact: {
+      uri: "file:///tmp/hiverunner-browser-proof/run-1/manifest.json",
+      kind: "file",
+      sha256: "c".repeat(64),
+      registeredAt: "2026-06-06T20:01:01.000Z",
+    },
     ...overrides,
   };
 }
@@ -365,6 +402,16 @@ assert.match(reportHtml, /Comparison report/);
 assert.match(reportHtml, /Variant A produced cleaner review evidence/);
 assert.match(reportHtml, /href="\/companies\/insight\/tasks\/INS-210\/runs\/run-1\?evidence=experiment-report-report-1"/);
 assert.doesNotMatch(reportHtml, /href="[^"]*\/experiments/);
+
+const proofHtml = render(baseResponse({
+  proofAttachments: [proofAttachment()],
+}));
+assert.match(proofHtml, /Browser proof attachments/);
+assert.match(proofHtml, /2 screenshots · 1 videos · 3 files/);
+assert.match(proofHtml, /Open manifest/);
+assert.match(proofHtml, /sha256 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc/);
+assert.match(proofHtml, /Registered task artifact/);
+assert.match(proofHtml, /BASE_URL=http:\/\/localhost:3000 playwright test e2e\/run-trace.spec.ts --project=chromium/);
 
 const failedHtml = render(baseResponse({
   run: {

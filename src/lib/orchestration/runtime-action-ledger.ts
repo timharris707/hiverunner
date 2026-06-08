@@ -184,11 +184,24 @@ export function recordRuntimeActionLedgerEntry(
       now,
       now,
     );
-    return id;
+    const row = db
+      .prepare("SELECT id FROM runtime_action_ledger WHERE idempotency_key = ? LIMIT 1")
+      .get(idempotencyKey) as { id: string } | undefined;
+    return row?.id ?? id;
   } catch (err) {
     if (process.env.NODE_ENV !== "test") {
       console.warn("[runtime-action-ledger] failed to record action ledger entry", err);
     }
     return null;
   }
+}
+
+export function requireRuntimeActionLedgerEntry(
+  db: Database.Database,
+  input: RuntimeActionLedgerInput,
+): string {
+  const id = recordRuntimeActionLedgerEntry(db, input);
+  if (id) return id;
+  const actionType = input.actionType ?? input.action?.action ?? "unknown";
+  throw new Error(`runtime_action_ledger write failed for ${input.source}:${input.status}:${actionType}`);
 }

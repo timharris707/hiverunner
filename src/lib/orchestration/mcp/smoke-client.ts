@@ -93,7 +93,8 @@ function parseJsonTextContent(result: ReadResourceResult | CallToolResult): {
   text: string;
   payload: unknown;
 } {
-  const first = "content" in result ? result.content[0] : result.contents[0];
+  const content = "content" in result ? result.content : result.contents;
+  const first = Array.isArray(content) ? content[0] : undefined;
   if (!first || !("text" in first) || typeof first.text !== "string") {
     return { text: "", payload: null };
   }

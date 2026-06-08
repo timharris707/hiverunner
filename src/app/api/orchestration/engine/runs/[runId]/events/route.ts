@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { pathToFileURL } from "url";
 import { errorResponse, handleRouteError } from "@/lib/orchestration/api";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { getHeartbeatRun } from "@/lib/orchestration/engine/engine";
@@ -13,6 +14,7 @@ import {
   buildRedactedRunTraceExport,
   buildRunTraceViewModel,
   type RunTraceEvidenceInput,
+  type RunTraceProofAttachment,
   type RunTraceViewModel,
 } from "@/lib/orchestration/run-trace";
 
@@ -195,6 +197,35 @@ type EvalSuggestionReviewEvent = {
   to_status: string | null;
   created_at: string;
   agent_name: string | null;
+};
+
+type BrowserProofAuditRow = {
+  id: string;
+  company_id: string | null;
+  agent_id: string | null;
+  task_id: string | null;
+  task_key: string | null;
+  heartbeat_run_id: string | null;
+  execution_run_id: string | null;
+  status: string;
+  exit_code: number;
+  duration_ms: number;
+  base_url: string;
+  project: string;
+  command: string;
+  artifact_dir: string;
+  manifest_path: string;
+  manifest_sha256: string;
+  artifact_count: number;
+  screenshot_count: number;
+  video_count: number;
+  specs_json: string | null;
+  urls_json: string | null;
+  created_at: string;
+  task_artifact_uri: string | null;
+  task_artifact_kind: string | null;
+  task_artifact_sha256: string | null;
+  task_artifact_registered_at: string | null;
 };
 
 function withRunTraceViewModel<T extends RunTraceEvidenceInput>(
@@ -397,6 +428,10 @@ function buildHeartbeatRunResponse(
   // Context snapshot — summarize, don't dump raw JSON
   const context = buildContextSummary(run.contextSnapshot);
   const metrics = buildRunMetrics(run.usage, run.result, computeDurationMs(run.startedAt, run.finishedAt));
+  const proofAttachments = queryBrowserProofAttachmentsForRun(db, {
+    runId,
+    runTable: "heartbeat_runs",
+  });
   const invocation = buildInvocationDetails({
     providerId: "openclaw-heartbeat",
     runTable: "heartbeat_runs",
@@ -468,6 +503,7 @@ function buildHeartbeatRunResponse(
     invocation,
     metrics,
     providerExecution,
+    proofAttachments,
     skillEffectiveness: { events: [], totals: emptySkillEffectivenessTotals() },
     timeline,
     provenance: {
@@ -494,6 +530,11 @@ function buildExecutionRunResponse(
 ) {
   // Reconstruct timeline from linked heartbeat runs
   const linkedHeartbeatRuns = row.session_id ? queryLinkedHeartbeatRuns(db, row.session_id) : [];
+  const proofAttachments = queryBrowserProofAttachmentsForRun(db, {
+    runId: row.id,
+    runTable: "execution_runs",
+    linkedHeartbeatRunIds: linkedHeartbeatRuns.map((linkedRun) => linkedRun.id),
+  });
   const singleLinkedHeartbeat = linkedHeartbeatRuns.length === 1 ? linkedHeartbeatRuns[0] : null;
   const linkedWakeupRequest = singleLinkedHeartbeat
     ? queryWakeupRequest(db, singleLinkedHeartbeat.wakeup_request_id)
@@ -766,6 +807,7 @@ function buildExecutionRunResponse(
       after: resolvedExecution,
     },
     providerExecution,
+    proofAttachments,
     skillEffectiveness,
     memoryEvidence,
     timeline,
@@ -905,6 +947,117 @@ function providerForWire(providerId: string, tier: ObservabilityTier) {
 }
 
 /* ── Shared Helpers ── */
+
+function queryBrowserProofAttachmentsForRun(
+  db: ReturnType<typeof getOrchestrationDb>,
+  input: {
+    runId: string;
+    runTable: "heartbeat_runs" | "execution_runs";
+    linkedHeartbeatRunIds?: string[];
+  },
+): RunTraceProofAttachment[] {
+  if (!tableExists(db, "runtime_browser_proof_audit")) return [];
+
+  const clauses: string[] = [];
+  const params: string[] = [];
+
+  if (input.runTable === "execution_runs") {
+    clauses.push("proof.execution_run_id = ?");
+    params.push(input.runId);
+  }
+
+  const heartbeatRunIds = new Set<string>(input.linkedHeartbeatRunIds ?? []);
+  if (input.runTable === "heartbeat_runs") {
+    heartbeatRunIds.add(input.runId);
+  }
+  if (heartbeatRunIds.size > 0) {
+    clauses.push(`proof.heartbeat_run_id IN (${Array.from(heartbeatRunIds).map(() => "?").join(", ")})`);
+    params.push(...Array.from(heartbeatRunIds));
+  }
+
+  if (clauses.length === 0) return [];
+
+  const rows = db
+    .prepare(
+      `SELECT proof.id, proof.company_id, proof.agent_id, proof.task_id, proof.task_key,
+              proof.heartbeat_run_id, proof.execution_run_id, proof.status, proof.exit_code,
+              proof.duration_ms, proof.base_url, proof.project, proof.command,
+              proof.artifact_dir, proof.manifest_path, proof.manifest_sha256,
+              proof.artifact_count, proof.screenshot_count, proof.video_count,
+              proof.specs_json, proof.urls_json, proof.created_at,
+              t.artifact_uri AS task_artifact_uri,
+              t.artifact_kind AS task_artifact_kind,
+              t.artifact_sha256 AS task_artifact_sha256,
+              t.artifact_registered_at AS task_artifact_registered_at
+       FROM runtime_browser_proof_audit proof
+       LEFT JOIN tasks t ON t.id = proof.task_id
+       WHERE ${clauses.map((clause) => `(${clause})`).join(" OR ")}
+       ORDER BY datetime(proof.created_at) DESC, proof.id DESC
+       LIMIT 20`,
+    )
+    .all(...params) as BrowserProofAuditRow[];
+
+  return rows.map((row) => {
+    const manifestUri = browserProofManifestUri(row.manifest_path);
+    return {
+      schema: "hiverunner.run_trace_proof_attachment.v1",
+      id: row.id,
+      source: "browser_proof",
+      status: row.status === "succeeded" ? "succeeded" : "failed",
+      taskId: row.task_id,
+      taskKey: row.task_key,
+      heartbeatRunId: row.heartbeat_run_id,
+      executionRunId: row.execution_run_id,
+      manifest: {
+        path: row.manifest_path,
+        uri: manifestUri,
+        sha256: row.manifest_sha256,
+      },
+      artifactDir: row.artifact_dir,
+      artifactCount: Math.max(0, row.artifact_count ?? 0),
+      screenshotCount: Math.max(0, row.screenshot_count ?? 0),
+      videoCount: Math.max(0, row.video_count ?? 0),
+      exitCode: row.exit_code,
+      durationMs: Math.max(0, row.duration_ms ?? 0),
+      baseUrl: row.base_url,
+      project: row.project,
+      command: row.command,
+      specs: safeJsonParseArray(row.specs_json),
+      urls: safeJsonParseArray(row.urls_json),
+      createdAt: row.created_at,
+      taskArtifact: matchingTaskArtifact(row, manifestUri),
+    };
+  });
+}
+
+function tableExists(db: ReturnType<typeof getOrchestrationDb>, tableName: string): boolean {
+  const row = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(tableName) as { name: string } | undefined;
+  return row?.name === tableName;
+}
+
+function browserProofManifestUri(manifestPath: string): string {
+  try {
+    return pathToFileURL(manifestPath).href;
+  } catch {
+    return manifestPath;
+  }
+}
+
+function matchingTaskArtifact(row: BrowserProofAuditRow, manifestUri: string): RunTraceProofAttachment["taskArtifact"] {
+  const uri = textValue(row.task_artifact_uri);
+  if (!uri) return null;
+  const sha = textValue(row.task_artifact_sha256);
+  const matchesManifest = uri === manifestUri || (sha !== null && sha === row.manifest_sha256);
+  if (!matchesManifest) return null;
+  return {
+    uri,
+    kind: textValue(row.task_artifact_kind),
+    sha256: sha,
+    registeredAt: textValue(row.task_artifact_registered_at),
+  };
+}
 
 function queryAgentComments(
   db: ReturnType<typeof getOrchestrationDb>,

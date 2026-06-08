@@ -30,7 +30,7 @@ import {
   type McActionExecutionOutcome,
   type ParsedMcActionBlock,
 } from "@/lib/orchestration/engine/action-dispatcher";
-import { recordRuntimeActionLedgerEntry } from "@/lib/orchestration/runtime-action-ledger";
+import { recordRuntimeActionLedgerEntry, requireRuntimeActionLedgerEntry } from "@/lib/orchestration/runtime-action-ledger";
 
 const NO_REPLY_SENTINEL = "NO_REPLY";
 
@@ -68,6 +68,14 @@ function resolveActionLedgerTaskIdentity(
   return { taskId: row.id, taskKey: row.task_key ?? row.id };
 }
 
+function resolveActionLedgerHeartbeatRunId(db: Database.Database, runId: string): string | null {
+  if (!runId?.trim()) return null;
+  const row = db
+    .prepare("SELECT id FROM heartbeat_runs WHERE id = ? LIMIT 1")
+    .get(runId) as { id: string } | undefined;
+  return row?.id ?? null;
+}
+
 function emptyActionResults(): ActionResults {
   return {
     messagesImported: 0,
@@ -82,7 +90,7 @@ function emptyActionResults(): ActionResults {
   };
 }
 
-function recordHeartbeatActionLedger(input: {
+type HeartbeatActionLedgerInput = {
   db: Database.Database;
   companyId: string;
   agentId: string;
@@ -96,16 +104,18 @@ function recordHeartbeatActionLedger(input: {
   approvalId?: string | null;
   outcome?: Record<string, unknown> | null;
   durationMs?: number | null;
-}): void {
+};
+
+function heartbeatActionLedgerPayload(input: HeartbeatActionLedgerInput) {
   const taskIdentity = resolveActionLedgerTaskIdentity(input.db, input.taskKey);
-  recordRuntimeActionLedgerEntry(input.db, {
+  return {
     source: "heartbeat_import",
     status: input.status,
     companyId: input.companyId,
     agentId: input.agentId,
     taskId: taskIdentity.taskId,
     taskKey: taskIdentity.taskKey,
-    heartbeatRunId: input.runId,
+    heartbeatRunId: resolveActionLedgerHeartbeatRunId(input.db, input.runId),
     executionRunId: input.executionRunId ?? null,
     approvalId: input.approvalId ?? null,
     messageIndex: input.entry.messageIndex,
@@ -117,7 +127,15 @@ function recordHeartbeatActionLedger(input: {
     parseError: input.parseError ?? null,
     outcome: input.outcome ?? null,
     durationMs: input.durationMs ?? null,
-  });
+  } as const;
+}
+
+function recordHeartbeatActionLedger(input: HeartbeatActionLedgerInput): string | null {
+  return recordRuntimeActionLedgerEntry(input.db, heartbeatActionLedgerPayload(input));
+}
+
+function requireHeartbeatActionLedger(input: HeartbeatActionLedgerInput): string {
+  return requireRuntimeActionLedgerEntry(input.db, heartbeatActionLedgerPayload(input));
 }
 
 function adapterAssistantTexts(usage: Record<string, unknown> | null | undefined): string[] {
@@ -386,6 +404,25 @@ async function executeParsedMcActions(input: {
     const actionStart = Date.now();
     const actionTarget = getActionTarget(action);
     try {
+      requireHeartbeatActionLedger({
+        db: input.db,
+        companyId: input.companyId,
+        agentId: input.agentId,
+        taskKey: input.taskKey,
+        runId: input.runId,
+        executionRunId: input.executionRunId,
+        entry,
+        status: "parsed",
+        statusReason: "reserved_for_execution",
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      input.results.errors.push(`Action ${action.action} not executed: ${msg}`);
+      perActionDetail.push({ action: action.action, target: actionTarget, status: "error", durationMs: Date.now() - actionStart });
+      emitRunEvent(input.runId, input.agentId, "action_error", `${action.action} not executed: ${msg.slice(0, 120)}`, input.db);
+      continue;
+    }
+    try {
       let executeInput: ExecuteMcActionInput = input;
       if (action.action === "update_task") {
         const closureDeferralReason = focusedTaskClosureDeferralReason({
@@ -407,7 +444,7 @@ async function executeParsedMcActions(input: {
           const message = closureDeferralMessage(closureDeferralReason);
           input.results.actionsDeferred++;
           perActionDetail.push({ action: action.action, target: actionTarget, status: "deferred", durationMs: Date.now() - actionStart });
-          recordHeartbeatActionLedger({
+          const terminalLedgerId = recordHeartbeatActionLedger({
             db: input.db,
             companyId: input.companyId,
             agentId: input.agentId,
@@ -419,6 +456,9 @@ async function executeParsedMcActions(input: {
             statusReason: closureDeferralReason,
             durationMs: Date.now() - actionStart,
           });
+          if (!terminalLedgerId) {
+            input.results.errors.push(`Action ${action.action} deferred but terminal action ledger write failed`);
+          }
           emitRunEvent(
             input.runId,
             input.agentId,
@@ -444,7 +484,7 @@ async function executeParsedMcActions(input: {
       if (outcome.kind === "failed") {
         input.results.errors.push(`${action.action}: ${outcome.reason}`);
         perActionDetail.push({ action: action.action, target: actionTarget, status: "error", durationMs: Date.now() - actionStart });
-        recordHeartbeatActionLedger({
+        const terminalLedgerId = recordHeartbeatActionLedger({
           db: input.db,
           companyId: input.companyId,
           agentId: input.agentId,
@@ -457,6 +497,9 @@ async function executeParsedMcActions(input: {
           outcome: outcome as unknown as Record<string, unknown>,
           durationMs: Date.now() - actionStart,
         });
+        if (!terminalLedgerId) {
+          input.results.errors.push(`Action ${action.action} failed but terminal action ledger write failed`);
+        }
         emitRunEvent(input.runId, input.agentId, "action_error", `${action.action}: ${outcome.reason}`, input.db);
         continue;
       }
@@ -464,7 +507,7 @@ async function executeParsedMcActions(input: {
       if (outcome.kind === "skipped_duplicate") {
         input.results.actionsSkippedDedup++;
         perActionDetail.push({ action: action.action, target: actionTarget, status: "skipped", durationMs: Date.now() - actionStart });
-        recordHeartbeatActionLedger({
+        const terminalLedgerId = recordHeartbeatActionLedger({
           db: input.db,
           companyId: input.companyId,
           agentId: input.agentId,
@@ -477,6 +520,9 @@ async function executeParsedMcActions(input: {
           outcome: outcome as unknown as Record<string, unknown>,
           durationMs: Date.now() - actionStart,
         });
+        if (!terminalLedgerId) {
+          input.results.errors.push(`Action ${action.action} skipped duplicate but terminal action ledger write failed`);
+        }
         emitRunEvent(input.runId, input.agentId, "action_skipped", `Skipped duplicate ${action.action}`, input.db);
         continue;
       }
@@ -500,7 +546,7 @@ async function executeParsedMcActions(input: {
 
       input.results.actionsExecuted++;
       perActionDetail.push({ action: action.action, target: actionTarget, status: "executed", durationMs: Date.now() - actionStart });
-      recordHeartbeatActionLedger({
+      const terminalLedgerId = recordHeartbeatActionLedger({
         db: input.db,
         companyId: input.companyId,
         agentId: input.agentId,
@@ -514,12 +560,15 @@ async function executeParsedMcActions(input: {
         outcome: outcome as unknown as Record<string, unknown>,
         durationMs: Date.now() - actionStart,
       });
+      if (!terminalLedgerId) {
+        input.results.errors.push(`Action ${action.action} executed but terminal action ledger write failed`);
+      }
       emitRunEvent(input.runId, input.agentId, "action_executed", actionExecutionSummary(action, outcome), input.db);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       input.results.errors.push(`Action ${action.action} failed: ${msg}`);
       perActionDetail.push({ action: action.action, target: actionTarget, status: "error", durationMs: Date.now() - actionStart });
-      recordHeartbeatActionLedger({
+      const terminalLedgerId = recordHeartbeatActionLedger({
         db: input.db,
         companyId: input.companyId,
         agentId: input.agentId,
@@ -531,6 +580,9 @@ async function executeParsedMcActions(input: {
         statusReason: msg,
         durationMs: Date.now() - actionStart,
       });
+      if (!terminalLedgerId) {
+        input.results.errors.push(`Action ${action.action} errored but terminal action ledger write failed`);
+      }
       emitRunEvent(input.runId, input.agentId, "action_error", `${action.action} failed: ${msg.slice(0, 100)}`, input.db);
     }
   }
@@ -718,7 +770,7 @@ export async function importAssistantTextsAndExecuteActions(
         agentId: input.agentId,
         taskId: taskIdentity.taskId,
         taskKey: taskIdentity.taskKey,
-        heartbeatRunId: input.runId,
+        heartbeatRunId: resolveActionLedgerHeartbeatRunId(input.db, input.runId),
         executionRunId: input.executionRunId ?? null,
         messageIndex,
         blockIndex: block.blockIndex,
@@ -743,7 +795,7 @@ export async function importAssistantTextsAndExecuteActions(
             agentId: input.agentId,
             taskId: taskIdentity.taskId,
             taskKey: taskIdentity.taskKey,
-            heartbeatRunId: input.runId,
+            heartbeatRunId: resolveActionLedgerHeartbeatRunId(input.db, input.runId),
             executionRunId: input.executionRunId ?? null,
             messageIndex,
             blockIndex: block.blockIndex,

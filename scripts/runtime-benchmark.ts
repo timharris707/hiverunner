@@ -12,10 +12,18 @@ type CliOptions = {
   goalKey: string;
   format: "markdown" | "json";
   outPath: string | null;
+  fixtureId: string | null;
+  arm: "baseline" | "candidate" | null;
+  repeatIndex: number | null;
+  requiredRepeats: number;
+  expectedTaskCount: number;
 };
 
 function usage(): never {
-  console.error("Usage: npm run tsx -- scripts/runtime-benchmark.ts [--db path] [--goal INS-G006] [--format markdown|json] [--out path]");
+  console.error([
+    "Usage: npm run tsx -- scripts/runtime-benchmark.ts [--db path] [--goal INS-G006] [--format markdown|json] [--out path]",
+    "       [--fixture-id ins-g006-runtime-replay-v1] [--arm baseline|candidate] [--repeat 1] [--required-repeats 3] [--expected-tasks 10]",
+  ].join("\n"));
   process.exit(1);
 }
 
@@ -25,6 +33,11 @@ function parseArgs(argv: string[]): CliOptions {
     goalKey: "INS-G006",
     format: "markdown",
     outPath: null,
+    fixtureId: null,
+    arm: null,
+    repeatIndex: null,
+    requiredRepeats: 3,
+    expectedTaskCount: 10,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -43,6 +56,28 @@ function parseArgs(argv: string[]): CliOptions {
     } else if (arg === "--out" && next) {
       options.outPath = next;
       index += 1;
+    } else if (arg === "--fixture-id" && next) {
+      options.fixtureId = next;
+      index += 1;
+    } else if (arg === "--arm" && next) {
+      if (next !== "baseline" && next !== "candidate") usage();
+      options.arm = next;
+      index += 1;
+    } else if (arg === "--repeat" && next) {
+      const repeatIndex = Number(next);
+      if (!Number.isInteger(repeatIndex) || repeatIndex < 1) usage();
+      options.repeatIndex = repeatIndex;
+      index += 1;
+    } else if (arg === "--required-repeats" && next) {
+      const requiredRepeats = Number(next);
+      if (!Number.isInteger(requiredRepeats) || requiredRepeats < 1) usage();
+      options.requiredRepeats = requiredRepeats;
+      index += 1;
+    } else if (arg === "--expected-tasks" && next) {
+      const expectedTaskCount = Number(next);
+      if (!Number.isInteger(expectedTaskCount) || expectedTaskCount < 1) usage();
+      options.expectedTaskCount = expectedTaskCount;
+      index += 1;
     } else if (arg === "--help" || arg === "-h") {
       usage();
     } else {
@@ -57,7 +92,13 @@ function main() {
   const options = parseArgs(process.argv.slice(2));
   const db = new Database(options.dbPath, { readonly: true, fileMustExist: true });
   try {
-    const summary = buildRuntimeBenchmarkSummary(db, options.goalKey);
+    const summary = buildRuntimeBenchmarkSummary(db, options.goalKey, {
+      fixtureId: options.fixtureId,
+      arm: options.arm,
+      repeatIndex: options.repeatIndex,
+      requiredRepeats: options.requiredRepeats,
+      expectedTaskCount: options.expectedTaskCount,
+    });
     const output = options.format === "json"
       ? `${JSON.stringify(summary, null, 2)}\n`
       : formatRuntimeBenchmarkMarkdown(summary);

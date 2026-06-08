@@ -6,6 +6,7 @@ import Database from "better-sqlite3";
 
 import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import {
+  buildRuntimeBenchmarkPromotionReport,
   buildRuntimeBenchmarkSummary,
   classifyRunFailure,
   evaluateRuntimeBenchmarkPromotionGate,
@@ -59,8 +60,22 @@ function createFixtureDb(): Database.Database {
     CREATE TABLE runtime_browser_proof_audit (
       id TEXT PRIMARY KEY,
       task_id TEXT,
+      execution_run_id TEXT,
       status TEXT NOT NULL,
-      duration_ms INTEGER
+      duration_ms INTEGER,
+      created_at TEXT
+    );
+    CREATE TABLE execution_run_transcript_events (
+      id TEXT PRIMARY KEY,
+      execution_run_id TEXT NOT NULL,
+      event_kind TEXT NOT NULL,
+      occurred_at TEXT NOT NULL
+    );
+    CREATE TABLE execution_run_attempt_events (
+      id TEXT PRIMARY KEY,
+      execution_run_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      created_at TEXT NOT NULL
     );
   `);
 
@@ -93,20 +108,43 @@ function createFixtureDb(): Database.Database {
       ('proof-1', 'task-1', 'succeeded', 9000),
       ('proof-2', 'task-2', 'failed', 45000)
   `).run();
+  db.prepare(`
+    INSERT INTO execution_run_transcript_events (id, execution_run_id, event_kind, occurred_at)
+    VALUES
+      ('event-1', 'run-1', 'provider_event', '2026-01-01T00:00:05.000Z'),
+      ('event-2', 'run-2', 'tool_call_start', '2026-01-01T00:00:04.000Z'),
+      ('event-3', 'run-3', 'message', '2026-01-01T00:00:06.000Z'),
+      ('event-4', 'run-4', 'message', '2026-01-01T00:00:19.000Z')
+  `).run();
+  db.prepare(`
+    INSERT INTO execution_run_attempt_events (id, execution_run_id, event_type, created_at)
+    VALUES
+      ('attempt-1', 'run-1', 'failed', '2026-01-01T00:00:01.000Z'),
+      ('attempt-4', 'run-4', 'failed', '2026-01-01T00:00:13.000Z')
+  `).run();
   return db;
 }
 
 function promotionSummary(overrides: Partial<RuntimeBenchmarkSummary> = {}): RuntimeBenchmarkSummary {
+  const taskIds = Array.from({ length: 10 }, (_, index) => `task-${index + 1}`);
   return {
     scope: {
       goalKey: "INS-G006",
       goalSprintId: "goal",
       sprintIds: ["goal"],
-      taskIds: Array.from({ length: 10 }, (_, index) => `task-${index + 1}`),
+      taskIds,
       companyIds: ["company-1"],
       runStartedAt: "2026-01-01T00:00:00.000Z",
       runEndedAt: "2026-01-01T00:10:00.000Z",
       overseerScope: "company_all_turns",
+    },
+    protocol: {
+      fixtureId: "ins-g006-runtime-replay-v1",
+      arm: "candidate",
+      repeatIndex: 1,
+      requiredRepeats: 3,
+      expectedTaskCount: 10,
+      frozenTaskKeys: taskIds.map((id) => id.replace("task", "INS")),
     },
     taskCount: 10,
     executionRunCount: 10,
@@ -153,6 +191,7 @@ function promotionSummary(overrides: Partial<RuntimeBenchmarkSummary> = {}): Run
       nonTerminalParsed: 0,
       parseFailed: 0,
       pendingApproval: 0,
+      untracked: 0,
     },
     browserProof: {
       total: 1,
@@ -160,6 +199,18 @@ function promotionSummary(overrides: Partial<RuntimeBenchmarkSummary> = {}): Run
       failed: 0,
       succeededUnder30s: 1,
       maxDurationMs: 10_000,
+    },
+    latency: {
+      firstEvidenceMs: {
+        sampleCount: 10,
+        medianMs: 2_000,
+        p95Ms: 5_000,
+      },
+      detectUnhealthyMs: {
+        sampleCount: 0,
+        medianMs: null,
+        p95Ms: null,
+      },
     },
     ...overrides,
   };
@@ -202,6 +253,8 @@ async function run() {
       assert.equal(summary.taskCount, 2);
       assert.equal(summary.executionRunCount, 4);
       assert.equal(summary.scope.overseerScope, "company_all_turns");
+      assert.equal(summary.protocol.expectedTaskCount, 10);
+      assert.deepEqual(summary.protocol.frozenTaskKeys, []);
       assert.equal(summary.failureBuckets.deterministicPreflight, 1);
       assert.equal(summary.failureBuckets.intentionalCancellation, 1);
       assert.equal(summary.failureBuckets.runtimeQuality, 1);
@@ -212,8 +265,14 @@ async function run() {
       assert.equal(summary.actionLedger.total, 2);
       assert.equal(summary.actionLedger.nonTerminalParsed, 0);
       assert.equal(summary.actionLedger.parseFailed, 1);
+      assert.equal(summary.actionLedger.untracked, 0);
       assert.equal(summary.browserProof.total, 2);
       assert.equal(summary.browserProof.succeededUnder30s, 1);
+      assert.equal(summary.latency.firstEvidenceMs.sampleCount, 4);
+      assert.equal(summary.latency.firstEvidenceMs.medianMs, 3500);
+      assert.equal(summary.latency.firstEvidenceMs.p95Ms, 10000);
+      assert.equal(summary.latency.detectUnhealthyMs.sampleCount, 1);
+      assert.equal(summary.latency.detectUnhealthyMs.medianMs, 4000);
     } finally {
       db.close();
     }
@@ -242,6 +301,7 @@ async function run() {
           nonTerminalParsed: 1,
           parseFailed: 0,
           pendingApproval: 0,
+          untracked: 0,
         },
       }), baseline).ok,
       false,
@@ -249,17 +309,124 @@ async function run() {
     assert.equal(evaluateRuntimeBenchmarkPromotionGate(current, null).ok, false);
   });
 
+  await test("promotion report enforces repeat fixture protocol and replay-noise comparisons", () => {
+    const evidence = {
+      uiConsistency: { ok: true, source: "ui-truth-smoke" },
+      untrackedActions: { ok: true, count: 0, source: "action-ledger-query" },
+    };
+    const baselineSummaries = [0, 1, 2].map((index) => promotionSummary({
+      protocol: {
+        fixtureId: "ins-g006-runtime-replay-v1",
+        arm: "baseline",
+        repeatIndex: index + 1,
+        requiredRepeats: 3,
+        expectedTaskCount: 10,
+        frozenTaskKeys: Array.from({ length: 10 }, (_, taskIndex) => `INS-${taskIndex + 1}`),
+      },
+      averageRunsPerTask: 2 + index * 0.1,
+      executionRunCount: 20 + index,
+      combinedUsage: {
+        inputTokens: 100_000,
+        cacheReadInputTokens: 0,
+        freshInputTokens: 100_000 + index * 1_000,
+        outputTokens: 10_000,
+        totalTokens: 110_000,
+        estimatedCostUsd: null,
+      },
+      latency: {
+        firstEvidenceMs: {
+          sampleCount: 20 + index,
+          medianMs: [10_000, 11_000, 9_000][index],
+          p95Ms: [30_000, 31_000, 29_000][index],
+        },
+        detectUnhealthyMs: {
+          sampleCount: 1,
+          medianMs: [60_000, 62_000, 58_000][index],
+          p95Ms: [60_000, 62_000, 58_000][index],
+        },
+      },
+    }));
+    const candidateSummaries = [0, 1, 2].map((index) => promotionSummary({
+      protocol: {
+        fixtureId: "ins-g006-runtime-replay-v1",
+        arm: "candidate",
+        repeatIndex: index + 1,
+        requiredRepeats: 3,
+        expectedTaskCount: 10,
+        frozenTaskKeys: Array.from({ length: 10 }, (_, taskIndex) => `INS-${taskIndex + 1}`),
+      },
+      latency: {
+        firstEvidenceMs: {
+          sampleCount: 10,
+          medianMs: [2_000, 2_200, 2_100][index],
+          p95Ms: [5_000, 5_200, 5_100][index],
+        },
+        detectUnhealthyMs: {
+          sampleCount: 0,
+          medianMs: null,
+          p95Ms: null,
+        },
+      },
+    }));
+
+    const report = buildRuntimeBenchmarkPromotionReport(candidateSummaries, baselineSummaries, {
+      requiredTaskCount: 10,
+      requiredRepeats: 3,
+      evidence,
+    });
+    assert.equal(report.gate.ok, true);
+    assert.equal(report.candidate.metrics.firstEvidenceP95Ms.median, 5100);
+
+    const missingRepeatReport = buildRuntimeBenchmarkPromotionReport(candidateSummaries.slice(0, 2), baselineSummaries, {
+      requiredTaskCount: 10,
+      requiredRepeats: 3,
+      evidence,
+    });
+    assert.equal(missingRepeatReport.gate.ok, false);
+    assert.equal(
+      missingRepeatReport.gate.checks.find((check) => check.name === "candidate has at least 3 fixture repeats")?.ok,
+      false,
+    );
+
+    const regressedLatencyReport = buildRuntimeBenchmarkPromotionReport(
+      candidateSummaries.map((summary) => ({
+        ...summary,
+        latency: {
+          ...summary.latency,
+          firstEvidenceMs: {
+            ...summary.latency.firstEvidenceMs,
+            p95Ms: 40_000,
+          },
+        },
+      })),
+      baselineSummaries,
+      {
+        requiredTaskCount: 10,
+        requiredRepeats: 3,
+        evidence,
+      },
+    );
+    assert.equal(regressedLatencyReport.gate.ok, false);
+    assert.equal(
+      regressedLatencyReport.gate.checks.find((check) => check.name === "first-evidence p95 not worse than baseline median plus replay noise")?.ok,
+      false,
+    );
+  });
+
   await test("benchmark markdown tolerates legacy summaries without action or proof metrics", () => {
     const legacySummary = promotionSummary() as RuntimeBenchmarkSummary & {
       actionLedger?: unknown;
       browserProof?: unknown;
+      latency?: unknown;
     };
     delete legacySummary.actionLedger;
     delete legacySummary.browserProof;
+    delete legacySummary.latency;
 
     const markdown = formatRuntimeBenchmarkMarkdown(legacySummary as RuntimeBenchmarkSummary);
     assert.match(markdown, /Total action rows: 0/);
     assert.match(markdown, /Total proof runs: 0/);
+    assert.match(markdown, /First evidence samples: 0/);
   });
 
   finish();

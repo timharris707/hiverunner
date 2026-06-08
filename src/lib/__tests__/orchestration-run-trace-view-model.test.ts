@@ -6,6 +6,7 @@ import {
   buildRunTraceViewModel,
   normalizeRunTraceTimeline,
   type RunTraceEvidenceInput,
+  type RunTraceProofAttachment,
 } from "@/lib/orchestration/run-trace";
 
 const { finish, test } = createTestRunner({ passLabel: "[PASS]", failLabel: "[FAIL]" });
@@ -81,6 +82,43 @@ function baseTrace(overrides: Partial<RunTraceEvidenceInput> = {}): RunTraceEvid
     memoryEvidence: { records: [{ id: "memory-1" }] },
     skillEffectiveness: { events: [{ id: "skill-1" }] },
     workspaceRunVisibility: { schema: "hiverunner.workspace_run_visibility.v1" },
+    ...overrides,
+  };
+}
+
+function proofAttachment(overrides: Partial<RunTraceProofAttachment> = {}): RunTraceProofAttachment {
+  return {
+    schema: "hiverunner.run_trace_proof_attachment.v1",
+    id: "proof-1",
+    source: "browser_proof",
+    status: "succeeded",
+    taskId: "task-1",
+    taskKey: "INS-210",
+    heartbeatRunId: "heartbeat-1",
+    executionRunId: "run-1",
+    manifest: {
+      path: "/tmp/hiverunner-proof/run-1/manifest.json",
+      uri: "file:///tmp/hiverunner-proof/run-1/manifest.json",
+      sha256: "b".repeat(64),
+    },
+    artifactDir: "/tmp/hiverunner-proof/run-1",
+    artifactCount: 3,
+    screenshotCount: 2,
+    videoCount: 1,
+    exitCode: 0,
+    durationMs: 4200,
+    baseUrl: "http://localhost:3000",
+    project: "chromium",
+    command: "BASE_URL=http://localhost:3000 playwright test e2e/proof.spec.ts --project=chromium",
+    specs: ["e2e/proof.spec.ts"],
+    urls: [{ path: "/INS/tasks", label: "tasks" }],
+    createdAt: "2026-06-06T20:01:00.000Z",
+    taskArtifact: {
+      uri: "file:///tmp/hiverunner-proof/run-1/manifest.json",
+      kind: "file",
+      sha256: "b".repeat(64),
+      registeredAt: "2026-06-06T20:01:01.000Z",
+    },
     ...overrides,
   };
 }
@@ -182,6 +220,27 @@ async function run() {
 
     assert.equal(model.evidenceSummary.hasMemoryEvidence, true);
     assert.equal(model.evidenceGaps.some((gap) => gap.id === "missing_memory_evidence"), false);
+  });
+
+  await test("browser proof attachments are normalized into trace evidence and exports", () => {
+    const trace = baseTrace({
+      proofAttachments: [proofAttachment()],
+      timeline: [
+        event("started", "run_start", 0),
+        event("done", "run_end", 60_000),
+      ],
+    });
+    const model = buildRunTraceViewModel(trace);
+    const exportPayload = buildRedactedRunTraceExport(trace);
+
+    assert.equal(model.proofAttachments.length, 1);
+    assert.equal(model.proofAttachments[0]?.schema, "hiverunner.run_trace_proof_attachment.v1");
+    assert.equal(model.evidenceSummary.hasProofAttachments, true);
+    assert.equal(model.evidenceSummary.proofAttachmentCount, 1);
+    assert.equal(model.proofAttachments[0]?.screenshotCount, 2);
+    assert.equal(exportPayload.summary.proofAttachmentCount, 1);
+    assert.equal(exportPayload.proofAttachments[0]?.manifest.sha256, "b".repeat(64));
+    assert.ok(exportPayload.summary.copyText.includes("Proof attachments: 1"));
   });
 
   await test("failed runs are partial when run evidence exists but expected categories are missing", () => {

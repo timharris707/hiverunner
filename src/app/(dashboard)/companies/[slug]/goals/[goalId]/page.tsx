@@ -334,14 +334,14 @@ function RunIntelligenceRollup({
               borderRadius: 999,
               border: `0.5px solid ${stat.value > 0 ? "rgba(245,158,11,0.28)" : P.cardBorder}`,
               background: stat.value > 0 ? "rgba(245,158,11,0.08)" : "rgba(255,255,255,0.03)",
-              color: stat.value > 0 ? P.text : P.textMuted,
+              color: stat.value > 0 ? P.text : P.muted,
               padding: "2px 9px",
               fontSize: 11,
               fontWeight: 650,
             }}
           >
             <span>{stat.label}</span>
-            <span style={{ color: stat.value > 0 ? "#f59e0b" : P.textMuted, fontVariantNumeric: "tabular-nums" }}>
+            <span style={{ color: stat.value > 0 ? "#f59e0b" : P.muted, fontVariantNumeric: "tabular-nums" }}>
               {stat.value}
             </span>
           </span>

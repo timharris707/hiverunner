@@ -38,6 +38,7 @@ export type RuntimeActionLedgerMetrics = {
   nonTerminalParsed: number;
   parseFailed: number;
   pendingApproval: number;
+  untracked: number;
 };
 
 export type RuntimeBrowserProofMetrics = {
@@ -48,8 +49,31 @@ export type RuntimeBrowserProofMetrics = {
   maxDurationMs: number;
 };
 
+export type RuntimeBenchmarkArm = "baseline" | "candidate";
+
+export type RuntimeBenchmarkProtocol = {
+  fixtureId: string | null;
+  arm: RuntimeBenchmarkArm | null;
+  repeatIndex: number | null;
+  requiredRepeats: number;
+  expectedTaskCount: number;
+  frozenTaskKeys: string[];
+};
+
+export type RuntimeLatencyPercentiles = {
+  sampleCount: number;
+  medianMs: number | null;
+  p95Ms: number | null;
+};
+
+export type RuntimeLatencyMetrics = {
+  firstEvidenceMs: RuntimeLatencyPercentiles;
+  detectUnhealthyMs: RuntimeLatencyPercentiles;
+};
+
 export type RuntimeBenchmarkSummary = {
   scope: RuntimeBenchmarkScope;
+  protocol: RuntimeBenchmarkProtocol;
   taskCount: number;
   executionRunCount: number;
   completedRunCount: number;
@@ -66,6 +90,7 @@ export type RuntimeBenchmarkSummary = {
   repeatedFailures: RuntimeRepeatedFailure[];
   actionLedger: RuntimeActionLedgerMetrics;
   browserProof: RuntimeBrowserProofMetrics;
+  latency: RuntimeLatencyMetrics;
 };
 
 export type RuntimePromotionGateCheck = {
@@ -81,12 +106,64 @@ export type RuntimePromotionGateResult = {
   checks: RuntimePromotionGateCheck[];
 };
 
+export type RuntimePromotionEvidenceCheck = {
+  ok: boolean;
+  source: string;
+  count?: number;
+  detail?: string;
+};
+
+export type RuntimePromotionEvidence = {
+  schema?: string;
+  uiConsistency?: RuntimePromotionEvidenceCheck;
+  untrackedActions?: RuntimePromotionEvidenceCheck;
+};
+
+export type RuntimePromotionGateOptions = {
+  requiredTaskCount?: number;
+  requiredRepeats?: number;
+  candidateRepeatCount?: number;
+  baselineRepeatCount?: number;
+  firstEvidenceNoiseMs?: number;
+  detectUnhealthyNoiseMs?: number;
+  evidence?: RuntimePromotionEvidence | null;
+  requireEvidenceProofs?: boolean;
+};
+
+export type RuntimeBenchmarkSummaryOptions = {
+  fixtureId?: string | null;
+  arm?: RuntimeBenchmarkArm | null;
+  repeatIndex?: number | null;
+  requiredRepeats?: number;
+  expectedTaskCount?: number;
+  frozenTaskKeys?: string[];
+};
+
+export type RuntimeMetricStats = {
+  sampleCount: number;
+  median: number | null;
+  p95: number | null;
+  noise: number;
+};
+
+export type RuntimeBenchmarkArmStats = {
+  repeatCount: number;
+  metrics: Record<string, RuntimeMetricStats>;
+};
+
+export type RuntimeBenchmarkPromotionReport = {
+  candidate: RuntimeBenchmarkArmStats;
+  baseline: RuntimeBenchmarkArmStats;
+  gate: RuntimePromotionGateResult;
+};
+
 const EMPTY_ACTION_LEDGER_METRICS: RuntimeActionLedgerMetrics = {
   total: 0,
   terminal: 0,
   nonTerminalParsed: 0,
   parseFailed: 0,
   pendingApproval: 0,
+  untracked: 0,
 };
 
 const EMPTY_BROWSER_PROOF_METRICS: RuntimeBrowserProofMetrics = {
@@ -95,6 +172,11 @@ const EMPTY_BROWSER_PROOF_METRICS: RuntimeBrowserProofMetrics = {
   failed: 0,
   succeededUnder30s: 0,
   maxDurationMs: 0,
+};
+
+const EMPTY_LATENCY_METRICS: RuntimeLatencyMetrics = {
+  firstEvidenceMs: { sampleCount: 0, medianMs: null, p95Ms: null },
+  detectUnhealthyMs: { sampleCount: 0, medianMs: null, p95Ms: null },
 };
 
 type SprintRow = {
@@ -128,11 +210,20 @@ type OverseerTurnRow = {
 
 type RuntimeActionLedgerRow = {
   status: string;
+  task_id: string | null;
+  execution_run_id: string | null;
+  heartbeat_run_id: string | null;
+  overseer_turn_id: string | null;
 };
 
 type RuntimeBrowserProofAuditRow = {
   status: string;
   duration_ms: number | null;
+};
+
+type RuntimeLatencyEventRow = {
+  execution_run_id: string;
+  occurred_at: string | null;
 };
 
 type JsonRecord = Record<string, unknown>;
@@ -221,6 +312,15 @@ function hasTable(db: Database.Database, tableName: string): boolean {
   return row?.name === tableName;
 }
 
+function hasColumn(db: Database.Database, tableName: string, columnName: string): boolean {
+  const rows = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
+  return rows.some((row) => row.name === columnName);
+}
+
+function nullableColumnSelect(db: Database.Database, tableName: string, columnName: string): string {
+  return hasColumn(db, tableName, columnName) ? columnName : `NULL AS ${columnName}`;
+}
+
 function dateMax(values: Array<string | null>): string | null {
   const filtered = values.filter((value): value is string => Boolean(value));
   return filtered.length > 0 ? filtered.sort().at(-1) ?? null : null;
@@ -301,7 +401,156 @@ function collectChildSprintIds(rows: SprintRow[], rootId: string): string[] {
   return result;
 }
 
-export function buildRuntimeBenchmarkSummary(db: Database.Database, goalKey: string): RuntimeBenchmarkSummary {
+function timestampMs(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function percentile(values: number[], percentileValue: number): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  if (percentileValue === 0.5 && sorted.length % 2 === 0) {
+    const upper = sorted.length / 2;
+    return (sorted[upper - 1] + sorted[upper]) / 2;
+  }
+  const index = Math.max(0, Math.min(sorted.length - 1, Math.ceil(percentileValue * sorted.length) - 1));
+  return sorted[index];
+}
+
+function latencyPercentiles(values: number[]): RuntimeLatencyPercentiles {
+  return {
+    sampleCount: values.length,
+    medianMs: percentile(values, 0.5),
+    p95Ms: percentile(values, 0.95),
+  };
+}
+
+function earliestEventByRun(rows: RuntimeLatencyEventRow[]): Map<string, number> {
+  const byRun = new Map<string, number>();
+  for (const row of rows) {
+    const occurredAt = timestampMs(row.occurred_at);
+    if (occurredAt === null) continue;
+    const current = byRun.get(row.execution_run_id);
+    if (current === undefined || occurredAt < current) {
+      byRun.set(row.execution_run_id, occurredAt);
+    }
+  }
+  return byRun;
+}
+
+function mergeEarliestEventMaps(maps: Array<Map<string, number>>): Map<string, number> {
+  const merged = new Map<string, number>();
+  for (const map of maps) {
+    for (const [runId, occurredAt] of map.entries()) {
+      const current = merged.get(runId);
+      if (current === undefined || occurredAt < current) {
+        merged.set(runId, occurredAt);
+      }
+    }
+  }
+  return merged;
+}
+
+function elapsedFromRunStart(run: RunRow, eventMs: number | undefined): number | null {
+  if (eventMs === undefined) return null;
+  const startMs = timestampMs(run.started_at ?? run.created_at);
+  if (startMs === null) return null;
+  return Math.max(0, eventMs - startMs);
+}
+
+function latencyMetricsForRuns(
+  db: Database.Database,
+  runRows: RunRow[],
+  runIds: string[],
+): RuntimeLatencyMetrics {
+  if (runIds.length === 0) return EMPTY_LATENCY_METRICS;
+  const runPlaceholders = placeholders(runIds.length);
+
+  const firstEvidenceMaps: Array<Map<string, number>> = [];
+  if (hasTable(db, "execution_run_transcript_events")) {
+    firstEvidenceMaps.push(earliestEventByRun(
+      db
+        .prepare(
+          `SELECT execution_run_id, MIN(occurred_at) AS occurred_at
+             FROM execution_run_transcript_events
+            WHERE execution_run_id IN (${runPlaceholders})
+              AND LOWER(event_kind) NOT IN ('thinking_summary', 'reasoning')
+            GROUP BY execution_run_id`,
+        )
+        .all(...runIds) as RuntimeLatencyEventRow[],
+    ));
+  }
+  if (
+    hasTable(db, "runtime_action_ledger") &&
+    hasColumn(db, "runtime_action_ledger", "execution_run_id") &&
+    hasColumn(db, "runtime_action_ledger", "created_at")
+  ) {
+    firstEvidenceMaps.push(earliestEventByRun(
+      db
+        .prepare(
+          `SELECT execution_run_id, MIN(created_at) AS occurred_at
+             FROM runtime_action_ledger
+            WHERE execution_run_id IN (${runPlaceholders})
+            GROUP BY execution_run_id`,
+        )
+        .all(...runIds) as RuntimeLatencyEventRow[],
+    ));
+  }
+  if (hasTable(db, "runtime_browser_proof_audit") && hasColumn(db, "runtime_browser_proof_audit", "execution_run_id")) {
+    firstEvidenceMaps.push(earliestEventByRun(
+      db
+        .prepare(
+          `SELECT execution_run_id, MIN(created_at) AS occurred_at
+             FROM runtime_browser_proof_audit
+            WHERE execution_run_id IN (${runPlaceholders})
+            GROUP BY execution_run_id`,
+        )
+        .all(...runIds) as RuntimeLatencyEventRow[],
+    ));
+  }
+  const firstEvidenceByRun = mergeEarliestEventMaps(firstEvidenceMaps);
+
+  const unhealthyMaps: Array<Map<string, number>> = [];
+  if (hasTable(db, "execution_run_attempt_events")) {
+    unhealthyMaps.push(earliestEventByRun(
+      db
+        .prepare(
+          `SELECT execution_run_id, MIN(created_at) AS occurred_at
+             FROM execution_run_attempt_events
+            WHERE execution_run_id IN (${runPlaceholders})
+              AND event_type IN ('preflight_blocked', 'watchdog_timeout', 'failed', 'cancelled', 'task.execution.failed')
+            GROUP BY execution_run_id`,
+        )
+        .all(...runIds) as RuntimeLatencyEventRow[],
+    ));
+  }
+  const unhealthyByRun = mergeEarliestEventMaps(unhealthyMaps);
+
+  const firstEvidenceValues = runRows
+    .map((run) => elapsedFromRunStart(run, firstEvidenceByRun.get(run.id)))
+    .filter((value): value is number => value !== null);
+  const unhealthyValues = runRows
+    .filter((run) => classifyRunFailure(run) === "runtimeQuality")
+    .map((run) => {
+      const detectedAt = unhealthyByRun.get(run.id)
+        ?? timestampMs(run.completed_at ?? run.updated_at ?? run.created_at)
+        ?? undefined;
+      return elapsedFromRunStart(run, detectedAt);
+    })
+    .filter((value): value is number => value !== null);
+
+  return {
+    firstEvidenceMs: latencyPercentiles(firstEvidenceValues),
+    detectUnhealthyMs: latencyPercentiles(unhealthyValues),
+  };
+}
+
+export function buildRuntimeBenchmarkSummary(
+  db: Database.Database,
+  goalKey: string,
+  options: RuntimeBenchmarkSummaryOptions = {},
+): RuntimeBenchmarkSummary {
   const goal = db.prepare("SELECT id FROM sprints WHERE goal_key = ? LIMIT 1").get(goalKey) as { id: string } | undefined;
   if (!goal) {
     throw new Error(`Goal sprint not found for goal key ${goalKey}`);
@@ -368,7 +617,15 @@ export function buildRuntimeBenchmarkSummary(db: Database.Database, goalKey: str
   const overseerUsage = usageTotalsFromJson(overseerTurns.map((turn) => ({ usage_json: turn.usage_json })));
   const actionLedgerRows = taskIds.length > 0 && hasTable(db, "runtime_action_ledger")
     ? db
-      .prepare(`SELECT status FROM runtime_action_ledger WHERE task_id IN (${placeholders(taskIds.length)})`)
+      .prepare(
+        `SELECT status,
+                ${nullableColumnSelect(db, "runtime_action_ledger", "task_id")},
+                ${nullableColumnSelect(db, "runtime_action_ledger", "execution_run_id")},
+                ${nullableColumnSelect(db, "runtime_action_ledger", "heartbeat_run_id")},
+                ${nullableColumnSelect(db, "runtime_action_ledger", "overseer_turn_id")}
+           FROM runtime_action_ledger
+          WHERE task_id IN (${placeholders(taskIds.length)})`,
+      )
       .all(...taskIds) as RuntimeActionLedgerRow[]
     : [];
   const browserProofRows = taskIds.length > 0 && hasTable(db, "runtime_browser_proof_audit")
@@ -378,10 +635,24 @@ export function buildRuntimeBenchmarkSummary(db: Database.Database, goalKey: str
     : [];
   const executionLinkedActionRows = runIds.length > 0 && hasTable(db, "runtime_action_ledger")
     ? db
-      .prepare(`SELECT status FROM runtime_action_ledger WHERE execution_run_id IN (${placeholders(runIds.length)}) AND task_id IS NULL`)
+      .prepare(
+        `SELECT status,
+                ${nullableColumnSelect(db, "runtime_action_ledger", "task_id")},
+                ${nullableColumnSelect(db, "runtime_action_ledger", "execution_run_id")},
+                ${nullableColumnSelect(db, "runtime_action_ledger", "heartbeat_run_id")},
+                ${nullableColumnSelect(db, "runtime_action_ledger", "overseer_turn_id")}
+           FROM runtime_action_ledger
+          WHERE execution_run_id IN (${placeholders(runIds.length)}) AND task_id IS NULL`,
+      )
       .all(...runIds) as RuntimeActionLedgerRow[]
     : [];
   actionLedgerRows.push(...executionLinkedActionRows);
+  const latency = latencyMetricsForRuns(db, runRows, runIds);
+  const expectedTaskCount = options.expectedTaskCount ?? 10;
+  const frozenTaskKeys = options.frozenTaskKeys
+    ?? (taskRows.length === expectedTaskCount
+      ? taskRows.map((task) => task.task_key ?? task.id).sort()
+      : []);
 
   return {
     scope: {
@@ -393,6 +664,14 @@ export function buildRuntimeBenchmarkSummary(db: Database.Database, goalKey: str
       runStartedAt,
       runEndedAt,
       overseerScope: "company_all_turns",
+    },
+    protocol: {
+      fixtureId: options.fixtureId ?? null,
+      arm: options.arm ?? null,
+      repeatIndex: options.repeatIndex ?? null,
+      requiredRepeats: options.requiredRepeats ?? 3,
+      expectedTaskCount,
+      frozenTaskKeys,
     },
     taskCount: taskRows.length,
     executionRunCount: runRows.length,
@@ -426,6 +705,7 @@ export function buildRuntimeBenchmarkSummary(db: Database.Database, goalKey: str
       nonTerminalParsed: actionLedgerRows.filter((row) => row.status === "parsed").length,
       parseFailed: actionLedgerRows.filter((row) => row.status === "parse_failed").length,
       pendingApproval: actionLedgerRows.filter((row) => row.status === "pending_approval").length,
+      untracked: actionLedgerRows.filter((row) => !row.task_id && !row.execution_run_id && !row.heartbeat_run_id && !row.overseer_turn_id).length,
     },
     browserProof: {
       total: browserProofRows.length,
@@ -434,6 +714,7 @@ export function buildRuntimeBenchmarkSummary(db: Database.Database, goalKey: str
       succeededUnder30s: browserProofRows.filter((row) => row.status === "succeeded" && (row.duration_ms ?? Number.POSITIVE_INFINITY) <= 30_000).length,
       maxDurationMs: browserProofRows.reduce((max, row) => Math.max(max, row.duration_ms ?? 0), 0),
     },
+    latency,
   };
 }
 
@@ -453,11 +734,39 @@ function repeatedDeterministicEnvFailureCount(summary: RuntimeBenchmarkSummary):
 export function evaluateRuntimeBenchmarkPromotionGate(
   summary: RuntimeBenchmarkSummary,
   baseline?: RuntimeBenchmarkSummary | null,
+  options: RuntimePromotionGateOptions = {},
 ): RuntimePromotionGateResult {
+  const requiredTaskCount = options.requiredTaskCount ?? summary.protocol?.expectedTaskCount ?? 10;
+  const requiredRepeats = options.requiredRepeats ?? 1;
+  const candidateRepeatCount = options.candidateRepeatCount ?? 1;
+  const baselineRepeatCount = options.baselineRepeatCount ?? (baseline ? 1 : 0);
+  const firstEvidence = summary.latency ?? EMPTY_LATENCY_METRICS;
+  const baselineFirstEvidence = baseline?.latency ?? EMPTY_LATENCY_METRICS;
+  const detectUnhealthy = firstEvidence.detectUnhealthyMs;
+  const baselineDetectUnhealthy = baselineFirstEvidence.detectUnhealthyMs;
   const runtimeQualityRate = summary.executionRunCount > 0
     ? summary.failureBuckets.runtimeQuality / summary.executionRunCount
     : 0;
   const checks: RuntimePromotionGateCheck[] = [
+    {
+      name: "frozen fixture has expected task count",
+      ok: summary.taskCount === requiredTaskCount,
+      value: summary.taskCount,
+      threshold: requiredTaskCount,
+      detail: `fixture ${summary.protocol?.fixtureId ?? "unlabeled"}`,
+    },
+    {
+      name: "candidate repeat protocol satisfied",
+      ok: candidateRepeatCount >= requiredRepeats,
+      value: candidateRepeatCount,
+      threshold: `>= ${requiredRepeats}`,
+    },
+    {
+      name: "baseline repeat protocol satisfied",
+      ok: !baseline || baselineRepeatCount >= requiredRepeats,
+      value: baseline ? baselineRepeatCount : "missing",
+      threshold: `>= ${requiredRepeats}`,
+    },
     {
       name: "total runs below 15",
       ok: summary.executionRunCount < 15,
@@ -489,6 +798,19 @@ export function evaluateRuntimeBenchmarkPromotionGate(
       threshold: "0",
     },
     {
+      name: "no untracked action rows",
+      ok: (summary.actionLedger.untracked ?? 0) === 0,
+      value: summary.actionLedger.untracked ?? 0,
+      threshold: "0",
+    },
+    {
+      name: "first-evidence latency samples cover runs",
+      ok: firstEvidence.firstEvidenceMs.sampleCount >= summary.executionRunCount,
+      value: firstEvidence.firstEvidenceMs.sampleCount,
+      threshold: `>= ${summary.executionRunCount}`,
+      detail: `p50 ${firstEvidence.firstEvidenceMs.medianMs ?? "n/a"}ms, p95 ${firstEvidence.firstEvidenceMs.p95Ms ?? "n/a"}ms`,
+    },
+    {
       name: "browser proof succeeded under 30s",
       ok: summary.browserProof.succeededUnder30s > 0,
       value: summary.browserProof.succeededUnder30s,
@@ -497,9 +819,30 @@ export function evaluateRuntimeBenchmarkPromotionGate(
     },
   ];
 
+  if (options.requireEvidenceProofs) {
+    const uiProof = options.evidence?.uiConsistency;
+    const actionProof = options.evidence?.untrackedActions;
+    checks.push({
+      name: "UI consistency proof passed",
+      ok: Boolean(uiProof?.ok),
+      value: uiProof?.ok ? "pass" : "missing/fail",
+      threshold: "pass",
+      detail: uiProof?.detail ?? uiProof?.source,
+    });
+    checks.push({
+      name: "untracked-action proof passed",
+      ok: Boolean(actionProof?.ok) && (actionProof?.count ?? 0) === 0,
+      value: actionProof?.count ?? "missing",
+      threshold: "0",
+      detail: actionProof?.detail ?? actionProof?.source,
+    });
+  }
+
   if (baseline) {
     const currentFresh = freshInputPerCompletedTask(summary);
     const baselineFresh = freshInputPerCompletedTask(baseline);
+    const firstEvidenceNoise = options.firstEvidenceNoiseMs ?? 0;
+    const detectUnhealthyNoise = options.detectUnhealthyNoiseMs ?? 0;
     checks.push({
       name: "fresh input per completed task reduced by at least 50%",
       ok: Number.isFinite(currentFresh) && Number.isFinite(baselineFresh) && currentFresh <= baselineFresh * 0.5,
@@ -512,6 +855,56 @@ export function evaluateRuntimeBenchmarkPromotionGate(
       ok: summary.averageRunsPerTask <= baseline.averageRunsPerTask,
       value: Number(summary.averageRunsPerTask.toFixed(2)),
       threshold: `<= ${baseline.averageRunsPerTask.toFixed(2)}`,
+    });
+    checks.push({
+      name: "first-evidence p50 not worse beyond replay noise",
+      ok: firstEvidence.firstEvidenceMs.medianMs !== null
+        && baselineFirstEvidence.firstEvidenceMs.medianMs !== null
+        && firstEvidence.firstEvidenceMs.medianMs <= baselineFirstEvidence.firstEvidenceMs.medianMs + firstEvidenceNoise,
+      value: firstEvidence.firstEvidenceMs.medianMs ?? "missing",
+      threshold: baselineFirstEvidence.firstEvidenceMs.medianMs === null
+        ? "baseline missing"
+        : `<= ${baselineFirstEvidence.firstEvidenceMs.medianMs + firstEvidenceNoise}`,
+      detail: `baseline p50 ${baselineFirstEvidence.firstEvidenceMs.medianMs ?? "n/a"}ms, noise ${firstEvidenceNoise}ms`,
+    });
+    checks.push({
+      name: "first-evidence p95 not worse beyond replay noise",
+      ok: firstEvidence.firstEvidenceMs.p95Ms !== null
+        && baselineFirstEvidence.firstEvidenceMs.p95Ms !== null
+        && firstEvidence.firstEvidenceMs.p95Ms <= baselineFirstEvidence.firstEvidenceMs.p95Ms + firstEvidenceNoise,
+      value: firstEvidence.firstEvidenceMs.p95Ms ?? "missing",
+      threshold: baselineFirstEvidence.firstEvidenceMs.p95Ms === null
+        ? "baseline missing"
+        : `<= ${baselineFirstEvidence.firstEvidenceMs.p95Ms + firstEvidenceNoise}`,
+      detail: `baseline p95 ${baselineFirstEvidence.firstEvidenceMs.p95Ms ?? "n/a"}ms, noise ${firstEvidenceNoise}ms`,
+    });
+    checks.push({
+      name: "detect-unhealthy p50 not worse beyond replay noise",
+      ok: summary.failureBuckets.runtimeQuality === 0
+        || (
+          detectUnhealthy.medianMs !== null
+          && baselineDetectUnhealthy.medianMs !== null
+          && detectUnhealthy.medianMs <= baselineDetectUnhealthy.medianMs + detectUnhealthyNoise
+        ),
+      value: summary.failureBuckets.runtimeQuality === 0 ? "no runtime-quality failures" : detectUnhealthy.medianMs ?? "missing",
+      threshold: baselineDetectUnhealthy.medianMs === null
+        ? "baseline missing"
+        : `<= ${baselineDetectUnhealthy.medianMs + detectUnhealthyNoise}`,
+      detail: `baseline p50 ${baselineDetectUnhealthy.medianMs ?? "n/a"}ms, noise ${detectUnhealthyNoise}ms`,
+    });
+    checks.push({
+      name: "detect-unhealthy p95 not worse beyond replay noise",
+      ok: summary.failureBuckets.runtimeQuality === 0
+        || (
+          detectUnhealthy.p95Ms !== null
+          && baselineDetectUnhealthy.p95Ms !== null
+          && detectUnhealthy.p95Ms <= baselineDetectUnhealthy.p95Ms + detectUnhealthyNoise
+        ),
+      value: summary.failureBuckets.runtimeQuality === 0 ? "no runtime-quality failures" : detectUnhealthy.p95Ms ?? "missing",
+      threshold: baselineDetectUnhealthy.p95Ms === null
+        ? "baseline missing"
+        : `<= ${baselineDetectUnhealthy.p95Ms + detectUnhealthyNoise}`,
+      detail: `baseline p95 ${baselineDetectUnhealthy.p95Ms ?? "n/a"}ms, noise ${detectUnhealthyNoise}ms`,
     });
   } else {
     checks.push({
@@ -529,18 +922,305 @@ export function evaluateRuntimeBenchmarkPromotionGate(
   };
 }
 
+function metricStats(values: Array<number | null | undefined>): RuntimeMetricStats {
+  const numericValues = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  const median = percentile(numericValues, 0.5);
+  return {
+    sampleCount: numericValues.length,
+    median,
+    p95: percentile(numericValues, 0.95),
+    noise: median === null ? 0 : numericValues.reduce((max, value) => Math.max(max, Math.abs(value - median)), 0),
+  };
+}
+
+function runtimeQualityRate(summary: RuntimeBenchmarkSummary): number {
+  return summary.executionRunCount > 0 ? summary.failureBuckets.runtimeQuality / summary.executionRunCount : 0;
+}
+
+function armStats(summaries: RuntimeBenchmarkSummary[]): RuntimeBenchmarkArmStats {
+  return {
+    repeatCount: summaries.length,
+    metrics: {
+      totalRuns: metricStats(summaries.map((summary) => summary.executionRunCount)),
+      averageRunsPerTask: metricStats(summaries.map((summary) => summary.averageRunsPerTask)),
+      runtimeQualityRate: metricStats(summaries.map(runtimeQualityRate)),
+      freshInputPerCompletedTask: metricStats(summaries.map(freshInputPerCompletedTask)),
+      firstEvidenceP50Ms: metricStats(summaries.map((summary) => summary.latency?.firstEvidenceMs.medianMs)),
+      firstEvidenceP95Ms: metricStats(summaries.map((summary) => summary.latency?.firstEvidenceMs.p95Ms)),
+      detectUnhealthyP50Ms: metricStats(summaries.map((summary) => summary.latency?.detectUnhealthyMs.medianMs)),
+      detectUnhealthyP95Ms: metricStats(summaries.map((summary) => summary.latency?.detectUnhealthyMs.p95Ms)),
+    },
+  };
+}
+
+function metricCheck(input: {
+  name: string;
+  candidate: RuntimeMetricStats;
+  baseline: RuntimeMetricStats;
+  threshold: string;
+  ok: boolean;
+}): RuntimePromotionGateCheck {
+  return {
+    name: input.name,
+    ok: input.ok,
+    value: input.candidate.median === null ? "missing" : Number(input.candidate.median.toFixed(2)),
+    threshold: input.threshold,
+    detail: `candidate p95 ${input.candidate.p95 ?? "n/a"}, baseline median ${input.baseline.median ?? "n/a"}, baseline noise ${input.baseline.noise}`,
+  };
+}
+
+function repeatedProtocolChecks(input: {
+  candidateSummaries: RuntimeBenchmarkSummary[];
+  baselineSummaries: RuntimeBenchmarkSummary[];
+  requiredRepeats: number;
+  requiredTaskCount: number;
+  firstEvidenceSampleCount: number;
+  firstEvidenceRequiredSamples: number;
+}): RuntimePromotionGateCheck[] {
+  return [
+    {
+      name: "candidate has at least 3 fixture repeats",
+      ok: input.candidateSummaries.length >= input.requiredRepeats,
+      value: input.candidateSummaries.length,
+      threshold: `>= ${input.requiredRepeats}`,
+    },
+    {
+      name: "baseline has at least 3 fixture repeats",
+      ok: input.baselineSummaries.length >= input.requiredRepeats,
+      value: input.baselineSummaries.length,
+      threshold: `>= ${input.requiredRepeats}`,
+    },
+    {
+      name: "candidate summaries use frozen 10-task fixture",
+      ok: input.candidateSummaries.length > 0 && input.candidateSummaries.every((summary) => summary.taskCount === input.requiredTaskCount),
+      value: input.candidateSummaries.map((summary) => summary.taskCount).join(",") || "missing",
+      threshold: input.requiredTaskCount,
+    },
+    {
+      name: "baseline summaries use frozen 10-task fixture",
+      ok: input.baselineSummaries.length > 0 && input.baselineSummaries.every((summary) => summary.taskCount === input.requiredTaskCount),
+      value: input.baselineSummaries.map((summary) => summary.taskCount).join(",") || "missing",
+      threshold: input.requiredTaskCount,
+    },
+    {
+      name: "candidate first-evidence samples cover all runs",
+      ok: input.firstEvidenceSampleCount >= input.firstEvidenceRequiredSamples,
+      value: input.firstEvidenceSampleCount,
+      threshold: `>= ${input.firstEvidenceRequiredSamples}`,
+    },
+  ];
+}
+
+function candidateQualityChecks(input: {
+  candidateSummaries: RuntimeBenchmarkSummary[];
+  candidateQualityRates: number[];
+  noRepeatedDeterministicFailures: boolean;
+}): RuntimePromotionGateCheck[] {
+  return [
+    {
+      name: "candidate total runs below 15 in every repeat",
+      ok: input.candidateSummaries.length > 0 && input.candidateSummaries.every((summary) => summary.executionRunCount < 15),
+      value: input.candidateSummaries.map((summary) => summary.executionRunCount).join(",") || "missing",
+      threshold: "< 15",
+    },
+    {
+      name: "candidate average runs per task below 1.5 in every repeat",
+      ok: input.candidateSummaries.length > 0 && input.candidateSummaries.every((summary) => summary.averageRunsPerTask < 1.5),
+      value: input.candidateSummaries.map((summary) => summary.averageRunsPerTask.toFixed(2)).join(",") || "missing",
+      threshold: "< 1.5",
+    },
+    {
+      name: "candidate runtime-quality failures below 5% in every repeat",
+      ok: input.candidateQualityRates.length > 0 && input.candidateQualityRates.every((rate) => rate < 0.05),
+      value: input.candidateQualityRates.map((rate) => `${(rate * 100).toFixed(1)}%`).join(",") || "missing",
+      threshold: "< 5.0%",
+    },
+    {
+      name: "candidate has no repeated deterministic env failures",
+      ok: input.noRepeatedDeterministicFailures,
+      value: input.noRepeatedDeterministicFailures ? 0 : "present",
+      threshold: "0",
+    },
+    {
+      name: "candidate has no non-terminal parsed actions",
+      ok: input.candidateSummaries.every((summary) => summary.actionLedger.nonTerminalParsed === 0),
+      value: input.candidateSummaries.reduce((sum, summary) => sum + summary.actionLedger.nonTerminalParsed, 0),
+      threshold: "0",
+    },
+    {
+      name: "candidate has no untracked action rows",
+      ok: input.candidateSummaries.every((summary) => (summary.actionLedger.untracked ?? 0) === 0),
+      value: input.candidateSummaries.reduce((sum, summary) => sum + (summary.actionLedger.untracked ?? 0), 0),
+      threshold: "0",
+    },
+    {
+      name: "candidate browser proof succeeded under 30s in every repeat",
+      ok: input.candidateSummaries.length > 0 && input.candidateSummaries.every((summary) => summary.browserProof.succeededUnder30s > 0),
+      value: input.candidateSummaries.map((summary) => summary.browserProof.succeededUnder30s).join(",") || "missing",
+      threshold: ">= 1",
+    },
+  ];
+}
+
+function externalEvidenceChecks(evidence: RuntimePromotionEvidence | null | undefined): RuntimePromotionGateCheck[] {
+  return [
+    {
+      name: "UI consistency proof passed",
+      ok: Boolean(evidence?.uiConsistency?.ok),
+      value: evidence?.uiConsistency?.ok ? "pass" : "missing/fail",
+      threshold: "pass",
+      detail: evidence?.uiConsistency?.detail ?? evidence?.uiConsistency?.source,
+    },
+    {
+      name: "untracked-action proof passed",
+      ok: Boolean(evidence?.untrackedActions?.ok) && (evidence?.untrackedActions?.count ?? 0) === 0,
+      value: evidence?.untrackedActions?.count ?? "missing",
+      threshold: "0",
+      detail: evidence?.untrackedActions?.detail ?? evidence?.untrackedActions?.source,
+    },
+  ];
+}
+
+function metricRegressionChecks(input: {
+  candidate: RuntimeBenchmarkArmStats;
+  baseline: RuntimeBenchmarkArmStats;
+  candidateRuntimeQualityFailures: number;
+}): RuntimePromotionGateCheck[] {
+  const candidateFresh = input.candidate.metrics.freshInputPerCompletedTask;
+  const baselineFresh = input.baseline.metrics.freshInputPerCompletedTask;
+  const candidateFirstP50 = input.candidate.metrics.firstEvidenceP50Ms;
+  const candidateFirstP95 = input.candidate.metrics.firstEvidenceP95Ms;
+  const baselineFirstP50 = input.baseline.metrics.firstEvidenceP50Ms;
+  const baselineFirstP95 = input.baseline.metrics.firstEvidenceP95Ms;
+  const candidateDetectP50 = input.candidate.metrics.detectUnhealthyP50Ms;
+  const candidateDetectP95 = input.candidate.metrics.detectUnhealthyP95Ms;
+  const baselineDetectP50 = input.baseline.metrics.detectUnhealthyP50Ms;
+  const baselineDetectP95 = input.baseline.metrics.detectUnhealthyP95Ms;
+
+  return [
+    metricCheck({
+      name: "fresh input per completed task reduced by at least 50%",
+      candidate: candidateFresh,
+      baseline: baselineFresh,
+      threshold: baselineFresh.median === null ? "baseline missing" : `<= ${(baselineFresh.median * 0.5).toFixed(0)}`,
+      ok: candidateFresh.median !== null && baselineFresh.median !== null && candidateFresh.median <= baselineFresh.median * 0.5,
+    }),
+    metricCheck({
+      name: "average runs per task not worse than baseline median plus replay noise",
+      candidate: input.candidate.metrics.averageRunsPerTask,
+      baseline: input.baseline.metrics.averageRunsPerTask,
+      threshold: input.baseline.metrics.averageRunsPerTask.median === null
+        ? "baseline missing"
+        : `<= ${(input.baseline.metrics.averageRunsPerTask.median + input.baseline.metrics.averageRunsPerTask.noise).toFixed(2)}`,
+      ok: input.candidate.metrics.averageRunsPerTask.median !== null
+        && input.baseline.metrics.averageRunsPerTask.median !== null
+        && input.candidate.metrics.averageRunsPerTask.median <= input.baseline.metrics.averageRunsPerTask.median + input.baseline.metrics.averageRunsPerTask.noise,
+    }),
+    metricCheck({
+      name: "first-evidence p50 not worse than baseline median plus replay noise",
+      candidate: candidateFirstP50,
+      baseline: baselineFirstP50,
+      threshold: baselineFirstP50.median === null ? "baseline missing" : `<= ${(baselineFirstP50.median + baselineFirstP50.noise).toFixed(0)}ms`,
+      ok: candidateFirstP50.median !== null
+        && baselineFirstP50.median !== null
+        && candidateFirstP50.median <= baselineFirstP50.median + baselineFirstP50.noise,
+    }),
+    metricCheck({
+      name: "first-evidence p95 not worse than baseline median plus replay noise",
+      candidate: candidateFirstP95,
+      baseline: baselineFirstP95,
+      threshold: baselineFirstP95.median === null ? "baseline missing" : `<= ${(baselineFirstP95.median + baselineFirstP95.noise).toFixed(0)}ms`,
+      ok: candidateFirstP95.median !== null
+        && baselineFirstP95.median !== null
+        && candidateFirstP95.median <= baselineFirstP95.median + baselineFirstP95.noise,
+    }),
+    metricCheck({
+      name: "detect-unhealthy p50 not worse than baseline median plus replay noise",
+      candidate: candidateDetectP50,
+      baseline: baselineDetectP50,
+      threshold: baselineDetectP50.median === null ? "baseline missing or no candidate unhealthy runs" : `<= ${(baselineDetectP50.median + baselineDetectP50.noise).toFixed(0)}ms`,
+      ok: input.candidateRuntimeQualityFailures === 0
+        || (
+          candidateDetectP50.median !== null
+          && baselineDetectP50.median !== null
+          && candidateDetectP50.median <= baselineDetectP50.median + baselineDetectP50.noise
+        ),
+    }),
+    metricCheck({
+      name: "detect-unhealthy p95 not worse than baseline median plus replay noise",
+      candidate: candidateDetectP95,
+      baseline: baselineDetectP95,
+      threshold: baselineDetectP95.median === null ? "baseline missing or no candidate unhealthy runs" : `<= ${(baselineDetectP95.median + baselineDetectP95.noise).toFixed(0)}ms`,
+      ok: input.candidateRuntimeQualityFailures === 0
+        || (
+          candidateDetectP95.median !== null
+          && baselineDetectP95.median !== null
+          && candidateDetectP95.median <= baselineDetectP95.median + baselineDetectP95.noise
+        ),
+    }),
+  ];
+}
+
+export function buildRuntimeBenchmarkPromotionReport(
+  candidateSummaries: RuntimeBenchmarkSummary[],
+  baselineSummaries: RuntimeBenchmarkSummary[],
+  options: RuntimePromotionGateOptions = {},
+): RuntimeBenchmarkPromotionReport {
+  const requiredTaskCount = options.requiredTaskCount ?? 10;
+  const requiredRepeats = options.requiredRepeats ?? 3;
+  const candidate = armStats(candidateSummaries);
+  const baseline = armStats(baselineSummaries);
+  const candidateQualityRates = candidateSummaries.map(runtimeQualityRate);
+  const candidateRuntimeQualityFailures = candidateSummaries.reduce((sum, summary) => sum + summary.failureBuckets.runtimeQuality, 0);
+  const firstEvidenceRequiredSamples = candidateSummaries.reduce((sum, summary) => sum + summary.executionRunCount, 0);
+  const firstEvidenceSampleCount = candidateSummaries.reduce((sum, summary) => sum + (summary.latency?.firstEvidenceMs.sampleCount ?? 0), 0);
+  const noRepeatedDeterministicFailures = candidateSummaries.every((summary) => repeatedDeterministicEnvFailureCount(summary) === 0);
+  const evidence = options.evidence;
+  const checks: RuntimePromotionGateCheck[] = [
+    ...repeatedProtocolChecks({
+      candidateSummaries,
+      baselineSummaries,
+      requiredRepeats,
+      requiredTaskCount,
+      firstEvidenceSampleCount,
+      firstEvidenceRequiredSamples,
+    }),
+    ...candidateQualityChecks({
+      candidateSummaries,
+      candidateQualityRates,
+      noRepeatedDeterministicFailures,
+    }),
+    ...externalEvidenceChecks(evidence),
+    ...metricRegressionChecks({ candidate, baseline, candidateRuntimeQualityFailures }),
+  ];
+
+  return {
+    candidate,
+    baseline,
+    gate: {
+      ok: checks.every((check) => check.ok),
+      checks,
+    },
+  };
+}
+
 export function formatRuntimeBenchmarkMarkdown(summary: RuntimeBenchmarkSummary): string {
   const actionLedger = summary.actionLedger ?? EMPTY_ACTION_LEDGER_METRICS;
   const browserProof = summary.browserProof ?? EMPTY_BROWSER_PROOF_METRICS;
+  const latency = summary.latency ?? EMPTY_LATENCY_METRICS;
   const pct = (value: number, denominator: number) => denominator > 0 ? `${((value / denominator) * 100).toFixed(1)}%` : "0.0%";
   const hours = (ms: number) => (ms / 3_600_000).toFixed(2);
   const tokens = (value: number) => Math.round(value).toLocaleString("en-US");
+  const ms = (value: number | null) => value === null ? "n/a" : `${Math.round(value)}ms`;
 
   return [
     `# Runtime Benchmark Baseline - ${summary.scope.goalKey}`,
     "",
     "## Scope",
     "",
+    `- Fixture: ${summary.protocol?.fixtureId ?? "unlabeled"} (${summary.protocol?.expectedTaskCount ?? 10}-task expected)`,
+    `- Arm/repeat: ${summary.protocol?.arm ?? "unlabeled"} / ${summary.protocol?.repeatIndex ?? "n/a"} of ${summary.protocol?.requiredRepeats ?? 3}`,
+    `- Frozen task keys: ${summary.protocol?.frozenTaskKeys?.join(", ") || "not recorded"}`,
     `- Sprints: ${summary.scope.sprintIds.length}`,
     `- Tasks: ${summary.taskCount}`,
     `- Company IDs: ${summary.scope.companyIds.join(", ") || "none"}`,
@@ -578,6 +1258,7 @@ export function formatRuntimeBenchmarkMarkdown(summary: RuntimeBenchmarkSummary)
     `- Non-terminal parsed actions: ${actionLedger.nonTerminalParsed}`,
     `- Parse failed actions: ${actionLedger.parseFailed}`,
     `- Pending approvals: ${actionLedger.pendingApproval}`,
+    `- Untracked actions: ${actionLedger.untracked}`,
     "",
     "## Browser Proof",
     "",
@@ -586,6 +1267,13 @@ export function formatRuntimeBenchmarkMarkdown(summary: RuntimeBenchmarkSummary)
     `- Failed: ${browserProof.failed}`,
     `- Succeeded under 30s: ${browserProof.succeededUnder30s}`,
     `- Max duration: ${browserProof.maxDurationMs}ms`,
+    "",
+    "## Latency",
+    "",
+    `- First evidence samples: ${latency.firstEvidenceMs.sampleCount}`,
+    `- First evidence p50/p95: ${ms(latency.firstEvidenceMs.medianMs)} / ${ms(latency.firstEvidenceMs.p95Ms)}`,
+    `- Detect unhealthy samples: ${latency.detectUnhealthyMs.sampleCount}`,
+    `- Detect unhealthy p50/p95: ${ms(latency.detectUnhealthyMs.medianMs)} / ${ms(latency.detectUnhealthyMs.p95Ms)}`,
     "",
     "## Repeated Failures",
     "",

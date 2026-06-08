@@ -22,6 +22,8 @@ import { createCompany } from "@/lib/orchestration/company-service";
 import { getOrchestrationDb, runOrchestrationMigrations } from "@/lib/orchestration/db";
 import { __testHooks as engineTestHooks, adapterActionTexts, executeUpdateTask, importAssistantTextAndExecuteActions } from "@/lib/orchestration/engine/engine";
 import { sweepOpenTasks } from "@/lib/orchestration/engine/sweeper";
+import { recordRuntimeActionLedgerEntry } from "@/lib/orchestration/runtime-action-ledger";
+import { replayRuntimeActionLedgerEntry } from "@/lib/orchestration/runtime-action-ledger-replay";
 import { createApproval, updateApprovalStatus } from "@/lib/orchestration/service/approval";
 import { createProject, createProjectAgent, createTask } from "@/lib/orchestration/service";
 import { listTasks } from "@/lib/orchestration/service/task";
@@ -285,6 +287,80 @@ async function run() {
     assert.equal(Boolean(trailing), true);
     const warning = db.prepare("SELECT body FROM comments WHERE task_id = ? AND body LIKE '[HARNESS_WARNING]%' LIMIT 1").get(task.id) as { body: string } | undefined;
     assert.match(warning?.body ?? "", /update_task/);
+  });
+
+  await test("mc-action execution is blocked when durable action ledger reservation is unavailable", async () => {
+    const task = createTask({
+      projectId: project.id,
+      title: "Ledger reservation task",
+      description: "State-changing action must not execute without the action ledger.",
+      priority: "P1",
+      type: "feature",
+      status: "in-progress",
+      assignee: agent.id,
+      labels: ["bundle-5"],
+      createdBy: "bundle-5-test",
+    }).task;
+    db.prepare("ALTER TABLE runtime_action_ledger RENAME TO runtime_action_ledger_missing").run();
+    try {
+      const result = await importAssistantTextAndExecuteActions({
+        assistantTexts: [actionBlock({ action: "update_task", taskKey: task.key, status: "done" })],
+        agentId: agent.id,
+        agentName: agent.name,
+        companyId: company.id,
+        taskKey: task.id,
+        runId: randomUUID(),
+        db,
+        source: "bundle-5-test",
+      });
+      assert.equal(result.actionsFound, 1);
+      assert.equal(result.actionsExecuted, 0);
+      assert.match(result.errors.join("\n"), /runtime_action_ledger write failed/);
+      const row = db.prepare("SELECT status FROM tasks WHERE id = ?").get(task.id) as { status: string };
+      assert.equal(row.status, "in_progress");
+    } finally {
+      db.prepare("ALTER TABLE runtime_action_ledger_missing RENAME TO runtime_action_ledger").run();
+    }
+  });
+
+  await test("action ledger replay executes through dispatcher and records manual replay row", async () => {
+    const task = createTask({
+      projectId: project.id,
+      title: "Replay ledger task",
+      description: "Replay should update this task through the action dispatcher.",
+      priority: "P1",
+      type: "feature",
+      status: "in-progress",
+      assignee: agent.id,
+      labels: ["bundle-5"],
+      createdBy: "bundle-5-test",
+    }).task;
+    const action = { action: "update_task", taskKey: task.key, status: "done", comment: "Replay verification passed." } as const;
+    const actionLedgerId = recordRuntimeActionLedgerEntry(db, {
+      source: "heartbeat_import",
+      status: "failed",
+      companyId: company.id,
+      agentId: agent.id,
+      taskId: task.id,
+      taskKey: task.key,
+      action,
+      actionType: action.action,
+      actionTarget: task.key,
+      statusReason: "fixture_failed_action",
+    });
+    assert.ok(actionLedgerId, "fixture action ledger row should be recorded");
+
+    const replay = await replayRuntimeActionLedgerEntry({ actionLedgerId }, db);
+
+    assert.equal(replay.status, "executed");
+    assert.equal(replay.actionType, "update_task");
+    assert.notEqual(replay.replayLedgerId, actionLedgerId);
+    const row = db.prepare("SELECT status FROM tasks WHERE id = ?").get(task.id) as { status: string };
+    assert.equal(row.status, "done");
+    const replayRow = db
+      .prepare("SELECT source, status, action_type FROM runtime_action_ledger WHERE id = ?")
+      .get(replay.replayLedgerId) as { source: string; status: string; action_type: string } | undefined;
+    assert.deepEqual(replayRow, { source: "manual", status: "executed", action_type: "update_task" });
   });
 
   await test("single parse error in a run produces a single HARNESS_WARNING comment on the task", async () => {

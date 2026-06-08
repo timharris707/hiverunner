@@ -1,7 +1,7 @@
 import { OrchestrationApiError } from "@/lib/orchestration/api";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { resolveCompanyIdBySlug } from "@/lib/orchestration/company-service";
-import { resolveHiveRunnerLane } from "@/lib/workspaces/root";
+import { resolveHiveRunnerLane, type HiveRunnerLane } from "@/lib/workspaces/root";
 
 type LeaseRow = {
   company_id: string;
@@ -32,7 +32,7 @@ type LeaseSummary = {
 };
 
 export type DevExecutionTestModeView = {
-  lane: "dev" | "stable";
+  lane: HiveRunnerLane;
   gateEnabled: boolean;
   available: boolean;
   reason?: string;
