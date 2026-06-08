@@ -318,6 +318,7 @@ function resetSelectedRuntimeArtifacts(
   db: Database.Database,
   input: { taskIds: string[]; taskKeys: string[]; agentIds: string[]; now: string },
 ): void {
+  resetSelectedApprovals(db, input);
   resetSelectedWakeups(db, input);
   resetSelectedHeartbeats(db, input);
   resetSelectedExecutionRuns(db, input);
@@ -369,6 +370,32 @@ function resetSelectedWakeups(
       WHERE agent_id IN (${placeholders(input.agentIds.length)})
         AND status IN ('queued', 'claimed')`,
   ).run(input.now, input.now, ...input.agentIds);
+}
+
+function resetSelectedApprovals(
+  db: Database.Database,
+  input: { taskIds: string[]; now: string },
+): void {
+  if (!tableExists(db, "approvals") || input.taskIds.length === 0) return;
+  const setClauses = [
+    "status = 'cancelled'",
+    "decision_note = COALESCE(decision_note, 'benchmark replay reset')",
+  ];
+  const args: string[] = [];
+  if (columnExists(db, "approvals", "decided_at")) {
+    setClauses.push("decided_at = COALESCE(decided_at, ?)");
+    args.push(input.now);
+  }
+  if (columnExists(db, "approvals", "updated_at")) {
+    setClauses.push("updated_at = ?");
+    args.push(input.now);
+  }
+  db.prepare(
+    `UPDATE approvals
+        SET ${setClauses.join(", ")}
+      WHERE linked_task_id IN (${placeholders(input.taskIds.length)})
+        AND status IN ('pending', 'revision_requested')`,
+  ).run(...args, ...input.taskIds);
 }
 
 function resetSelectedHeartbeats(

@@ -173,6 +173,20 @@ function createSourceDb(
         created_at TEXT,
         updated_at TEXT
       );
+      CREATE TABLE approvals (
+        id TEXT PRIMARY KEY,
+        company_id TEXT,
+        type TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('pending','revision_requested','approved','rejected','cancelled')),
+        requested_by_agent_id TEXT,
+        payload_json TEXT NOT NULL DEFAULT '{}',
+        decision_note TEXT,
+        decided_by_user_id TEXT,
+        decided_at TEXT,
+        linked_task_id TEXT,
+        created_at TEXT,
+        updated_at TEXT
+      );
       CREATE TABLE execution_runs (
         id TEXT PRIMARY KEY,
         task_id TEXT,
@@ -784,6 +798,40 @@ async function run() {
           );
         source
           .prepare(
+            `INSERT INTO approvals
+               (id, company_id, type, status, requested_by_agent_id, payload_json, linked_task_id, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            "approval-selected",
+            "company",
+            "protected_runtime_command",
+            "pending",
+            "agent-gemini",
+            JSON.stringify({ command: "npm run build" }),
+            "task-1",
+            "2026-01-01T00:00:00.000Z",
+            "2026-01-01T00:00:00.000Z",
+          );
+        source
+          .prepare(
+            `INSERT INTO approvals
+               (id, company_id, type, status, requested_by_agent_id, payload_json, linked_task_id, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            "approval-unrelated",
+            "company",
+            "protected_runtime_command",
+            "pending",
+            "agent-codex",
+            JSON.stringify({ command: "npm test" }),
+            "task-2",
+            "2026-01-01T00:00:00.000Z",
+            "2026-01-01T00:00:00.000Z",
+          );
+        source
+          .prepare(
             `INSERT INTO execution_runs
                (id, task_id, agent_id, provider, status, started_at, idempotency_key, process_pid, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -907,6 +955,19 @@ async function run() {
           .prepare("SELECT status FROM heartbeat_runs WHERE id = 'heartbeat-unrelated'")
           .get() as { status: string };
         assert.equal(unrelatedHeartbeat.status, "failed");
+
+        const approval = target
+          .prepare("SELECT status, decision_note, decided_at FROM approvals WHERE id = 'approval-selected'")
+          .get() as { status: string; decision_note: string | null; decided_at: string | null };
+        assert.equal(approval.status, "cancelled");
+        assert.equal(approval.decision_note, "benchmark replay reset");
+        assert.ok(approval.decided_at);
+
+        const unrelatedApproval = target
+          .prepare("SELECT status, decision_note FROM approvals WHERE id = 'approval-unrelated'")
+          .get() as { status: string; decision_note: string | null };
+        assert.equal(unrelatedApproval.status, "pending");
+        assert.equal(unrelatedApproval.decision_note, null);
 
         const selectedRun = target
           .prepare("SELECT status, completed_at, idempotency_key, process_pid FROM execution_runs WHERE id = 'execution-selected'")
