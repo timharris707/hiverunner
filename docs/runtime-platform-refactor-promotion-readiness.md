@@ -48,6 +48,8 @@ node ./scripts/run-tsx.mjs scripts/prepare-exec-dev-benchmark.ts \
 
 Both workspace flags are required for live replay. Without them, copied tasks can still point external runners at the real HiveRunner source checkout and stable company workspace.
 
+Run each live repeat through `scripts/runtime-benchmark-repeat.ts` before exporting that repeat's summary. The repeat runner checks the fixture task workspaces and refuses to run if source, company, or agent runtime roots still point at live/stable locations.
+
 ## Current Observed Baseline
 
 Source: `scratch/runtime-platform-refactor-promotion/current-ins-g006-summary.md`
