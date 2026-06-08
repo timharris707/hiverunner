@@ -1615,7 +1615,12 @@ export async function executeHeartbeatRun(
     // No session or error; still persist partial telemetry.
     telemetry.totalDurationMs = Date.now() - startTime;
     const assistantTexts = adapterActionTexts(result.usage);
-    if (taskKey !== "__heartbeat__" && assistantTexts.length > 0) {
+    if (result.error) {
+      if (assistantTexts.length > 0) {
+        telemetry.adapterFailureOutputQuarantined = true;
+        telemetry.adapterFailureOutputTextCount = assistantTexts.length;
+      }
+    } else if (taskKey !== "__heartbeat__" && assistantTexts.length > 0) {
       try {
         const importStart = Date.now();
         const actionResults = await importAssistantTextAndExecuteActions({
@@ -1631,10 +1636,6 @@ export async function executeHeartbeatRun(
           source: usedExecutionRunProvider ?? usedAdapterType,
           telemetry,
         });
-        if (result.error) {
-          actionResults.errors.push(`Adapter reported terminal error after emitting parseable output: ${result.error}`);
-          (actionResults as Record<string, unknown>).adapterTerminalError = result.error;
-        }
         const importDurationMs = Date.now() - importStart;
         telemetry.importDurationMs = importDurationMs;
         telemetry.totalDurationMs = Date.now() - startTime;

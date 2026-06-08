@@ -12,6 +12,7 @@ type CliOptions = {
   pollMs: number;
   requireIsolatedWorkspace: boolean;
   checkOnly: boolean;
+  allowGeneratedTasks: boolean;
 };
 
 const TERMINAL_TASK_STATUSES = new Set(["done", "blocked", "cancelled", "backlog"]);
@@ -20,7 +21,7 @@ function usage(): never {
   console.error([
     "Usage: node ./scripts/run-tsx.mjs scripts/runtime-benchmark-repeat.ts --task-keys INS-205,INS-208 [options]",
     "       [--goal INS-G006] [--out output/runtime-benchmark/repeat-window.json]",
-    "       [--max-minutes 30] [--poll-ms 5000] [--allow-live-workspace] [--check-only]",
+    "       [--max-minutes 30] [--poll-ms 5000] [--allow-live-workspace] [--allow-generated-tasks] [--check-only]",
   ].join("\n"));
   process.exit(1);
 }
@@ -34,6 +35,7 @@ function parseArgs(argv: string[]): CliOptions {
     pollMs: 5_000,
     requireIsolatedWorkspace: true,
     checkOnly: false,
+    allowGeneratedTasks: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -63,6 +65,8 @@ function parseArgs(argv: string[]): CliOptions {
       index += 1;
     } else if (arg === "--allow-live-workspace") {
       options.requireIsolatedWorkspace = false;
+    } else if (arg === "--allow-generated-tasks") {
+      options.allowGeneratedTasks = true;
     } else if (arg === "--check-only") {
       options.checkOnly = true;
     } else if (arg === "--help" || arg === "-h") {
@@ -185,6 +189,40 @@ function readTaskStatuses(db: ReturnType<typeof getOrchestrationDb>, taskKeys: s
     }>;
 }
 
+function readSelectedTaskProjectIds(db: ReturnType<typeof getOrchestrationDb>, taskKeys: string[]): string[] {
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT project_id
+         FROM tasks
+        WHERE task_key IN (${placeholders(taskKeys.length)})
+        ORDER BY project_id`,
+    )
+    .all(...taskKeys) as Array<{ project_id: string }>;
+  return rows.map((row) => row.project_id);
+}
+
+function readGeneratedTasksInFixtureProjects(
+  db: ReturnType<typeof getOrchestrationDb>,
+  input: { projectIds: string[]; taskKeys: string[]; startedAt: string },
+) {
+  if (input.projectIds.length === 0) return [];
+  return db
+    .prepare(
+      `SELECT task_key, title, status, created_at
+         FROM tasks
+        WHERE project_id IN (${placeholders(input.projectIds.length)})
+          AND task_key NOT IN (${placeholders(input.taskKeys.length)})
+          AND created_at >= ?
+        ORDER BY created_at ASC, task_key ASC`,
+    )
+    .all(...input.projectIds, ...input.taskKeys, input.startedAt) as Array<{
+      task_key: string;
+      title: string;
+      status: string;
+      created_at: string;
+    }>;
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const db = getOrchestrationDb();
@@ -209,8 +247,10 @@ async function main() {
   }
 
   const startedAt = new Date().toISOString();
+  const fixtureProjectIds = readSelectedTaskProjectIds(db, options.taskKeys);
   const deadline = Date.now() + options.maxMinutes * 60_000;
   let tickCount = 0;
+  let scopeViolation: { reason: string; generatedTasks: ReturnType<typeof readGeneratedTasksInFixtureProjects> } | null = null;
   const tickResults: Array<{
     tickedAt: string;
     status: string;
@@ -243,6 +283,24 @@ async function main() {
     });
     console.log(`[repeat] tick ${tickCount}: status=${result.status} claimed=${result.claimedCount} durationMs=${result.durationMs}`);
 
+    if (!options.allowGeneratedTasks) {
+      const generatedTasks = readGeneratedTasksInFixtureProjects(db, {
+        projectIds: fixtureProjectIds,
+        taskKeys: options.taskKeys,
+        startedAt,
+      });
+      if (generatedTasks.length > 0) {
+        scopeViolation = {
+          reason: "fixture_generated_tasks",
+          generatedTasks,
+        };
+        console.error(
+          `[repeat] scope violation: ${generatedTasks.length} generated task(s): ${generatedTasks.map((task) => task.task_key).join(", ")}`,
+        );
+        break;
+      }
+    }
+
     if (result.claimedCount === 0) {
       await sleep(options.pollMs);
     }
@@ -250,6 +308,18 @@ async function main() {
 
   const completedAt = new Date().toISOString();
   const finalStatuses = readTaskStatuses(db, options.taskKeys);
+  const generatedTasks = readGeneratedTasksInFixtureProjects(db, {
+    projectIds: fixtureProjectIds,
+    taskKeys: options.taskKeys,
+    startedAt,
+  });
+  if (!scopeViolation && !options.allowGeneratedTasks && generatedTasks.length > 0) {
+    scopeViolation = {
+      reason: "fixture_generated_tasks",
+      generatedTasks,
+    };
+  }
+  const terminal = finalStatuses.every((row) => TERMINAL_TASK_STATUSES.has(row.status));
   const output = {
     schema: "hiverunner.runtime-benchmark-repeat.v1",
     goalKey: options.goalKey,
@@ -257,7 +327,11 @@ async function main() {
     completedAt,
     maxMinutes: options.maxMinutes,
     taskKeys: options.taskKeys,
-    terminal: finalStatuses.every((row) => TERMINAL_TASK_STATUSES.has(row.status)),
+    terminal: terminal && !scopeViolation,
+    scopeClean: !scopeViolation,
+    allowGeneratedTasks: options.allowGeneratedTasks,
+    scopeViolation,
+    generatedTasks,
     finalStatuses,
     tickCount,
     tickResults,
@@ -268,6 +342,9 @@ async function main() {
     fs.writeFileSync(options.outPath, `${JSON.stringify(output, null, 2)}\n`);
   }
   console.log(JSON.stringify(output, null, 2));
+  if (scopeViolation && !options.allowGeneratedTasks) {
+    process.exitCode = 2;
+  }
 }
 
 main().catch((error) => {

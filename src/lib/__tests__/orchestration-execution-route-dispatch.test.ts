@@ -48,6 +48,17 @@ process.stdin.on("end", () => {
     console.error("You've hit your usage limit for GPT-5.3-Codex-Spark. Switch to another model now, or try again at 2:11 AM.");
     process.exit(1);
   }
+  if (process.env.FAIL_CODEX_WITH_ACTION_OUTPUT === "1" && payload.runnerProvider === "codex") {
+    const taskKey = payload.task?.key || payload.task?.id || "UNKNOWN";
+    const fence = String.fromCharCode(96, 96, 96);
+    process.stdout.write(fence + "mc-action\\n" + JSON.stringify({
+      action: "add_comment",
+      taskKey,
+      body: "This failed-run action output must stay quarantined."
+    }) + "\\n" + fence + "\\n");
+    console.error("fixture fatal failure after emitting action-shaped output");
+    process.exit(1);
+  }
   process.stdout.write(JSON.stringify({
     sessionId: "route-dispatch-session",
     resultText: "Route dispatch completed",
@@ -108,6 +119,7 @@ async function run() {
 
   const envSnapshot = snapshotEnv([
     "FAIL_ANTHROPIC",
+    "FAIL_CODEX_WITH_ACTION_OUTPUT",
     "FAIL_CODEX_USAGE_LIMIT",
     "FAIL_GEMINI_UNKNOWN_EXIT",
     "MC_DEV_EXECUTION_TEST_MODE",
@@ -471,6 +483,66 @@ async function run() {
       );
     } finally {
       process.env.FAIL_CODEX_USAGE_LIMIT = "0";
+    }
+  });
+
+  await test("failed adapter output is quarantined instead of dispatching mc-actions", async () => {
+    try {
+      await withHiveLanes(
+        (lanes) => lanes.map((lane) => lane.id === "fast"
+          ? {
+              ...lane,
+              primary: {
+                mode: "runtime_managed",
+                runtimeId: "codex-cli",
+                runtimeLabel: "Codex",
+              },
+              fallbacks: [],
+            }
+          : lane),
+        async () => {
+          process.env.FAIL_ANTHROPIC = "0";
+          process.env.FAIL_CODEX_USAGE_LIMIT = "0";
+          process.env.FAIL_CODEX_WITH_ACTION_OUTPUT = "1";
+          const task = createTask({
+            projectId: project.id,
+            title: "Failed output action quarantine",
+            description: "A failed adapter must not import stdout mc-action blocks.",
+            priority: "P2",
+            type: "feature",
+            status: "in-progress",
+            assignee: agent.id,
+            labels: ["route"],
+            modelLane: "fast",
+            executionEngine: "symphony",
+            createdBy: "test",
+          }).task;
+          const queued = await triggerTaskExecution({ taskId: task.id, reason: "route_dispatch_failed_output_quarantine" });
+          const result = await executeHeartbeatRun(queued.runId!, db);
+          const runRow = latestRun(task.id);
+
+          assert.equal(result.status, "failed");
+          expectRunRow(runRow, {
+            runner_provider: "codex",
+            status: "failed",
+          });
+          const comment = db
+            .prepare("SELECT id FROM comments WHERE task_id = ? AND body = ? LIMIT 1")
+            .get(task.id, "This failed-run action output must stay quarantined.") as { id: string } | undefined;
+          assert.equal(comment, undefined);
+          const ledger = db
+            .prepare("SELECT id FROM runtime_action_ledger WHERE task_id = ? AND action_type = 'add_comment' LIMIT 1")
+            .get(task.id) as { id: string } | undefined;
+          assert.equal(ledger, undefined);
+          const heartbeat = db
+            .prepare("SELECT result_json, usage_json FROM heartbeat_runs WHERE id = ? LIMIT 1")
+            .get(queued.runId!) as { result_json: string; usage_json: string };
+          assert.match(heartbeat.result_json, /fixture fatal failure/);
+          assert.equal(JSON.parse(heartbeat.usage_json).adapterFailureOutputQuarantined, true);
+        },
+      );
+    } finally {
+      process.env.FAIL_CODEX_WITH_ACTION_OUTPUT = "0";
     }
   });
 
