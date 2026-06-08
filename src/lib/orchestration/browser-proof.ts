@@ -10,7 +10,8 @@ import { isPathContained } from "@/lib/workspaces/delete-safety";
 
 const execFileAsync = promisify(execFile);
 
-const DEFAULT_TIMEOUT_MS = 120_000;
+const DEFAULT_SPEC_TIMEOUT_MS = 120_000;
+const DEFAULT_URL_PROOF_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 300_000;
 const DEFAULT_PROJECT = "chromium";
 const DEFAULT_ARTIFACT_ROOT = path.join("output", "browser-proof");
@@ -96,8 +97,8 @@ function safeSegment(value: string, fallback: string): string {
   return normalized.slice(0, 80) || fallback;
 }
 
-function boundedTimeout(value: number | undefined): number {
-  if (!Number.isFinite(value) || !value || value <= 0) return DEFAULT_TIMEOUT_MS;
+function boundedTimeout(value: number | undefined, fallback: number): number {
+  if (!Number.isFinite(value) || !value || value <= 0) return fallback;
   return Math.min(Math.trunc(value), MAX_TIMEOUT_MS);
 }
 
@@ -214,9 +215,9 @@ for (const item of cases) {
     });
 
     await page.setViewportSize(item.viewport);
-    await page.goto(item.url, { waitUntil: "domcontentloaded", timeout: 30_000 });
-    await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
-    await expect(page.locator("body")).toBeVisible({ timeout: 10_000 });
+    await page.goto(item.url, { waitUntil: "domcontentloaded", timeout: 10_000 });
+    await page.waitForLoadState("networkidle", { timeout: 3_000 }).catch(() => undefined);
+    await expect(page.locator("body")).toBeVisible({ timeout: 5_000 });
     await page.screenshot({ path: item.screenshotPath, fullPage: item.fullPage });
     expect(consoleIssues).toEqual([]);
   });
@@ -295,6 +296,22 @@ async function collectArtifacts(root: string, manifestPath: string): Promise<Bro
 
 function tail(value: string, max = 4000): string {
   return value.length > max ? value.slice(value.length - max) : value;
+}
+
+function redactionValuesFromEnv(): string[] {
+  const sensitiveKeyPattern = /(?:api[_-]?key|token|secret|password|credential|auth)/i;
+  return Object.entries(process.env)
+    .filter(([key, value]) => sensitiveKeyPattern.test(key) && typeof value === "string" && value.length >= 8)
+    .map(([, value]) => value as string)
+    .filter((value, index, values) => values.indexOf(value) === index);
+}
+
+function redactSensitiveText(value: string): string {
+  let redacted = value;
+  for (const secret of redactionValuesFromEnv()) {
+    redacted = redacted.split(secret).join("[REDACTED]");
+  }
+  return redacted;
 }
 
 function commandSummary(input: BrowserProofCommandInput): string {
@@ -436,7 +453,6 @@ export async function captureBrowserProof(input: CaptureBrowserProofOptions): Pr
   const cwd = path.resolve(input.cwd ?? process.cwd());
   const baseUrl = normalizeBaseUrl(input.baseUrl);
   const project = normalizeProject(input.project);
-  const timeoutMs = boundedTimeout(input.timeoutMs);
   const artifactRoot = path.resolve(cwd, input.artifactRoot ?? DEFAULT_ARTIFACT_ROOT);
   const artifactDir = await resolveContainedPath(
     artifactRoot,
@@ -445,6 +461,7 @@ export async function captureBrowserProof(input: CaptureBrowserProofOptions): Pr
   await fs.mkdir(artifactDir, { recursive: true });
 
   const specs = normalizeSpecs({ specs: input.specs, cwd });
+  const explicitSpecCount = specs.length;
   const generatedSpec = await writeGeneratedUrlSpec({
     cwd,
     artifactDir,
@@ -457,6 +474,10 @@ export async function captureBrowserProof(input: CaptureBrowserProofOptions): Pr
   if (specs.length === 0) {
     throw new Error("capture_browser_proof: provide at least one spec or local URL target");
   }
+  const timeoutMs = boundedTimeout(
+    input.timeoutMs,
+    generatedSpec && explicitSpecCount === 0 ? DEFAULT_URL_PROOF_TIMEOUT_MS : DEFAULT_SPEC_TIMEOUT_MS,
+  );
 
   const commandInput = { cwd, artifactDir, baseUrl, specs, project, timeoutMs };
   const command = commandSummary(commandInput);
@@ -486,12 +507,13 @@ export async function captureBrowserProof(input: CaptureBrowserProofOptions): Pr
     ok: commandResult.exitCode === 0,
     capturedAt: new Date().toISOString(),
     artifacts,
-    stdoutTail: tail(commandResult.stdout),
-    stderrTail: tail(commandResult.stderr),
+    stdoutTail: tail(redactSensitiveText(commandResult.stdout)),
+    stderrTail: tail(redactSensitiveText(commandResult.stderr)),
   };
   await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
   const manifestSha256 = await sha256File(manifestPath);
-  const stderrTail = tail(commandResult.stderr);
+  const stdoutTail = tail(redactSensitiveText(commandResult.stdout));
+  const stderrTail = tail(redactSensitiveText(commandResult.stderr));
   recordBrowserProofAudit({
     audit: input.audit,
     runId: input.runId,
@@ -519,7 +541,7 @@ export async function captureBrowserProof(input: CaptureBrowserProofOptions): Pr
     manifestUri: pathToFileURL(manifestPath).href,
     manifestSha256,
     artifacts,
-    stdoutTail: tail(commandResult.stdout),
+    stdoutTail,
     stderrTail,
     commentBody: buildComment({
       taskKey: input.taskKey,

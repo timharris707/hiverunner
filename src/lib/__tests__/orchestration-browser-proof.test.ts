@@ -81,6 +81,8 @@ async function run() {
           created_at TEXT NOT NULL
         );
       `);
+      const originalSecret = process.env.HIVERUNNER_BROWSER_PROOF_SECRET;
+      process.env.HIVERUNNER_BROWSER_PROOF_SECRET = "proof-secret-value";
       const result = await captureBrowserProof({
         taskKey: "INS-999",
         runId: "run-proof",
@@ -95,14 +97,22 @@ async function run() {
           taskId: "task-proof",
           taskKey: "INS-999",
         },
-        runner: async ({ artifactDir, specs }) => {
+        runner: async ({ artifactDir, specs, timeoutMs }) => {
           assert.equal(specs.length, 1);
           assert.ok(existsSync(specs[0]!), "generated URL proof spec should exist");
+          assert.equal(timeoutMs, 30_000);
+          const generatedSpec = await fs.readFile(specs[0]!, "utf8");
+          assert.match(generatedSpec, /timeout: 10_000/);
+          assert.match(generatedSpec, /timeout: 3_000/);
+          assert.match(generatedSpec, /timeout: 5_000/);
           await fs.writeFile(path.join(artifactDir, "01-improve-queue.png"), "fake png");
           await fs.mkdir(path.join(artifactDir, "test-results"), { recursive: true });
           await fs.writeFile(path.join(artifactDir, "test-results", "video.webm"), "fake video");
-          return { exitCode: 0, stdout: "3 passed", stderr: "" };
+          return { exitCode: 0, stdout: "3 passed proof-secret-value", stderr: "proof-secret-value" };
         },
+      }).finally(() => {
+        if (originalSecret === undefined) delete process.env.HIVERUNNER_BROWSER_PROOF_SECRET;
+        else process.env.HIVERUNNER_BROWSER_PROOF_SECRET = originalSecret;
       });
 
       assert.equal(result.ok, true);
@@ -114,11 +124,16 @@ async function run() {
       assert.equal(result.artifacts.filter((artifact) => artifact.kind === "video").length, 1);
       assert.match(result.commentBody, /Browser proof captured/);
       assert.match(result.commentBody, /Screenshots: 1/);
+      assert.doesNotMatch(result.stdoutTail, /proof-secret-value/);
+      assert.doesNotMatch(result.stderrTail, /proof-secret-value/);
+      assert.match(result.stdoutTail, /\[REDACTED\]/);
 
       const manifest = JSON.parse(await fs.readFile(result.manifestPath, "utf8")) as Record<string, unknown>;
       assert.equal(manifest.schema, "hiverunner.browser_proof_manifest.v1");
       assert.equal(manifest.taskKey, "INS-999");
       assert.equal(manifest.ok, true);
+      assert.doesNotMatch(JSON.stringify(manifest), /proof-secret-value/);
+      assert.match(JSON.stringify(manifest), /\[REDACTED\]/);
       const audit = db
         .prepare("SELECT status, task_id, task_key, heartbeat_run_id, execution_run_id, screenshot_count, video_count FROM runtime_browser_proof_audit")
         .get() as
