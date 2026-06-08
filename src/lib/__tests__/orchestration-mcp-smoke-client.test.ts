@@ -299,7 +299,7 @@ async function run() {
     await test("stdio smoke client captures initialize, resources, tools, and governed calls", () => {
       assert.equal(result.transcript.schema, "hiverunner.mcp.smoke_transcript.v1");
       assert.equal(result.transcript.server.name, "hiverunner");
-      assert.equal(result.transcript.summary.resourceCount, 13);
+      assert.equal(result.transcript.summary.resourceCount, 15);
       assert.equal(result.transcript.summary.toolCount, 4);
       assert.equal(result.transcript.summary.resourceReadCount, 4);
       assert.equal(result.transcript.summary.toolCallCount, 6);

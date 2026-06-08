@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import type Database from "better-sqlite3";
 
-export type ExecutionTranscriptEventInput = {
+type ExecutionTranscriptEventInput = {
   kind: string;
   role?: string | null;
   title?: string | null;
@@ -76,6 +76,13 @@ function normalizeTranscriptEvent(
   };
 }
 
+function countExecutionTranscriptEvents(db: Database.Database, executionRunId: string): number {
+  const row = db
+    .prepare("SELECT COUNT(*) AS count FROM execution_run_transcript_events WHERE execution_run_id = ?")
+    .get(executionRunId) as { count: number } | undefined;
+  return row?.count ?? 0;
+}
+
 export function persistExecutionTranscriptEvents(input: {
   db: Database.Database;
   executionRunId: string;
@@ -83,14 +90,18 @@ export function persistExecutionTranscriptEvents(input: {
   events: unknown;
   occurredAt?: string | null;
 }): number {
-  if (!Array.isArray(input.events) || input.events.length === 0) return 0;
+  if (!Array.isArray(input.events) || input.events.length === 0) {
+    return countExecutionTranscriptEvents(input.db, input.executionRunId);
+  }
 
   const fallbackOccurredAt = input.occurredAt ?? new Date().toISOString();
   const events = input.events
     .map((event) => normalizeTranscriptEvent(event, fallbackOccurredAt))
     .filter((event): event is ExecutionTranscriptEventInput => event !== null);
 
-  if (events.length === 0) return 0;
+  if (events.length === 0) {
+    return countExecutionTranscriptEvents(input.db, input.executionRunId);
+  }
 
   const now = new Date().toISOString();
   const insert = input.db.prepare(
@@ -100,10 +111,17 @@ export function persistExecutionTranscriptEvents(input: {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
 
+  let persistedCount = 0;
   input.db.transaction(() => {
-    input.db
-      .prepare("DELETE FROM execution_run_transcript_events WHERE execution_run_id = ?")
-      .run(input.executionRunId);
+    const sequenceRow = input.db
+      .prepare(
+        `SELECT COALESCE(MAX(sequence), -1) + 1 AS next_sequence,
+                COUNT(*) AS existing_count
+         FROM execution_run_transcript_events
+         WHERE execution_run_id = ?`,
+      )
+      .get(input.executionRunId) as { next_sequence: number; existing_count: number } | undefined;
+    const nextSequence = sequenceRow?.next_sequence ?? 0;
     events.forEach((event, index) => {
       insert.run(
         randomUUID(),
@@ -114,14 +132,15 @@ export function persistExecutionTranscriptEvents(input: {
         event.title ?? null,
         event.body ?? "",
         JSON.stringify(event.metadata ?? {}),
-        index,
+        nextSequence + index,
         event.occurredAt ?? fallbackOccurredAt,
         now,
       );
     });
+    persistedCount = (sequenceRow?.existing_count ?? 0) + events.length;
   })();
 
-  return events.length;
+  return persistedCount;
 }
 
 export function listExecutionTranscriptEvents(

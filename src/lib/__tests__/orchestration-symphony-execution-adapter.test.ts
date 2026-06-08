@@ -441,12 +441,12 @@ async function run() {
       agentId: string;
       bodyIncludes: string;
       timeoutMs?: number;
-    }): Promise<{ executionRunId: string; eventKind: string; body: string; metadata: Record<string, unknown> }> {
+    }): Promise<{ executionRunId: string; eventKind: string; body: string; metadata: Record<string, unknown>; sequence: number; occurredAt: string }> {
       const deadline = Date.now() + (input.timeoutMs ?? 1500);
       while (Date.now() < deadline) {
         const row = db
           .prepare(
-            `SELECT er.id AS execution_run_id, events.event_kind, events.body, events.metadata_json
+            `SELECT er.id AS execution_run_id, events.event_kind, events.body, events.metadata_json, events.sequence, events.occurred_at
              FROM execution_runs er
              INNER JOIN execution_run_transcript_events events ON events.execution_run_id = er.id
              WHERE er.task_id = ?
@@ -456,7 +456,7 @@ async function run() {
              LIMIT 1`,
           )
           .get(input.taskId, input.agentId, `%${input.bodyIncludes}%`) as
-            | { execution_run_id: string; event_kind: string; body: string; metadata_json: string }
+            | { execution_run_id: string; event_kind: string; body: string; metadata_json: string; sequence: number; occurred_at: string }
             | undefined;
         if (row) {
           return {
@@ -464,6 +464,8 @@ async function run() {
             eventKind: row.event_kind,
             body: row.body,
             metadata: JSON.parse(row.metadata_json || "{}") as Record<string, unknown>,
+            sequence: row.sequence,
+            occurredAt: row.occurred_at,
           };
         }
         await new Promise((resolve) => setTimeout(resolve, 20));
@@ -731,7 +733,7 @@ async function run() {
       assert.strictEqual(usage.inputTokens, 11);
       assert.strictEqual(usage.outputTokens, 7);
       assert.ok(String(usage.resultText).includes("External runner completed fixture work."));
-      assert.strictEqual(usage.transcriptEventCount, 4);
+      assert.strictEqual(usage.transcriptEventCount, 6);
       const workspaceRunVisibility = usage.workspaceRunVisibility as { schema: string; totals: { trackedRoots: number } };
       assert.strictEqual(workspaceRunVisibility.schema, "hiverunner.workspace_run_visibility.v1");
       assert.strictEqual(workspaceRunVisibility.totals.trackedRoots >= 1, true);
@@ -739,7 +741,7 @@ async function run() {
       const transcriptCount = db
         .prepare(`SELECT COUNT(*) AS count FROM execution_run_transcript_events WHERE execution_run_id = ? AND provider = 'symphony'`)
         .get(executionRun.id) as { count: number };
-      assert.strictEqual(transcriptCount.count, 4);
+      assert.strictEqual(transcriptCount.count, 6);
 
       const runtimeEvents = liveEvents.filter((event) => event.runId === executionRun.id);
       assert.ok(runtimeEvents.some((event) => event.kind === "command_start" && event.provider === "symphony"), "Symphony should emit command_start live events");
@@ -840,6 +842,41 @@ async function run() {
 
         const result = await executionPromise;
         assert.strictEqual(result.status, "succeeded", result.error ?? "heartbeat should succeed after delayed final JSON");
+
+        const persistedTranscriptRows = db
+          .prepare(
+            `SELECT event_kind, body, metadata_json, sequence, occurred_at
+             FROM execution_run_transcript_events
+             WHERE execution_run_id = ?
+             ORDER BY sequence ASC, occurred_at ASC`,
+          )
+          .all(liveRow.executionRunId) as Array<{
+            event_kind: string;
+            body: string;
+            metadata_json: string;
+            sequence: number;
+            occurred_at: string;
+          }>;
+        const persistedLiveRow = persistedTranscriptRows.find((row) =>
+          row.sequence === liveRow.sequence &&
+          row.occurred_at === liveRow.occurredAt &&
+          row.body.includes("early adapter-visible update")
+        );
+        assert.ok(persistedLiveRow, "completion should preserve the early live transcript row");
+        assert.strictEqual(
+          (JSON.parse(persistedLiveRow.metadata_json || "{}") as Record<string, unknown>).live,
+          true,
+          "preserved live transcript row should retain live metadata",
+        );
+        const finalAssistantRow = persistedTranscriptRows.find((row) =>
+          row.event_kind === "assistant_text_final" &&
+          row.body.includes("External runner completed fixture work after live progress")
+        );
+        assert.ok(finalAssistantRow, "completion should append final assistant transcript rows");
+        assert.ok(
+          finalAssistantRow.sequence > liveRow.sequence,
+          "final transcript rows should append after existing live rows",
+        );
         assert.ok(
           liveEvents.some((event) => event.runId === liveRow.executionRunId && event.kind === "assistant_text_delta"),
           "runner live protocol should also publish assistant_text_delta live runtime events",
