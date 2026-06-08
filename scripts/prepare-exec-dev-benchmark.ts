@@ -136,6 +136,13 @@ type TaskFixtureRow = {
   task_key: string | null;
 };
 
+type WorkspaceRewriteContext = {
+  sourceWorkspaceRoot: string | null;
+  companyWorkspaceRoot: string | null;
+  previousSourceWorkspaceRoots: string[];
+  previousCompanyWorkspaceRoots: string[];
+};
+
 function placeholders(count: number): string {
   return Array.from({ length: count }, () => "?").join(",");
 }
@@ -230,6 +237,55 @@ function replaceWorkspacePrefix(value: string | null, fromRoot: string | null, t
   return path.join(toRoot, relative);
 }
 
+function normalizeRoot(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? path.resolve(trimmed) : null;
+}
+
+function uniqueRoots(values: Array<string | null | undefined>): string[] {
+  return Array.from(new Set(values.map(normalizeRoot).filter((value): value is string => Boolean(value)))).sort();
+}
+
+function collectJsonStrings(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap(collectJsonStrings);
+  const record = asRecord(value);
+  if (!record) return [];
+  return Object.values(record).flatMap(collectJsonStrings);
+}
+
+function companyWorkspaceRootCandidateFromPath(value: string): string | null {
+  if (!path.isAbsolute(value)) return null;
+  const segments = path.resolve(value).split(path.sep).filter(Boolean);
+  for (let index = 0; index < segments.length - 2; index += 1) {
+    if (segments[index] !== "workspaces" || segments[index + 1] !== "companies") continue;
+    return path.join(path.parse(value).root, ...segments.slice(0, index + 3));
+  }
+  return null;
+}
+
+function companyWorkspaceRootCandidatesFromJson(metadataJson: string | null | undefined): string[] {
+  if (!metadataJson) return [];
+  try {
+    const parsed = JSON.parse(metadataJson);
+    return uniqueRoots(collectJsonStrings(parsed).map(companyWorkspaceRootCandidateFromPath));
+  } catch {
+    return [];
+  }
+}
+
+function replaceAnyWorkspacePrefix(value: string, fromRoots: string[], toRoot: string | null): string {
+  if (!toRoot) return value;
+  for (const fromRoot of fromRoots) {
+    const relative = path.relative(fromRoot, value);
+    if (relative === "") return toRoot;
+    if (!relative.startsWith("..") && !path.isAbsolute(relative)) {
+      return path.join(toRoot, relative);
+    }
+  }
+  return value;
+}
+
 function rewriteBundledRunnerCommand(command: string | null, sourceWorkspaceRoot: string | null): string | null {
   const trimmed = command?.trim();
   if (!trimmed || !sourceWorkspaceRoot) return command;
@@ -238,6 +294,22 @@ function rewriteBundledRunnerCommand(command: string | null, sourceWorkspaceRoot
   const scriptName = path.basename(first);
   if (!BUNDLED_RUNNER_SCRIPT_NAMES.has(scriptName)) return command;
   return [path.join(sourceWorkspaceRoot, "scripts", scriptName), ...parts.slice(1)].join(" ");
+}
+
+function readProjectSourceWorkspaceRoot(settingsJson: string | null | undefined): string | null {
+  try {
+    const settings = asRecord(JSON.parse(settingsJson ?? "{}")) ?? {};
+    const workspace = asRecord(settings.workspace);
+    const sourceRoot =
+      typeof workspace?.sourceRoot === "string"
+        ? workspace.sourceRoot
+        : typeof settings.sourceWorkspaceRoot === "string"
+          ? settings.sourceWorkspaceRoot
+          : null;
+    return normalizeRoot(sourceRoot);
+  } catch {
+    return null;
+  }
 }
 
 function candidateBundledRunnerCommands(sourceWorkspaceRoot: string): Record<string, string> {
@@ -253,6 +325,91 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
+}
+
+function rewriteWorkspaceString(value: string, context: WorkspaceRewriteContext): string {
+  const withSourceRoot = replaceAnyWorkspacePrefix(
+    value,
+    context.previousSourceWorkspaceRoots,
+    context.sourceWorkspaceRoot,
+  );
+  const withCompanyRoot = replaceAnyWorkspacePrefix(
+    withSourceRoot,
+    context.previousCompanyWorkspaceRoots,
+    context.companyWorkspaceRoot,
+  );
+  return rewriteBundledRunnerCommand(withCompanyRoot, context.sourceWorkspaceRoot) ?? withCompanyRoot;
+}
+
+function rewriteJsonArrayWorkspacePaths(
+  values: unknown[],
+  context: WorkspaceRewriteContext,
+): { value: unknown[]; changed: boolean } {
+  let changed = false;
+  const next = values.map((item) => {
+    const rewritten = rewriteJsonWorkspacePaths(item, context);
+    changed = changed || rewritten.changed;
+    return rewritten.value;
+  });
+  return { value: changed ? next : values, changed };
+}
+
+function rewriteJsonRecordWorkspacePaths(
+  record: Record<string, unknown>,
+  context: WorkspaceRewriteContext,
+): { value: Record<string, unknown>; changed: boolean } {
+  let changed = false;
+  const next: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(record)) {
+    const rewritten = rewriteJsonWorkspacePaths(item, context);
+    changed = changed || rewritten.changed;
+    next[key] = rewritten.value;
+  }
+  return { value: changed ? next : record, changed };
+}
+
+function rewriteJsonWorkspacePaths(value: unknown, context: WorkspaceRewriteContext): { value: unknown; changed: boolean } {
+  if (typeof value === "string") {
+    const rewritten = rewriteWorkspaceString(value, context);
+    return { value: rewritten, changed: rewritten !== value };
+  }
+  if (Array.isArray(value)) {
+    return rewriteJsonArrayWorkspacePaths(value, context);
+  }
+  const record = asRecord(value);
+  return record ? rewriteJsonRecordWorkspacePaths(record, context) : { value, changed: false };
+}
+
+function rewriteProjectSettingsJson(
+  settingsJson: string | null,
+  context: WorkspaceRewriteContext,
+): { settingsJson: string; changed: boolean } {
+  let settings: Record<string, unknown>;
+  try {
+    settings = asRecord(JSON.parse(settingsJson ?? "{}")) ?? {};
+  } catch {
+    settings = {};
+  }
+
+  const rewritten = rewriteJsonWorkspacePaths(settings, context);
+  settings = asRecord(rewritten.value) ?? {};
+  let changed = rewritten.changed || !settingsJson;
+
+  if (context.sourceWorkspaceRoot) {
+    const workspace = asRecord(settings.workspace) ? { ...(settings.workspace as Record<string, unknown>) } : {};
+    if (workspace.sourceRoot !== context.sourceWorkspaceRoot) {
+      workspace.sourceRoot = context.sourceWorkspaceRoot;
+      changed = true;
+    }
+    if (settings.sourceWorkspaceRoot !== context.sourceWorkspaceRoot) {
+      settings.sourceWorkspaceRoot = context.sourceWorkspaceRoot;
+      changed = true;
+    }
+    settings.workspace = workspace;
+  }
+
+  const next = JSON.stringify(settings);
+  return { settingsJson: next, changed: changed || next !== settingsJson };
 }
 
 function rewriteBenchmarkReplayBundledRunnerMetadata(
@@ -273,10 +430,10 @@ function rewriteBenchmarkReplayBundledRunnerMetadata(
 
 function rewriteMetadataBundledRunnerCommands(
   metadataJson: string | null,
-  sourceWorkspaceRoot: string | null,
+  context: WorkspaceRewriteContext,
   options: { stampBenchmarkReplayBundledRunners?: boolean } = {},
 ): { metadataJson: string | null; changed: boolean; benchmarkReplayMetadataChanged: boolean } {
-  if (!sourceWorkspaceRoot || (!metadataJson && !options.stampBenchmarkReplayBundledRunners)) {
+  if (!context.sourceWorkspaceRoot && !context.companyWorkspaceRoot && (!metadataJson && !options.stampBenchmarkReplayBundledRunners)) {
     return { metadataJson, changed: false, benchmarkReplayMetadataChanged: false };
   }
   let metadata: Record<string, unknown>;
@@ -288,9 +445,14 @@ function rewriteMetadataBundledRunnerCommands(
 
   let changed = false;
   let benchmarkReplayMetadataChanged = false;
+  const rewrittenMetadata = rewriteJsonWorkspacePaths(metadata, context);
+  if (rewrittenMetadata.changed) {
+    metadata = asRecord(rewrittenMetadata.value) ?? metadata;
+    changed = true;
+  }
   const rewriteStringKey = (target: Record<string, unknown>, key: string) => {
     if (typeof target[key] !== "string") return;
-    const rewritten = rewriteBundledRunnerCommand(target[key], sourceWorkspaceRoot);
+    const rewritten = rewriteBundledRunnerCommand(target[key], context.sourceWorkspaceRoot);
     if (rewritten === target[key]) return;
     target[key] = rewritten;
     changed = true;
@@ -306,8 +468,8 @@ function rewriteMetadataBundledRunnerCommands(
     if (changed) metadata.health = health;
   }
 
-  if (options.stampBenchmarkReplayBundledRunners) {
-    benchmarkReplayMetadataChanged = rewriteBenchmarkReplayBundledRunnerMetadata(metadata, sourceWorkspaceRoot);
+  if (options.stampBenchmarkReplayBundledRunners && context.sourceWorkspaceRoot) {
+    benchmarkReplayMetadataChanged = rewriteBenchmarkReplayBundledRunnerMetadata(metadata, context.sourceWorkspaceRoot);
     changed = changed || benchmarkReplayMetadataChanged;
   }
 
@@ -328,23 +490,31 @@ function rewriteWorkspaceRoots(
 ): {
   sourceWorkspaceRoot: string | null;
   companyWorkspaceRoot: string | null;
+  previousSourceWorkspaceRoots: string[];
+  previousCompanyWorkspaceRoots: string[];
   companyIds: string[];
   projectIds: string[];
   agentRuntimeRowsUpdated: number;
   agentRuntimeCommandRowsUpdated: number;
   agentRuntimeMetadataRowsUpdated: number;
   agentRuntimeBenchmarkReplayMetadataRowsUpdated: number;
+  projectSettingsRowsUpdated: number;
+  companySettingsRowsUpdated: number;
 } {
   if (!input.sourceWorkspaceRoot && !input.companyWorkspaceRoot) {
     return {
       sourceWorkspaceRoot: null,
       companyWorkspaceRoot: null,
+      previousSourceWorkspaceRoots: [],
+      previousCompanyWorkspaceRoots: [],
       companyIds: [],
       projectIds: [],
       agentRuntimeRowsUpdated: 0,
       agentRuntimeCommandRowsUpdated: 0,
       agentRuntimeMetadataRowsUpdated: 0,
       agentRuntimeBenchmarkReplayMetadataRowsUpdated: 0,
+      projectSettingsRowsUpdated: 0,
+      companySettingsRowsUpdated: 0,
     };
   }
   if (taskKeys.length === 0) {
@@ -377,21 +547,59 @@ function rewriteWorkspaceRoots(
   }
 
   const now = new Date().toISOString();
-  if (input.sourceWorkspaceRoot) {
-    for (const row of projectRows) {
-      let settings: Record<string, unknown>;
+  const runtimeRowsForFixtureCompanies = columnExists(db, "agent_runtimes", "company_id")
+    ? db
+      .prepare(`SELECT id, company_id, workspace_root, metadata_json FROM agent_runtimes WHERE company_id IN (${placeholders(companyIds.length)})`)
+      .all(...companyIds) as Array<{
+        id: string;
+        company_id: string;
+        workspace_root: string | null;
+        metadata_json: string | null;
+      }>
+    : [];
+  const nextSourceRoot = normalizeRoot(input.sourceWorkspaceRoot);
+  const nextCompanyRoot = normalizeRoot(input.companyWorkspaceRoot);
+  const previousSourceWorkspaceRoots = uniqueRoots(projectRows.map((row) => readProjectSourceWorkspaceRoot(row.settings_json)))
+    .filter((root) => root !== nextSourceRoot);
+  const previousCompanyWorkspaceRoots = uniqueRoots([
+    ...projectRows.map((row) => row.company_workspace_root),
+    ...runtimeRowsForFixtureCompanies.map((row) => row.workspace_root),
+    ...runtimeRowsForFixtureCompanies.flatMap((row) => companyWorkspaceRootCandidatesFromJson(row.metadata_json)),
+  ])
+    .filter((root) => root !== nextCompanyRoot);
+  const rewriteContext: WorkspaceRewriteContext = {
+    sourceWorkspaceRoot: input.sourceWorkspaceRoot,
+    companyWorkspaceRoot: input.companyWorkspaceRoot,
+    previousSourceWorkspaceRoots,
+    previousCompanyWorkspaceRoots,
+  };
+
+  let projectSettingsRowsUpdated = 0;
+  for (const row of projectRows) {
+    const rewritten = rewriteProjectSettingsJson(row.settings_json, rewriteContext);
+    if (!rewritten.changed) continue;
+    projectSettingsRowsUpdated += db
+      .prepare("UPDATE projects SET settings_json = ?, updated_at = ? WHERE id = ?")
+      .run(rewritten.settingsJson, now, row.project_id).changes;
+  }
+
+  let companySettingsRowsUpdated = 0;
+  if (columnExists(db, "companies", "settings_json")) {
+    const companySettingsRows = db
+      .prepare(`SELECT id, settings_json FROM companies WHERE id IN (${placeholders(companyIds.length)})`)
+      .all(...companyIds) as Array<{ id: string; settings_json: string | null }>;
+    const updateCompanySettings = db.prepare("UPDATE companies SET settings_json = ?, updated_at = ? WHERE id = ?");
+    for (const row of companySettingsRows) {
+      if (!row.settings_json) continue;
+      let settings: unknown;
       try {
-        settings = JSON.parse(row.settings_json ?? "{}") as Record<string, unknown>;
+        settings = JSON.parse(row.settings_json);
       } catch {
-        settings = {};
+        continue;
       }
-      const workspace = typeof settings.workspace === "object" && settings.workspace && !Array.isArray(settings.workspace)
-        ? { ...(settings.workspace as Record<string, unknown>) }
-        : {};
-      workspace.sourceRoot = input.sourceWorkspaceRoot;
-      settings.workspace = workspace;
-      db.prepare("UPDATE projects SET settings_json = ?, updated_at = ? WHERE id = ?")
-        .run(JSON.stringify(settings), now, row.project_id);
+      const rewritten = rewriteJsonWorkspacePaths(settings, rewriteContext);
+      if (!rewritten.changed) continue;
+      companySettingsRowsUpdated += updateCompanySettings.run(JSON.stringify(rewritten.value), now, row.id).changes;
     }
   }
 
@@ -417,14 +625,24 @@ function rewriteWorkspaceRoots(
     }
   }
 
-  if (input.sourceWorkspaceRoot && columnExists(db, "agent_runtimes", "command")) {
-    const runtimeRows = db
-      .prepare("SELECT id, provider, command, metadata_json FROM agent_runtimes WHERE command IS NOT NULL OR metadata_json IS NOT NULL OR provider = 'symphony'")
-      .all() as Array<{ id: string; provider: string; command: string | null; metadata_json: string | null }>;
+  if ((input.sourceWorkspaceRoot || input.companyWorkspaceRoot) && columnExists(db, "agent_runtimes", "command")) {
+    const scopedByCompany = columnExists(db, "agent_runtimes", "company_id");
+    const runtimeRows = scopedByCompany
+      ? db
+        .prepare(
+          `SELECT id, provider, command, metadata_json
+             FROM agent_runtimes
+            WHERE company_id IN (${placeholders(companyIds.length)})
+              AND (command IS NOT NULL OR metadata_json IS NOT NULL OR provider = 'symphony')`,
+        )
+        .all(...companyIds) as Array<{ id: string; provider: string; command: string | null; metadata_json: string | null }>
+      : db
+        .prepare("SELECT id, provider, command, metadata_json FROM agent_runtimes WHERE command IS NOT NULL OR metadata_json IS NOT NULL OR provider = 'symphony'")
+        .all() as Array<{ id: string; provider: string; command: string | null; metadata_json: string | null }>;
     const updateCommand = db.prepare("UPDATE agent_runtimes SET command = ?, metadata_json = ?, updated_at = ? WHERE id = ?");
     for (const row of runtimeRows) {
       const rewritten = rewriteBundledRunnerCommand(row.command, input.sourceWorkspaceRoot);
-      const metadata = rewriteMetadataBundledRunnerCommands(row.metadata_json, input.sourceWorkspaceRoot, {
+      const metadata = rewriteMetadataBundledRunnerCommands(row.metadata_json, rewriteContext, {
         stampBenchmarkReplayBundledRunners: row.provider === "symphony",
       });
       if (rewritten === row.command && !metadata.changed) continue;
@@ -438,13 +656,87 @@ function rewriteWorkspaceRoots(
   return {
     sourceWorkspaceRoot: input.sourceWorkspaceRoot,
     companyWorkspaceRoot: input.companyWorkspaceRoot,
+    previousSourceWorkspaceRoots,
+    previousCompanyWorkspaceRoots,
     companyIds,
     projectIds,
     agentRuntimeRowsUpdated,
     agentRuntimeCommandRowsUpdated,
     agentRuntimeMetadataRowsUpdated,
     agentRuntimeBenchmarkReplayMetadataRowsUpdated,
+    projectSettingsRowsUpdated,
+    companySettingsRowsUpdated,
   };
+}
+
+function assertNoPreviousRoots(
+  label: string,
+  value: string | null | undefined,
+  previousRoots: string[],
+): void {
+  if (!value) return;
+  for (const root of previousRoots) {
+    if (value.includes(root)) {
+      throw new Error(`Workspace rewrite left stale ${label} root ${root}`);
+    }
+  }
+}
+
+function assertWorkspaceRewriteApplied(
+  db: Database.Database,
+  taskKeys: string[],
+  rewrite: ReturnType<typeof rewriteWorkspaceRoots> | null,
+): void {
+  if (!rewrite || taskKeys.length === 0) return;
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT p.id AS project_id, p.settings_json, c.id AS company_id, c.workspace_root
+         FROM tasks t
+         INNER JOIN projects p ON p.id = t.project_id
+         INNER JOIN companies c ON c.id = p.company_id
+        WHERE t.task_key IN (${placeholders(taskKeys.length)})`,
+    )
+    .all(...taskKeys) as Array<{
+      project_id: string;
+      settings_json: string | null;
+      company_id: string;
+      workspace_root: string | null;
+    }>;
+
+  for (const row of rows) {
+    if (rewrite.sourceWorkspaceRoot) {
+      const sourceRoot = readProjectSourceWorkspaceRoot(row.settings_json);
+      if (sourceRoot !== rewrite.sourceWorkspaceRoot) {
+        throw new Error(`Workspace rewrite failed for project ${row.project_id}: expected sourceRoot ${rewrite.sourceWorkspaceRoot}, got ${sourceRoot ?? "null"}`);
+      }
+      assertNoPreviousRoots(`project ${row.project_id} settings`, row.settings_json, rewrite.previousSourceWorkspaceRoots);
+    }
+    if (rewrite.companyWorkspaceRoot && normalizeRoot(row.workspace_root) !== rewrite.companyWorkspaceRoot) {
+      throw new Error(`Workspace rewrite failed for company ${row.company_id}: expected workspace_root ${rewrite.companyWorkspaceRoot}, got ${row.workspace_root ?? "null"}`);
+    }
+    assertNoPreviousRoots(`project ${row.project_id} settings`, row.settings_json, rewrite.previousCompanyWorkspaceRoots);
+  }
+
+  if (rewrite.companyIds.length === 0) return;
+  const runtimeRows = db
+    .prepare(
+      `SELECT id, command, workspace_root, metadata_json
+         FROM agent_runtimes
+        WHERE company_id IN (${placeholders(rewrite.companyIds.length)})`,
+    )
+    .all(...rewrite.companyIds) as Array<{
+      id: string;
+      command: string | null;
+      workspace_root: string | null;
+      metadata_json: string | null;
+    }>;
+
+  for (const row of runtimeRows) {
+    assertNoPreviousRoots(`runtime ${row.id} command`, row.command, rewrite.previousSourceWorkspaceRoots);
+    assertNoPreviousRoots(`runtime ${row.id} metadata`, row.metadata_json, rewrite.previousSourceWorkspaceRoots);
+    assertNoPreviousRoots(`runtime ${row.id} workspace`, row.workspace_root, rewrite.previousCompanyWorkspaceRoots);
+    assertNoPreviousRoots(`runtime ${row.id} metadata`, row.metadata_json, rewrite.previousCompanyWorkspaceRoots);
+  }
 }
 
 function replaySummaryCommands(input: {
@@ -537,6 +829,7 @@ async function main() {
       if (!copiedGoal) {
         throw new Error(`Copied DB is missing goal ${options.goalKey}.`);
       }
+      assertWorkspaceRewriteApplied(copied, taskKeys, workspaceRewrite);
     } finally {
       copied.close();
     }

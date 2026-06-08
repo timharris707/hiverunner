@@ -17,9 +17,14 @@ const { finish, test } = createTestRunner({ passLabel: "pass", failLabel: "fail"
 
 type BenchmarkReplayMetadata = {
   commandPath?: string;
+  workspaceRoot?: string;
+  nested?: {
+    sourceLogPath?: string;
+  };
   health?: {
     command?: string | null;
     commandPath?: string | null;
+    workspaceRoot?: string | null;
   };
   hiverunnerBenchmarkReplay: {
     bundledRunnerScriptRoot: string;
@@ -28,6 +33,7 @@ type BenchmarkReplayMetadata = {
 };
 
 type ProjectSettings = {
+  sourceWorkspaceRoot?: string;
   workspace?: {
     sourceRoot?: string;
   };
@@ -38,6 +44,11 @@ type BenchmarkManifest = {
     workspaceRewrite: {
       agentRuntimeBenchmarkReplayMetadataRowsUpdated: number;
       agentRuntimeCommandRowsUpdated: number;
+      agentRuntimeMetadataRowsUpdated: number;
+      projectSettingsRowsUpdated: number;
+      companySettingsRowsUpdated: number;
+      previousSourceWorkspaceRoots: string[];
+      previousCompanyWorkspaceRoots: string[];
     };
   };
 };
@@ -60,6 +71,7 @@ function createSourceDb(dbPath: string, oldAppRoot: string, oldCompanyRoot: stri
       id TEXT PRIMARY KEY,
       workspace_root TEXT,
       workspace_source TEXT,
+      settings_json TEXT,
       updated_at TEXT
     );
     CREATE TABLE projects (
@@ -96,10 +108,28 @@ function createSourceDb(dbPath: string, oldAppRoot: string, oldCompanyRoot: stri
     .run("goal", null, "INS-G006", "Runtime benchmark", "active");
   db.prepare("INSERT INTO sprints (id, parent_id, goal_key, name, status) VALUES (?, ?, ?, ?, ?)")
     .run("sprint", "goal", null, "Fixture sprint", "active");
-  db.prepare("INSERT INTO companies (id, workspace_root, workspace_source, updated_at) VALUES (?, ?, ?, ?)")
-    .run("company", oldCompanyRoot, "manual", "2026-01-01T00:00:00.000Z");
+  db.prepare("INSERT INTO companies (id, workspace_root, workspace_source, settings_json, updated_at) VALUES (?, ?, ?, ?, ?)")
+    .run(
+      "company",
+      oldCompanyRoot,
+      "manual",
+      JSON.stringify({
+        workspace: {
+          notesRoot: path.join(oldCompanyRoot, "notes"),
+        },
+      }),
+      "2026-01-01T00:00:00.000Z",
+    );
   db.prepare("INSERT INTO projects (id, company_id, settings_json, updated_at) VALUES (?, ?, ?, ?)")
-    .run("project", "company", JSON.stringify({ workspace: { sourceRoot: path.join(oldAppRoot, ".stable") } }), "2026-01-01T00:00:00.000Z");
+    .run(
+      "project",
+      "company",
+      JSON.stringify({
+        sourceWorkspaceRoot: path.join(oldAppRoot, ".stable"),
+        workspace: { sourceRoot: path.join(oldAppRoot, ".stable") },
+      }),
+      "2026-01-01T00:00:00.000Z",
+    );
   db.prepare("INSERT INTO tasks (id, sprint_id, project_id, task_key, status, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
     .run("task-1", "sprint", "project", "INS-1", "in_progress", "2026-01-01T00:00:00.000Z");
   db.prepare("INSERT INTO tasks (id, sprint_id, project_id, task_key, status, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
@@ -115,9 +145,14 @@ function createSourceDb(dbPath: string, oldAppRoot: string, oldCompanyRoot: stri
     oldSymphonyRunner,
     JSON.stringify({
       commandPath: oldSymphonyRunner,
+      workspaceRoot: oldCompanyRoot,
+      nested: {
+        sourceLogPath: path.join(oldAppRoot, ".stable", "scratch", "runner.log"),
+      },
       health: {
         command: oldSymphonyRunner,
         commandPath: oldSymphonyRunner,
+        workspaceRoot: oldCompanyRoot,
       },
     }),
     oldCompanyRoot,
@@ -135,6 +170,7 @@ function createSourceDb(dbPath: string, oldAppRoot: string, oldCompanyRoot: stri
       health: {
         command: null,
         commandPath: null,
+        workspaceRoot: oldCompanyRoot,
       },
     }),
     oldCompanyRoot,
@@ -147,7 +183,7 @@ function createSourceDb(dbPath: string, oldAppRoot: string, oldCompanyRoot: stri
     "company",
     "anthropic",
     path.join(oldAppRoot, "scripts", "hiverunner-claude-runner.mjs"),
-    "{}",
+    JSON.stringify({ health: { workspaceRoot: oldCompanyRoot } }),
     oldCompanyRoot,
     "2026-01-01T00:00:00.000Z",
   );
@@ -157,8 +193,8 @@ function createSourceDb(dbPath: string, oldAppRoot: string, oldCompanyRoot: stri
 
 function readRuntime(db: Database.Database, id: string) {
   return db
-    .prepare("SELECT command, metadata_json FROM agent_runtimes WHERE id = ?")
-    .get(id) as { command: string | null; metadata_json: string | null };
+    .prepare("SELECT command, metadata_json, workspace_root FROM agent_runtimes WHERE id = ?")
+    .get(id) as { command: string | null; metadata_json: string | null; workspace_root: string | null };
 }
 
 async function run() {
@@ -222,8 +258,11 @@ async function run() {
         assert.equal(codexRuntime.command, candidateSymphonyRunner);
         const codexMetadata = parseJson<BenchmarkReplayMetadata>(codexRuntime.metadata_json ?? "{}");
         assert.equal(codexMetadata.commandPath, candidateSymphonyRunner);
+        assert.equal(codexMetadata.workspaceRoot, candidateCompanyRoot);
+        assert.equal(codexMetadata.nested?.sourceLogPath, path.join(candidateRoot, "scratch", "runner.log"));
         assert.equal(codexMetadata.health.command, candidateSymphonyRunner);
         assert.equal(codexMetadata.health.commandPath, candidateSymphonyRunner);
+        assert.equal(codexMetadata.health.workspaceRoot, candidateCompanyRoot);
         assert.equal(
           codexMetadata.hiverunnerBenchmarkReplay.bundledRunnerCommands.anthropic,
           path.join(candidateRoot, "scripts", "hiverunner-claude-runner.mjs"),
@@ -235,11 +274,38 @@ async function run() {
         const project = target
           .prepare("SELECT settings_json FROM projects WHERE id = 'project'")
           .get() as { settings_json: string };
-        assert.equal(parseJson<ProjectSettings>(project.settings_json).workspace?.sourceRoot, candidateRoot);
+        const projectSettings = parseJson<ProjectSettings>(project.settings_json);
+        assert.equal(projectSettings.workspace?.sourceRoot, candidateRoot);
+        assert.equal(projectSettings.sourceWorkspaceRoot, candidateRoot);
+
+        const company = target
+          .prepare("SELECT workspace_root, settings_json FROM companies WHERE id = 'company'")
+          .get() as { workspace_root: string; settings_json: string };
+        assert.equal(company.workspace_root, candidateCompanyRoot);
+        assert.equal(
+          parseJson<{ workspace: { notesRoot: string } }>(company.settings_json).workspace.notesRoot,
+          path.join(candidateCompanyRoot, "notes"),
+        );
 
         const manifest = parseJson<BenchmarkManifest>(fs.readFileSync(manifestPath, "utf8"));
         assert.equal(manifest.protocol.workspaceRewrite.agentRuntimeBenchmarkReplayMetadataRowsUpdated, 2);
         assert.equal(manifest.protocol.workspaceRewrite.agentRuntimeCommandRowsUpdated, 2);
+        assert.equal(manifest.protocol.workspaceRewrite.agentRuntimeMetadataRowsUpdated, 3);
+        assert.equal(manifest.protocol.workspaceRewrite.projectSettingsRowsUpdated, 1);
+        assert.equal(manifest.protocol.workspaceRewrite.companySettingsRowsUpdated, 1);
+        assert.deepEqual(manifest.protocol.workspaceRewrite.previousSourceWorkspaceRoots, [
+          path.join(oldAppRoot, ".stable"),
+        ]);
+        assert.deepEqual(manifest.protocol.workspaceRewrite.previousCompanyWorkspaceRoots, [oldCompanyRoot]);
+
+        const rowJson = JSON.stringify({
+          project: project.settings_json,
+          company: company.settings_json,
+          runtime: target.prepare("SELECT json_group_array(json_object('command', command, 'workspaceRoot', workspace_root, 'metadata', metadata_json)) AS json FROM agent_runtimes")
+            .get() as { json: string },
+        });
+        assert.equal(rowJson.includes(oldCompanyRoot), false, "old company root should not remain in rewritten runtime/config rows");
+        assert.equal(rowJson.includes(path.join(oldAppRoot, ".stable")), false, "old source root should not remain in rewritten runtime/config rows");
       } finally {
         target.close();
       }
