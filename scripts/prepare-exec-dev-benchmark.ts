@@ -11,12 +11,15 @@ type CliOptions = {
   fixtureId: string;
   expectedTaskCount: number;
   requiredRepeats: number;
+  taskKeys: string[];
+  resetSelectedTasksTo: "none" | "to-do";
 };
 
 function usage(): never {
   console.error([
     "Usage: node ./scripts/run-tsx.mjs scripts/prepare-exec-dev-benchmark.ts [--source-db data/orchestration.db] [--target-db data-exec-dev/orchestration.db] [--goal INS-G006]",
     "       [--fixture-id ins-g006-runtime-replay-v1] [--expected-tasks 10] [--required-repeats 3]",
+    "       [--task-key INS-205] [--task-keys INS-205,INS-208,...] [--reset-selected-tasks-to to-do|none]",
   ].join("\n"));
   process.exit(1);
 }
@@ -31,6 +34,8 @@ function parseArgs(argv: string[]): CliOptions {
     fixtureId: "ins-g006-runtime-replay-v1",
     expectedTaskCount: 10,
     requiredRepeats: 3,
+    taskKeys: [],
+    resetSelectedTasksTo: "none",
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -61,6 +66,16 @@ function parseArgs(argv: string[]): CliOptions {
       const requiredRepeats = Number(next);
       if (!Number.isInteger(requiredRepeats) || requiredRepeats < 1) usage();
       options.requiredRepeats = requiredRepeats;
+      index += 1;
+    } else if (arg === "--task-key" && next) {
+      options.taskKeys.push(next);
+      index += 1;
+    } else if (arg === "--task-keys" && next) {
+      options.taskKeys.push(...next.split(","));
+      index += 1;
+    } else if (arg === "--reset-selected-tasks-to" && next) {
+      if (next !== "none" && next !== "to-do") usage();
+      options.resetSelectedTasksTo = next;
       index += 1;
     } else if (arg === "--help" || arg === "-h") {
       usage();
@@ -128,6 +143,10 @@ function taskKeyFingerprint(taskKeys: string[]): string {
   return createHash("sha256").update(taskKeys.join("\n")).digest("hex");
 }
 
+function normalizeTaskKeys(taskKeys: string[]): string[] {
+  return Array.from(new Set(taskKeys.map((key) => key.trim()).filter(Boolean))).sort();
+}
+
 function fixtureTaskKeys(db: Database.Database, rootSprintId: string): string[] {
   const sprintRows = db.prepare("SELECT id, parent_id FROM sprints").all() as SprintRow[];
   const sprintIds = collectChildSprintIds(sprintRows, rootSprintId);
@@ -138,14 +157,45 @@ function fixtureTaskKeys(db: Database.Database, rootSprintId: string): string[] 
   return taskRows.map((task) => task.task_key ?? task.id).sort();
 }
 
+function selectedFixtureTaskKeys(db: Database.Database, rootSprintId: string, requestedTaskKeys: string[]): string[] {
+  const availableTaskKeys = fixtureTaskKeys(db, rootSprintId);
+  if (requestedTaskKeys.length === 0) return availableTaskKeys;
+  const available = new Set(availableTaskKeys);
+  const missing = requestedTaskKeys.filter((key) => !available.has(key));
+  if (missing.length > 0) {
+    throw new Error(`Requested fixture task key(s) are not under the source goal: ${missing.join(", ")}`);
+  }
+  return requestedTaskKeys;
+}
+
+function resetSelectedTasks(db: Database.Database, taskKeys: string[], status: "to-do"): void {
+  if (taskKeys.length === 0) return;
+  const now = new Date().toISOString();
+  db
+    .prepare(
+      `UPDATE tasks
+          SET status = ?,
+              started_at = NULL,
+              completed_at = NULL,
+              execution_session_id = NULL,
+              consecutive_noop_wakes = 0,
+              blocked_reason = NULL,
+              updated_at = ?
+        WHERE task_key IN (${placeholders(taskKeys.length)})`,
+    )
+    .run(status, now, ...taskKeys);
+}
+
 function replaySummaryCommands(input: {
   dbPath: string;
   goalKey: string;
   fixtureId: string;
   requiredRepeats: number;
   expectedTaskCount: number;
+  taskKeys: string[];
 }): string[] {
   const commands: string[] = [];
+  const taskKeyArgs = input.taskKeys.map((taskKey) => `--task-key ${taskKey}`).join(" ");
   for (const arm of ["baseline", "candidate"] as const) {
     for (let repeat = 1; repeat <= input.requiredRepeats; repeat += 1) {
       commands.push([
@@ -157,9 +207,12 @@ function replaySummaryCommands(input: {
         `--repeat ${repeat}`,
         `--required-repeats ${input.requiredRepeats}`,
         `--expected-tasks ${input.expectedTaskCount}`,
+        taskKeyArgs,
+        "--run-started-after <repeat-start-iso>",
+        "--run-started-before <repeat-end-iso>",
         "--format json",
         `--out output/runtime-benchmark/${arm}-repeat-${repeat}.json`,
-      ].join(" "));
+      ].filter(Boolean).join(" "));
     }
   }
   return commands;
@@ -180,7 +233,8 @@ async function main() {
     if (!goal) {
       throw new Error(`Goal ${options.goalKey} not found in source DB.`);
     }
-    const taskKeys = fixtureTaskKeys(source, goal.id);
+    const requestedTaskKeys = normalizeTaskKeys(options.taskKeys);
+    const taskKeys = selectedFixtureTaskKeys(source, goal.id, requestedTaskKeys);
     if (taskKeys.length !== options.expectedTaskCount) {
       throw new Error(
         `Goal ${options.goalKey} has ${taskKeys.length} tasks, but the frozen replay fixture requires ${options.expectedTaskCount}. ` +
@@ -192,6 +246,15 @@ async function main() {
       fs.rmSync(options.targetDbPath);
     }
     await source.backup(options.targetDbPath);
+
+    if (options.resetSelectedTasksTo === "to-do") {
+      const writable = new Database(options.targetDbPath, { fileMustExist: true });
+      try {
+        resetSelectedTasks(writable, taskKeys, "to-do");
+      } finally {
+        writable.close();
+      }
+    }
 
     const copied = new Database(options.targetDbPath, { readonly: true, fileMustExist: true });
     try {
@@ -222,6 +285,7 @@ async function main() {
       protocol: {
         arms: ["baseline", "candidate"],
         requiredRepeats: options.requiredRepeats,
+        resetSelectedTasksTo: options.resetSelectedTasksTo,
         report: "Run each arm against the same frozen fixture DB in an isolated execution-dev lane, then pass all repeat summary JSON files to scripts/runtime-promotion-gate.ts.",
         summaryCommands: replaySummaryCommands({
           dbPath: path.resolve(options.targetDbPath),
@@ -229,6 +293,7 @@ async function main() {
           fixtureId: options.fixtureId,
           requiredRepeats: options.requiredRepeats,
           expectedTaskCount: options.expectedTaskCount,
+          taskKeys,
         }),
       },
       notes: [

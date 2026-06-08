@@ -17,12 +17,16 @@ type CliOptions = {
   repeatIndex: number | null;
   requiredRepeats: number;
   expectedTaskCount: number;
+  taskKeys: string[];
+  runStartedAfter: string | null;
+  runStartedBefore: string | null;
 };
 
 function usage(): never {
   console.error([
     "Usage: npm run tsx -- scripts/runtime-benchmark.ts [--db path] [--goal INS-G006] [--format markdown|json] [--out path]",
     "       [--fixture-id ins-g006-runtime-replay-v1] [--arm baseline|candidate] [--repeat 1] [--required-repeats 3] [--expected-tasks 10]",
+    "       [--task-key INS-205] [--task-keys INS-205,INS-208] [--run-started-after ISO] [--run-started-before ISO]",
   ].join("\n"));
   process.exit(1);
 }
@@ -38,6 +42,9 @@ function parseArgs(argv: string[]): CliOptions {
     repeatIndex: null,
     requiredRepeats: 3,
     expectedTaskCount: 10,
+    taskKeys: [],
+    runStartedAfter: null,
+    runStartedBefore: null,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -78,6 +85,18 @@ function parseArgs(argv: string[]): CliOptions {
       if (!Number.isInteger(expectedTaskCount) || expectedTaskCount < 1) usage();
       options.expectedTaskCount = expectedTaskCount;
       index += 1;
+    } else if (arg === "--task-key" && next) {
+      options.taskKeys.push(next);
+      index += 1;
+    } else if (arg === "--task-keys" && next) {
+      options.taskKeys.push(...next.split(","));
+      index += 1;
+    } else if (arg === "--run-started-after" && next) {
+      options.runStartedAfter = next;
+      index += 1;
+    } else if (arg === "--run-started-before" && next) {
+      options.runStartedBefore = next;
+      index += 1;
     } else if (arg === "--help" || arg === "-h") {
       usage();
     } else {
@@ -98,6 +117,9 @@ function main() {
       repeatIndex: options.repeatIndex,
       requiredRepeats: options.requiredRepeats,
       expectedTaskCount: options.expectedTaskCount,
+      taskKeys: options.taskKeys,
+      runStartedAfter: options.runStartedAfter,
+      runStartedBefore: options.runStartedBefore,
     });
     const output = options.format === "json"
       ? `${JSON.stringify(summary, null, 2)}\n`

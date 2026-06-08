@@ -20,6 +20,30 @@ The runtime refactor implementation now includes:
 - Repeated old-vs-new promotion gate support with baseline/candidate medians, p95s, replay-noise thresholds, UI consistency proof, and untracked-action proof requirements.
 - The v2 benchmark preparation protocol documented in `docs/runtime-platform-refactor-goal.md`.
 
+## Frozen Fixture Progress
+
+The v2 10-task fixture contract now exists in `scratch/runtime-platform-refactor-promotion/fixture-manifest-v2.json`.
+
+- Fixture: `ins-g006-runtime-replay-v2`
+- Task count: 10
+- Task keys: `INS-205`, `INS-208`, `INS-221`, `INS-232`, `INS-250`, `INS-256`, `INS-262`, `INS-274`, `INS-277`, `INS-278`
+- Task-key fingerprint: `e04a624adc499fee8d43fa99934ca9232a7971edbbff823064e12c1d3b7d5f1e`
+- Repeat protocol: 3 baseline repeats and 3 candidate repeats, each summarized with explicit `--run-started-after` / `--run-started-before` boundaries.
+
+The local copied fixture DB is intentionally not committed. Recreate it from stable data with:
+
+```bash
+node ./scripts/run-tsx.mjs scripts/prepare-exec-dev-benchmark.ts \
+  --source-db data/orchestration.db \
+  --target-db data-exec-dev-3011/orchestration.db \
+  --goal INS-G006 \
+  --fixture-id ins-g006-runtime-replay-v2 \
+  --expected-tasks 10 \
+  --required-repeats 3 \
+  --task-keys INS-205,INS-208,INS-221,INS-250,INS-277,INS-278,INS-256,INS-232,INS-262,INS-274 \
+  --reset-selected-tasks-to to-do
+```
+
 ## Current Observed Baseline
 
 Source: `scratch/runtime-platform-refactor-promotion/current-ins-g006-summary.md`
@@ -37,6 +61,21 @@ This is the completed full `INS-G006` goal from the local SQLite DB, not the req
 - First-evidence p50 / p95: 181,689ms / 1,116,613ms
 - Detect-unhealthy p50 / p95: 529,606ms / 1,800,385ms
 - Repeated deterministic env failure still visible in baseline data: `INS-205` repeated `env: node: No such file or directory` 31 times.
+
+Source: `scratch/runtime-platform-refactor-promotion/baseline-selected-10-summary.md`
+
+This is the historical completed data for the selected 10 frozen tasks, not the required old-code replay arm.
+
+- Tasks: 10
+- Execution runs: 80
+- Completed runs: 24
+- Non-completed runs: 56 (70.0%)
+- Average runs per task: 8.00
+- Runtime-quality failures: 21 (26.3%)
+- Combined input tokens: 157,659,755
+- Combined fresh input tokens: 10,907,499
+- First-evidence p50 / p95: 19,799ms / 1,465,761ms
+- Detect-unhealthy p50 / p95: 125,796ms / 1,800,295ms
 
 ## Validation Completed
 
@@ -69,8 +108,6 @@ Required missing evidence:
 - Explicit UI-consistency proof JSON.
 - Explicit untracked-action proof JSON.
 - A passing `scripts/runtime-promotion-gate.ts` report.
-
-Current `data-exec-dev/benchmark-manifest.json` is an older v1 copy of the full 75-task `INS-G006` goal, not the v2 frozen 10-task protocol.
 
 ## Recommendation
 

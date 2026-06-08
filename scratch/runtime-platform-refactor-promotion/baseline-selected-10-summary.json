@@ -1,0 +1,154 @@
+{
+  "scope": {
+    "goalKey": "INS-G006",
+    "goalSprintId": "0328f7c6-69c3-4cfe-9b67-5bbcac4cbfd6",
+    "sprintIds": [
+      "0328f7c6-69c3-4cfe-9b67-5bbcac4cbfd6",
+      "30a82377-a8ac-4995-a0fe-00ca58e74ff6",
+      "f0463a8b-b21e-4212-b457-78a2f009b699",
+      "6addb800-0b98-4eae-9f11-32499379f126",
+      "dca892c9-1b78-464e-a45f-412b7e3e158f",
+      "7a60fb53-4b3e-4440-b242-ba8628b49b66",
+      "4f672852-869a-456d-b1b2-07dd823c6836"
+    ],
+    "taskIds": [
+      "b2830a77-5b56-4e78-9a5e-a05ea9e22e5e",
+      "3a51d0e8-4597-49cc-b824-98bd861b3b15",
+      "b40fafbd-0965-4d94-9c39-f1781db94842",
+      "bc694193-040a-4761-903d-8a050c0ba3dc",
+      "10f75476-c2bf-4c9a-8c7d-c9b0ab406b06",
+      "9730aa1f-58bc-4c5e-bf88-6efc78f79eea",
+      "d28ee48b-bf21-48bf-b814-d745cb1aaf53",
+      "354720ea-4a8e-407e-b8eb-d891b0e18a36",
+      "755e22f7-12e0-44e8-902e-273ba83f0e8e",
+      "9969ea88-8467-4aae-a404-8bf9b4ab8297"
+    ],
+    "companyIds": [
+      "cd9607f7-24bd-4596-9bcb-b3c013a75b7b"
+    ],
+    "runStartedAt": "2026-06-06T21:09:37.484Z",
+    "runEndedAt": "2026-06-07T18:57:13.014Z",
+    "overseerScope": "company_all_turns"
+  },
+  "protocol": {
+    "fixtureId": "ins-g006-runtime-replay-v2",
+    "arm": "baseline",
+    "repeatIndex": 1,
+    "requiredRepeats": 3,
+    "expectedTaskCount": 10,
+    "frozenTaskKeys": [
+      "INS-205",
+      "INS-208",
+      "INS-221",
+      "INS-232",
+      "INS-250",
+      "INS-256",
+      "INS-262",
+      "INS-274",
+      "INS-277",
+      "INS-278"
+    ]
+  },
+  "taskCount": 10,
+  "executionRunCount": 80,
+  "completedRunCount": 24,
+  "nonCompletedRunCount": 56,
+  "tasksWithBreakdowns": 7,
+  "tasksWithMultipleRuns": 10,
+  "averageRunsPerTask": 8,
+  "recordedDurationMs": 18176745,
+  "executionUsage": {
+    "inputTokens": 59999150,
+    "cacheReadInputTokens": 56735488,
+    "freshInputTokens": 3263662,
+    "outputTokens": 340689,
+    "totalTokens": 60339839,
+    "estimatedCostUsd": null
+  },
+  "overseerTurnCount": 35,
+  "overseerUsage": {
+    "inputTokens": 97660605,
+    "cacheReadInputTokens": 90016768,
+    "freshInputTokens": 7643837,
+    "outputTokens": 574972,
+    "totalTokens": 98235577,
+    "estimatedCostUsd": null
+  },
+  "combinedUsage": {
+    "inputTokens": 157659755,
+    "cacheReadInputTokens": 146752256,
+    "freshInputTokens": 10907499,
+    "outputTokens": 915661,
+    "totalTokens": 158575416,
+    "estimatedCostUsd": null
+  },
+  "failureBuckets": {
+    "deterministicPreflight": 33,
+    "intentionalCancellation": 2,
+    "runtimeQuality": 21
+  },
+  "repeatedFailures": [
+    {
+      "taskKey": "INS-205",
+      "failureSignature": "failed | runtime_error | External runner command exited with code 127: env: node: No such file or directory",
+      "count": 31
+    },
+    {
+      "taskKey": "INS-250",
+      "failureSignature": "failed | none | Gemini command exited with code 1",
+      "count": 3
+    },
+    {
+      "taskKey": "INS-256",
+      "failureSignature": "cancelled | cancelled | External runner command terminated by signal SIGTERM",
+      "count": 3
+    },
+    {
+      "taskKey": "INS-256",
+      "failureSignature": "failed | none | Gemini command exited with code 1",
+      "count": 3
+    },
+    {
+      "taskKey": "INS-205",
+      "failureSignature": "failed | runtime_error | External runner command exited with code 1: olve:861:10) at defaultResolve (node:internal/modules/esm/resolve:985:11) at #cachedDefaultResolve (node:internal/modules/esm/loader:747:20) at ModuleLoader.resolve (node:inter",
+      "count": 2
+    },
+    {
+      "taskKey": "INS-250",
+      "failureSignature": "failed | silent_timeout | External runner command produced no stdout/stderr for 600000ms",
+      "count": 2
+    },
+    {
+      "taskKey": "INS-256",
+      "failureSignature": "failed | silent_timeout | External runner command produced no stdout/stderr for 600000ms",
+      "count": 2
+    }
+  ],
+  "actionLedger": {
+    "total": 0,
+    "terminal": 0,
+    "nonTerminalParsed": 0,
+    "parseFailed": 0,
+    "pendingApproval": 0,
+    "untracked": 0
+  },
+  "browserProof": {
+    "total": 0,
+    "succeeded": 0,
+    "failed": 0,
+    "succeededUnder30s": 0,
+    "maxDurationMs": 0
+  },
+  "latency": {
+    "firstEvidenceMs": {
+      "sampleCount": 76,
+      "medianMs": 19798.5,
+      "p95Ms": 1465761
+    },
+    "detectUnhealthyMs": {
+      "sampleCount": 21,
+      "medianMs": 125796,
+      "p95Ms": 1800295
+    }
+  }
+}

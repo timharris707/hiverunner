@@ -55,7 +55,8 @@ function createFixtureDb(): Database.Database {
       id TEXT PRIMARY KEY,
       task_id TEXT,
       execution_run_id TEXT,
-      status TEXT NOT NULL
+      status TEXT NOT NULL,
+      created_at TEXT
     );
     CREATE TABLE runtime_browser_proof_audit (
       id TEXT PRIMARY KEY,
@@ -97,16 +98,16 @@ function createFixtureDb(): Database.Database {
     VALUES ('turn-1', 'company-1', '{"inputTokens":50,"cacheReadInputTokens":40,"outputTokens":5,"totalTokens":55}', '2026-01-01T00:00:06.000Z')
   `).run();
   db.prepare(`
-    INSERT INTO runtime_action_ledger (id, task_id, execution_run_id, status)
+    INSERT INTO runtime_action_ledger (id, task_id, execution_run_id, status, created_at)
     VALUES
-      ('action-1', 'task-1', 'run-2', 'executed'),
-      ('action-2', 'task-2', 'run-4', 'parse_failed')
+      ('action-1', 'task-1', 'run-2', 'executed', '2026-01-01T00:00:04.000Z'),
+      ('action-2', 'task-2', 'run-4', 'parse_failed', '2026-01-01T00:00:12.000Z')
   `).run();
   db.prepare(`
-    INSERT INTO runtime_browser_proof_audit (id, task_id, status, duration_ms)
+    INSERT INTO runtime_browser_proof_audit (id, task_id, status, duration_ms, created_at)
     VALUES
-      ('proof-1', 'task-1', 'succeeded', 9000),
-      ('proof-2', 'task-2', 'failed', 45000)
+      ('proof-1', 'task-1', 'succeeded', 9000, '2026-01-01T00:00:04.000Z'),
+      ('proof-2', 'task-2', 'failed', 45000, '2026-01-01T00:00:11.000Z')
   `).run();
   db.prepare(`
     INSERT INTO execution_run_transcript_events (id, execution_run_id, event_kind, occurred_at)
@@ -269,10 +270,37 @@ async function run() {
       assert.equal(summary.browserProof.total, 2);
       assert.equal(summary.browserProof.succeededUnder30s, 1);
       assert.equal(summary.latency.firstEvidenceMs.sampleCount, 4);
-      assert.equal(summary.latency.firstEvidenceMs.medianMs, 3500);
-      assert.equal(summary.latency.firstEvidenceMs.p95Ms, 10000);
+      assert.equal(summary.latency.firstEvidenceMs.medianMs, 2500);
+      assert.equal(summary.latency.firstEvidenceMs.p95Ms, 5000);
       assert.equal(summary.latency.detectUnhealthyMs.sampleCount, 1);
       assert.equal(summary.latency.detectUnhealthyMs.medianMs, 4000);
+    } finally {
+      db.close();
+    }
+  });
+
+  await test("benchmark summary filters frozen task keys and run windows", () => {
+    const db = createFixtureDb();
+    try {
+      const summary = buildRuntimeBenchmarkSummary(db, "INS-G006", {
+        expectedTaskCount: 1,
+        taskKeys: [" INS-2 ", "INS-2"],
+        runStartedAfter: "2026-01-01T00:00:08.000Z",
+        runStartedBefore: "2026-01-01T00:00:14.000Z",
+      });
+
+      assert.equal(summary.taskCount, 1);
+      assert.deepEqual(summary.protocol.frozenTaskKeys, ["INS-2"]);
+      assert.equal(summary.executionRunCount, 1);
+      assert.equal(summary.completedRunCount, 0);
+      assert.equal(summary.failureBuckets.runtimeQuality, 1);
+      assert.equal(summary.overseerTurnCount, 0);
+      assert.equal(summary.actionLedger.total, 1);
+      assert.equal(summary.actionLedger.parseFailed, 1);
+      assert.equal(summary.browserProof.total, 1);
+      assert.equal(summary.browserProof.failed, 1);
+      assert.equal(summary.latency.firstEvidenceMs.sampleCount, 1);
+      assert.equal(summary.latency.firstEvidenceMs.medianMs, 3_000);
     } finally {
       db.close();
     }
@@ -409,6 +437,29 @@ async function run() {
     assert.equal(regressedLatencyReport.gate.ok, false);
     assert.equal(
       regressedLatencyReport.gate.checks.find((check) => check.name === "first-evidence p95 not worse than baseline median plus replay noise")?.ok,
+      false,
+    );
+
+    const mismatchedFixtureReport = buildRuntimeBenchmarkPromotionReport(
+      candidateSummaries.map((summary, index) => index === 0
+        ? {
+          ...summary,
+          protocol: {
+            ...summary.protocol,
+            frozenTaskKeys: ["INS-A", "INS-B"],
+          },
+        }
+        : summary),
+      baselineSummaries,
+      {
+        requiredTaskCount: 10,
+        requiredRepeats: 3,
+        evidence,
+      },
+    );
+    assert.equal(mismatchedFixtureReport.gate.ok, false);
+    assert.equal(
+      mismatchedFixtureReport.gate.checks.find((check) => check.name === "all repeats share frozen task keys")?.ok,
       false,
     );
   });

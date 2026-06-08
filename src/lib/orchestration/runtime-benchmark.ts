@@ -137,6 +137,9 @@ export type RuntimeBenchmarkSummaryOptions = {
   requiredRepeats?: number;
   expectedTaskCount?: number;
   frozenTaskKeys?: string[];
+  taskKeys?: string[];
+  runStartedAfter?: string | null;
+  runStartedBefore?: string | null;
 };
 
 export type RuntimeMetricStats = {
@@ -321,6 +324,25 @@ function nullableColumnSelect(db: Database.Database, tableName: string, columnNa
   return hasColumn(db, tableName, columnName) ? columnName : `NULL AS ${columnName}`;
 }
 
+function appendCreatedAtWindow(
+  db: Database.Database,
+  tableName: string,
+  where: string[],
+  params: unknown[],
+  after: string | null,
+  before: string | null,
+): void {
+  if (!hasColumn(db, tableName, "created_at")) return;
+  if (after) {
+    where.push("created_at >= ?");
+    params.push(after);
+  }
+  if (before) {
+    where.push("created_at < ?");
+    params.push(before);
+  }
+}
+
 function dateMax(values: Array<string | null>): string | null {
   const filtered = values.filter((value): value is string => Boolean(value));
   return filtered.length > 0 ? filtered.sort().at(-1) ?? null : null;
@@ -329,6 +351,18 @@ function dateMax(values: Array<string | null>): string | null {
 function dateMin(values: Array<string | null>): string | null {
   const filtered = values.filter((value): value is string => Boolean(value));
   return filtered.length > 0 ? filtered.sort()[0] ?? null : null;
+}
+
+function normalizeTaskKeyList(taskKeys: string[] | undefined): string[] {
+  return Array.from(new Set((taskKeys ?? []).map((key) => key.trim()).filter(Boolean))).sort();
+}
+
+function assertValidIsoBoundary(value: string | null | undefined, label: string): string | null {
+  if (!value) return null;
+  if (timestampMs(value) === null) {
+    throw new Error(`${label} must be an ISO timestamp, received ${value}`);
+  }
+  return value;
 }
 
 export function classifyRunFailure(run: Pick<RunRow, "status" | "failure_class" | "error_message">): keyof RuntimeFailureBuckets | null {
@@ -558,29 +592,62 @@ export function buildRuntimeBenchmarkSummary(
 
   const sprintRows = db.prepare("SELECT id, parent_id FROM sprints").all() as SprintRow[];
   const sprintIds = collectChildSprintIds(sprintRows, goal.id);
-  const taskRows = db
+  const allTaskRows = db
     .prepare(`SELECT id, task_key, company_id FROM tasks WHERE sprint_id IN (${placeholders(sprintIds.length)})`)
     .all(...sprintIds) as TaskRow[];
+  const requestedTaskKeys = normalizeTaskKeyList(options.taskKeys);
+  const taskRows = requestedTaskKeys.length > 0
+    ? allTaskRows.filter((row) => row.task_key !== null && requestedTaskKeys.includes(row.task_key))
+    : allTaskRows;
+  if (requestedTaskKeys.length > 0) {
+    const foundTaskKeys = new Set(taskRows.map((row) => row.task_key).filter((key): key is string => Boolean(key)));
+    const missingTaskKeys = requestedTaskKeys.filter((key) => !foundTaskKeys.has(key));
+    if (missingTaskKeys.length > 0) {
+      throw new Error(`Frozen fixture task keys not found under ${goalKey}: ${missingTaskKeys.join(", ")}`);
+    }
+  }
   const taskIds = taskRows.map((row) => row.id);
+  const runStartedAfter = assertValidIsoBoundary(options.runStartedAfter, "runStartedAfter");
+  const runStartedBefore = assertValidIsoBoundary(options.runStartedBefore, "runStartedBefore");
 
-  const runRows = taskIds.length > 0
-    ? db.prepare(`SELECT * FROM execution_runs WHERE task_id IN (${placeholders(taskIds.length)})`).all(...taskIds) as RunRow[]
-    : [];
+  let runRows: RunRow[] = [];
+  if (taskIds.length > 0) {
+    const runWhere = [`task_id IN (${placeholders(taskIds.length)})`];
+    const runParams: unknown[] = [...taskIds];
+    if (runStartedAfter) {
+      runWhere.push("COALESCE(started_at, created_at) >= ?");
+      runParams.push(runStartedAfter);
+    }
+    if (runStartedBefore) {
+      runWhere.push("COALESCE(started_at, created_at) < ?");
+      runParams.push(runStartedBefore);
+    }
+    runRows = db
+      .prepare(`SELECT * FROM execution_runs WHERE ${runWhere.join(" AND ")}`)
+      .all(...runParams) as RunRow[];
+  }
   const runIds = runRows.map((run) => run.id);
 
   const runStartedAt = dateMin(runRows.map((run) => run.started_at ?? run.created_at));
   const runEndedAt = dateMax(runRows.map((run) => run.completed_at ?? run.updated_at ?? run.created_at));
   const companyIds = unique(taskRows.map((row) => row.company_id));
 
-  const overseerTurns = companyIds.length > 0
-    ? db
-      .prepare(
-        `SELECT usage_json
-           FROM overseer_turns
-          WHERE company_id IN (${placeholders(companyIds.length)})`,
-      )
-      .all(...companyIds) as OverseerTurnRow[]
-    : [];
+  let overseerTurns: OverseerTurnRow[] = [];
+  if (companyIds.length > 0) {
+    const turnWhere = [`company_id IN (${placeholders(companyIds.length)})`];
+    const turnParams: unknown[] = [...companyIds];
+    if (runStartedAfter) {
+      turnWhere.push("created_at >= ?");
+      turnParams.push(runStartedAfter);
+    }
+    if (runStartedBefore) {
+      turnWhere.push("created_at < ?");
+      turnParams.push(runStartedBefore);
+    }
+    overseerTurns = db
+      .prepare(`SELECT usage_json FROM overseer_turns WHERE ${turnWhere.join(" AND ")}`)
+      .all(...turnParams) as OverseerTurnRow[];
+  }
 
   const runsByTask = new Map<string, RunRow[]>();
   for (const run of runRows) {
@@ -615,8 +682,12 @@ export function buildRuntimeBenchmarkSummary(
 
   const executionUsage = usageTotalsFromJson(runRows.map((run) => ({ token_usage_json: run.token_usage_json })));
   const overseerUsage = usageTotalsFromJson(overseerTurns.map((turn) => ({ usage_json: turn.usage_json })));
-  const actionLedgerRows = taskIds.length > 0 && hasTable(db, "runtime_action_ledger")
-    ? db
+  let actionLedgerRows: RuntimeActionLedgerRow[] = [];
+  if (taskIds.length > 0 && hasTable(db, "runtime_action_ledger")) {
+    const actionWhere = [`task_id IN (${placeholders(taskIds.length)})`];
+    const actionParams: unknown[] = [...taskIds];
+    appendCreatedAtWindow(db, "runtime_action_ledger", actionWhere, actionParams, runStartedAfter, runStartedBefore);
+    actionLedgerRows = db
       .prepare(
         `SELECT status,
                 ${nullableColumnSelect(db, "runtime_action_ledger", "task_id")},
@@ -624,16 +695,22 @@ export function buildRuntimeBenchmarkSummary(
                 ${nullableColumnSelect(db, "runtime_action_ledger", "heartbeat_run_id")},
                 ${nullableColumnSelect(db, "runtime_action_ledger", "overseer_turn_id")}
            FROM runtime_action_ledger
-          WHERE task_id IN (${placeholders(taskIds.length)})`,
+          WHERE ${actionWhere.join(" AND ")}`,
       )
-      .all(...taskIds) as RuntimeActionLedgerRow[]
-    : [];
-  const browserProofRows = taskIds.length > 0 && hasTable(db, "runtime_browser_proof_audit")
-    ? db
-      .prepare(`SELECT status, duration_ms FROM runtime_browser_proof_audit WHERE task_id IN (${placeholders(taskIds.length)})`)
-      .all(...taskIds) as RuntimeBrowserProofAuditRow[]
-    : [];
-  const executionLinkedActionRows = runIds.length > 0 && hasTable(db, "runtime_action_ledger")
+      .all(...actionParams) as RuntimeActionLedgerRow[];
+  }
+  let browserProofRows: RuntimeBrowserProofAuditRow[] = [];
+  if (taskIds.length > 0 && hasTable(db, "runtime_browser_proof_audit")) {
+    const proofWhere = [`task_id IN (${placeholders(taskIds.length)})`];
+    const proofParams: unknown[] = [...taskIds];
+    appendCreatedAtWindow(db, "runtime_browser_proof_audit", proofWhere, proofParams, runStartedAfter, runStartedBefore);
+    browserProofRows = db
+      .prepare(`SELECT status, duration_ms FROM runtime_browser_proof_audit WHERE ${proofWhere.join(" AND ")}`)
+      .all(...proofParams) as RuntimeBrowserProofAuditRow[];
+  }
+  const executionLinkedActionRows = runIds.length > 0
+    && hasTable(db, "runtime_action_ledger")
+    && hasColumn(db, "runtime_action_ledger", "execution_run_id")
     ? db
       .prepare(
         `SELECT status,
@@ -647,10 +724,24 @@ export function buildRuntimeBenchmarkSummary(
       .all(...runIds) as RuntimeActionLedgerRow[]
     : [];
   actionLedgerRows.push(...executionLinkedActionRows);
+  const executionLinkedBrowserProofRows = runIds.length > 0
+    && hasTable(db, "runtime_browser_proof_audit")
+    && hasColumn(db, "runtime_browser_proof_audit", "execution_run_id")
+    ? db
+      .prepare(
+        `SELECT status, duration_ms
+           FROM runtime_browser_proof_audit
+          WHERE execution_run_id IN (${placeholders(runIds.length)}) AND task_id IS NULL`,
+      )
+      .all(...runIds) as RuntimeBrowserProofAuditRow[]
+    : [];
+  browserProofRows.push(...executionLinkedBrowserProofRows);
   const latency = latencyMetricsForRuns(db, runRows, runIds);
   const expectedTaskCount = options.expectedTaskCount ?? 10;
   const frozenTaskKeys = options.frozenTaskKeys
-    ?? (taskRows.length === expectedTaskCount
+    ?? (requestedTaskKeys.length > 0
+      ? requestedTaskKeys
+      : taskRows.length === expectedTaskCount
       ? taskRows.map((task) => task.task_key ?? task.id).sort()
       : []);
 
@@ -977,6 +1068,12 @@ function repeatedProtocolChecks(input: {
   firstEvidenceSampleCount: number;
   firstEvidenceRequiredSamples: number;
 }): RuntimePromotionGateCheck[] {
+  const candidateFixtureIds = unique(input.candidateSummaries.map((summary) => summary.protocol.fixtureId));
+  const baselineFixtureIds = unique(input.baselineSummaries.map((summary) => summary.protocol.fixtureId));
+  const fixtureIds = unique([...candidateFixtureIds, ...baselineFixtureIds]);
+  const frozenTaskFingerprints = unique([...input.candidateSummaries, ...input.baselineSummaries].map((summary) => (
+    summary.protocol.frozenTaskKeys.length > 0 ? summary.protocol.frozenTaskKeys.join("\n") : null
+  )));
   return [
     {
       name: "candidate has at least 3 fixture repeats",
@@ -1001,6 +1098,21 @@ function repeatedProtocolChecks(input: {
       ok: input.baselineSummaries.length > 0 && input.baselineSummaries.every((summary) => summary.taskCount === input.requiredTaskCount),
       value: input.baselineSummaries.map((summary) => summary.taskCount).join(",") || "missing",
       threshold: input.requiredTaskCount,
+    },
+    {
+      name: "all repeats share one fixture id",
+      ok: fixtureIds.length === 1,
+      value: fixtureIds.join(",") || "missing",
+      threshold: "one fixture id",
+    },
+    {
+      name: "all repeats share frozen task keys",
+      ok: frozenTaskFingerprints.length === 1,
+      value: frozenTaskFingerprints.length,
+      threshold: 1,
+      detail: frozenTaskFingerprints.length === 1
+        ? `${frozenTaskFingerprints[0].split("\n").length} frozen keys`
+        : "fixture task-key fingerprints differ or are missing",
     },
     {
       name: "candidate first-evidence samples cover all runs",

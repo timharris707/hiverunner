@@ -1,0 +1,54 @@
+{
+  "schema": "hiverunner.exec-dev-benchmark-manifest.v2",
+  "createdAt": "2026-06-08T00:15:20.376Z",
+  "goalKey": "INS-G006",
+  "sourceDbPath": "/Users/timharris/.mission-control/app/data/orchestration.db",
+  "targetDbPath": "/Users/timharris/.mission-control/app/data-exec-dev-3011/orchestration.db",
+  "targetDataDir": "/Users/timharris/.mission-control/app/data-exec-dev-3011",
+  "goal": {
+    "id": "0328f7c6-69c3-4cfe-9b67-5bbcac4cbfd6",
+    "goal_key": "INS-G006",
+    "name": "Run Intelligence Implementation",
+    "status": "completed"
+  },
+  "fixture": {
+    "fixtureId": "ins-g006-runtime-replay-v2",
+    "expectedTaskCount": 10,
+    "taskCount": 10,
+    "taskKeys": [
+      "INS-205",
+      "INS-208",
+      "INS-221",
+      "INS-232",
+      "INS-250",
+      "INS-256",
+      "INS-262",
+      "INS-274",
+      "INS-277",
+      "INS-278"
+    ],
+    "taskKeyFingerprint": "e04a624adc499fee8d43fa99934ca9232a7971edbbff823064e12c1d3b7d5f1e"
+  },
+  "protocol": {
+    "arms": [
+      "baseline",
+      "candidate"
+    ],
+    "requiredRepeats": 3,
+    "resetSelectedTasksTo": "to-do",
+    "report": "Run each arm against the same frozen fixture DB in an isolated execution-dev lane, then pass all repeat summary JSON files to scripts/runtime-promotion-gate.ts.",
+    "summaryCommands": [
+      "node ./scripts/run-tsx.mjs scripts/runtime-benchmark.ts --db /Users/timharris/.mission-control/app/data-exec-dev-3011/orchestration.db --goal INS-G006 --fixture-id ins-g006-runtime-replay-v2 --arm baseline --repeat 1 --required-repeats 3 --expected-tasks 10 --task-key INS-205 --task-key INS-208 --task-key INS-221 --task-key INS-232 --task-key INS-250 --task-key INS-256 --task-key INS-262 --task-key INS-274 --task-key INS-277 --task-key INS-278 --run-started-after <repeat-start-iso> --run-started-before <repeat-end-iso> --format json --out output/runtime-benchmark/baseline-repeat-1.json",
+      "node ./scripts/run-tsx.mjs scripts/runtime-benchmark.ts --db /Users/timharris/.mission-control/app/data-exec-dev-3011/orchestration.db --goal INS-G006 --fixture-id ins-g006-runtime-replay-v2 --arm baseline --repeat 2 --required-repeats 3 --expected-tasks 10 --task-key INS-205 --task-key INS-208 --task-key INS-221 --task-key INS-232 --task-key INS-250 --task-key INS-256 --task-key INS-262 --task-key INS-274 --task-key INS-277 --task-key INS-278 --run-started-after <repeat-start-iso> --run-started-before <repeat-end-iso> --format json --out output/runtime-benchmark/baseline-repeat-2.json",
+      "node ./scripts/run-tsx.mjs scripts/runtime-benchmark.ts --db /Users/timharris/.mission-control/app/data-exec-dev-3011/orchestration.db --goal INS-G006 --fixture-id ins-g006-runtime-replay-v2 --arm baseline --repeat 3 --required-repeats 3 --expected-tasks 10 --task-key INS-205 --task-key INS-208 --task-key INS-221 --task-key INS-232 --task-key INS-250 --task-key INS-256 --task-key INS-262 --task-key INS-274 --task-key INS-277 --task-key INS-278 --run-started-after <repeat-start-iso> --run-started-before <repeat-end-iso> --format json --out output/runtime-benchmark/baseline-repeat-3.json",
+      "node ./scripts/run-tsx.mjs scripts/runtime-benchmark.ts --db /Users/timharris/.mission-control/app/data-exec-dev-3011/orchestration.db --goal INS-G006 --fixture-id ins-g006-runtime-replay-v2 --arm candidate --repeat 1 --required-repeats 3 --expected-tasks 10 --task-key INS-205 --task-key INS-208 --task-key INS-221 --task-key INS-232 --task-key INS-250 --task-key INS-256 --task-key INS-262 --task-key INS-274 --task-key INS-277 --task-key INS-278 --run-started-after <repeat-start-iso> --run-started-before <repeat-end-iso> --format json --out output/runtime-benchmark/candidate-repeat-1.json",
+      "node ./scripts/run-tsx.mjs scripts/runtime-benchmark.ts --db /Users/timharris/.mission-control/app/data-exec-dev-3011/orchestration.db --goal INS-G006 --fixture-id ins-g006-runtime-replay-v2 --arm candidate --repeat 2 --required-repeats 3 --expected-tasks 10 --task-key INS-205 --task-key INS-208 --task-key INS-221 --task-key INS-232 --task-key INS-250 --task-key INS-256 --task-key INS-262 --task-key INS-274 --task-key INS-277 --task-key INS-278 --run-started-after <repeat-start-iso> --run-started-before <repeat-end-iso> --format json --out output/runtime-benchmark/candidate-repeat-2.json",
+      "node ./scripts/run-tsx.mjs scripts/runtime-benchmark.ts --db /Users/timharris/.mission-control/app/data-exec-dev-3011/orchestration.db --goal INS-G006 --fixture-id ins-g006-runtime-replay-v2 --arm candidate --repeat 3 --required-repeats 3 --expected-tasks 10 --task-key INS-205 --task-key INS-208 --task-key INS-221 --task-key INS-232 --task-key INS-250 --task-key INS-256 --task-key INS-262 --task-key INS-274 --task-key INS-277 --task-key INS-278 --run-started-after <repeat-start-iso> --run-started-before <repeat-end-iso> --format json --out output/runtime-benchmark/candidate-repeat-3.json"
+    ]
+  },
+  "notes": [
+    "Copied with better-sqlite3 backup from a readonly/query_only source handle.",
+    "Target is intended for an execution-dev lane only, not stable 3001 or observer-only 3010.",
+    "Promotion requires baseline and candidate arms, at least three repeats per arm, UI consistency proof, and untracked-action proof."
+  ]
+}
