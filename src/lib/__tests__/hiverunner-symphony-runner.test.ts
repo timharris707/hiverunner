@@ -263,6 +263,26 @@ if (process.env.FAKE_CODEX_MODE === "current-jsonl-shape") {
   process.stdout.write(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 7, output_tokens: 9, total_tokens: 16, reasoning_output_tokens: 3 } }) + "\\n");
   return;
 }
+if (process.env.FAKE_CODEX_MODE === "nested-usage-shape") {
+  if (outputFile) {
+    fs.writeFileSync(outputFile, "Nested usage final message.", "utf8");
+  }
+  process.stdout.write(JSON.stringify({ type: "thread.started", thread_id: "fixture-nested-usage-thread" }) + "\\n");
+  process.stdout.write(JSON.stringify({
+    type: "turn.completed",
+    event: {
+      message: {
+        usage: {
+          input_tokens: 21,
+          output_tokens: 13,
+          cache_read_input_tokens: 8,
+          total_tokens: 34
+        }
+      }
+    }
+  }) + "\\n");
+  return;
+}
 if (outputFile) {
   fs.writeFileSync(outputFile, "Fixture Codex completed the external runner task.", "utf8");
 }
@@ -577,6 +597,30 @@ async function run() {
       assert.ok(transcriptEvents.some((event) => event.kind === "tool_call_start"));
       assert.ok(transcriptEvents.some((event) => event.kind === "tool_result"));
       assert.ok(transcriptEvents.some((event) => event.kind === "assistant_text_final"));
+    });
+
+    await test("runner extracts usage from nested Codex JSONL envelopes", () => {
+      const result = spawnSync(process.execPath, ["scripts/hiverunner-symphony-runner.mjs"], {
+        cwd: process.cwd(),
+        input: JSON.stringify(payload),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          HIVERUNNER_SYMPHONY_CODEX_COMMAND: fakeCodex,
+          HIVERUNNER_SYMPHONY_MODEL: "",
+          FAKE_CODEX_ARGS_FILE: argsFile,
+          FAKE_CODEX_PROMPT_FILE: promptFile,
+          FAKE_CODEX_MODE: "nested-usage-shape",
+        },
+      });
+
+      assert.strictEqual(result.status, 0, result.stderr || String(result.error));
+      const output = JSON.parse(result.stdout) as Record<string, unknown>;
+      assert.strictEqual(output.sessionId, "fixture-nested-usage-thread");
+      assert.strictEqual(output.inputTokens, 21);
+      assert.strictEqual(output.outputTokens, 13);
+      assert.strictEqual(output.cacheReadInputTokens, 8);
+      assert.strictEqual(output.totalTokens, 34);
     });
 
     await test("runner reports the Codex configured default when the CLI owns model selection", () => {

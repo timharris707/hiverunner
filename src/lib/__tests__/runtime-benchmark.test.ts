@@ -30,7 +30,9 @@ function createFixtureDb(): Database.Database {
       id TEXT PRIMARY KEY,
       sprint_id TEXT,
       task_key TEXT,
-      company_id TEXT
+      company_id TEXT,
+      status TEXT NOT NULL DEFAULT 'done',
+      blocked_reason TEXT
     );
     CREATE TABLE execution_runs (
       id TEXT PRIMARY KEY,
@@ -83,8 +85,12 @@ function createFixtureDb(): Database.Database {
 
   db.prepare("INSERT INTO sprints (id, parent_id, goal_key) VALUES ('goal', NULL, 'INS-G006')").run();
   db.prepare("INSERT INTO sprints (id, parent_id, goal_key) VALUES ('sprint-1', 'goal', NULL)").run();
-  db.prepare("INSERT INTO tasks (id, sprint_id, task_key, company_id) VALUES ('task-1', 'sprint-1', 'INS-1', 'company-1')").run();
-  db.prepare("INSERT INTO tasks (id, sprint_id, task_key, company_id) VALUES ('task-2', 'sprint-1', 'INS-2', 'company-1')").run();
+  db
+    .prepare("INSERT INTO tasks (id, sprint_id, task_key, company_id, status, blocked_reason) VALUES ('task-1', 'sprint-1', 'INS-1', 'company-1', 'done', NULL)")
+    .run();
+  db
+    .prepare("INSERT INTO tasks (id, sprint_id, task_key, company_id, status, blocked_reason) VALUES ('task-2', 'sprint-1', 'INS-2', 'company-1', 'blocked', NULL)")
+    .run();
   db.prepare(`
     INSERT INTO execution_runs
       (id, task_id, status, failure_class, error_message, token_usage_json, duration_ms, created_at, started_at, completed_at, updated_at)
@@ -147,6 +153,18 @@ function promotionSummary(overrides: Partial<RuntimeBenchmarkSummary> = {}): Run
       requiredRepeats: 3,
       expectedTaskCount: 10,
       frozenTaskKeys: taskIds.map((id) => id.replace("task", "INS")),
+    },
+    finalTaskStatus: {
+      total: 10,
+      done: 10,
+      nonDone: 0,
+      missingStatusCount: 0,
+      blockedWithoutReason: 0,
+      byStatus: {
+        done: 10,
+      },
+      nonDoneTaskKeys: [],
+      blockedWithoutReasonTaskKeys: [],
     },
     taskCount: 10,
     executionRunCount: 10,
@@ -261,6 +279,19 @@ async function run() {
     try {
       const summary = buildRuntimeBenchmarkSummary(db, "INS-G006");
       assert.equal(summary.taskCount, 2);
+      assert.deepEqual(summary.finalTaskStatus, {
+        total: 2,
+        done: 1,
+        nonDone: 1,
+        missingStatusCount: 0,
+        blockedWithoutReason: 1,
+        byStatus: {
+          blocked: 1,
+          done: 1,
+        },
+        nonDoneTaskKeys: ["INS-2"],
+        blockedWithoutReasonTaskKeys: ["INS-2"],
+      });
       assert.equal(summary.executionRunCount, 4);
       assert.equal(summary.scope.overseerScope, "company_all_turns");
       assert.equal(summary.protocol.expectedTaskCount, 10);
@@ -350,6 +381,18 @@ async function run() {
 
       assert.equal(summary.taskCount, 1);
       assert.deepEqual(summary.protocol.frozenTaskKeys, ["INS-2"]);
+      assert.deepEqual(summary.finalTaskStatus, {
+        total: 1,
+        done: 0,
+        nonDone: 1,
+        missingStatusCount: 0,
+        blockedWithoutReason: 1,
+        byStatus: {
+          blocked: 1,
+        },
+        nonDoneTaskKeys: ["INS-2"],
+        blockedWithoutReasonTaskKeys: ["INS-2"],
+      });
       assert.equal(summary.executionRunCount, 1);
       assert.equal(summary.completedRunCount, 0);
       assert.equal(summary.failureBuckets.runtimeQuality, 1);
@@ -408,6 +451,30 @@ async function run() {
       missingUsageResult.checks.find((check) => check.name === "candidate completed runs have no missing_usage/invalid usage")?.ok,
       false,
     );
+    const blockedTaskResult = evaluateRuntimeBenchmarkPromotionGate(promotionSummary({
+      finalTaskStatus: {
+        total: 10,
+        done: 9,
+        nonDone: 1,
+        missingStatusCount: 0,
+        blockedWithoutReason: 1,
+        byStatus: {
+          blocked: 1,
+          done: 9,
+        },
+        nonDoneTaskKeys: ["INS-278"],
+        blockedWithoutReasonTaskKeys: ["INS-278"],
+      },
+    }), baseline);
+    assert.equal(blockedTaskResult.ok, false);
+    assert.equal(
+      blockedTaskResult.checks.find((check) => check.name === "candidate final fixture tasks are all done")?.ok,
+      false,
+    );
+    assert.match(
+      String(blockedTaskResult.checks.find((check) => check.name === "candidate final fixture tasks are all done")?.detail),
+      /blocked without reason INS-278/,
+    );
     const legacySummary = promotionSummary() as RuntimeBenchmarkSummary & { executionUsageValidation?: unknown };
     delete legacySummary.executionUsageValidation;
     const missingValidationResult = evaluateRuntimeBenchmarkPromotionGate(legacySummary as RuntimeBenchmarkSummary, baseline);
@@ -415,6 +482,14 @@ async function run() {
     assert.equal(
       missingValidationResult.checks.find((check) => check.name === "candidate completed runs have no missing_usage/invalid usage")?.value,
       "missing validation",
+    );
+    const legacyTaskStatusSummary = promotionSummary() as RuntimeBenchmarkSummary & { finalTaskStatus?: unknown };
+    delete legacyTaskStatusSummary.finalTaskStatus;
+    const missingFinalTaskStatusResult = evaluateRuntimeBenchmarkPromotionGate(legacyTaskStatusSummary as RuntimeBenchmarkSummary, baseline);
+    assert.equal(missingFinalTaskStatusResult.ok, false);
+    assert.equal(
+      missingFinalTaskStatusResult.checks.find((check) => check.name === "candidate final fixture tasks are all done")?.value,
+      "missing final task status evidence",
     );
     assert.equal(evaluateRuntimeBenchmarkPromotionGate(current, null).ok, false);
   });
@@ -549,6 +624,42 @@ async function run() {
       false,
     );
 
+    const blockedFinalTaskReport = buildRuntimeBenchmarkPromotionReport(
+      candidateSummaries.map((summary, index) => index === 0
+        ? {
+          ...summary,
+          finalTaskStatus: {
+            total: 10,
+            done: 9,
+            nonDone: 1,
+            missingStatusCount: 0,
+            blockedWithoutReason: 1,
+            byStatus: {
+              blocked: 1,
+              done: 9,
+            },
+            nonDoneTaskKeys: ["INS-278"],
+            blockedWithoutReasonTaskKeys: ["INS-278"],
+          },
+        }
+        : summary),
+      baselineSummaries,
+      {
+        requiredTaskCount: 10,
+        requiredRepeats: 3,
+        evidence,
+      },
+    );
+    assert.equal(blockedFinalTaskReport.gate.ok, false);
+    assert.equal(
+      blockedFinalTaskReport.gate.checks.find((check) => check.name === "candidate final fixture tasks are all done")?.ok,
+      false,
+    );
+    assert.match(
+      String(blockedFinalTaskReport.gate.checks.find((check) => check.name === "candidate final fixture tasks are all done")?.detail),
+      /r1:INS-278/,
+    );
+
     const mismatchedFixtureReport = buildRuntimeBenchmarkPromotionReport(
       candidateSummaries.map((summary, index) => index === 0
         ? {
@@ -579,17 +690,21 @@ async function run() {
       browserProof?: unknown;
       latency?: unknown;
       executionUsageValidation?: unknown;
+      finalTaskStatus?: unknown;
     };
     delete legacySummary.actionLedger;
     delete legacySummary.browserProof;
     delete legacySummary.latency;
     delete legacySummary.executionUsageValidation;
+    delete legacySummary.finalTaskStatus;
 
     const markdown = formatRuntimeBenchmarkMarkdown(legacySummary as RuntimeBenchmarkSummary);
     assert.match(markdown, /Total action rows: 0/);
     assert.match(markdown, /Total proof runs: 0/);
     assert.match(markdown, /First evidence samples: 0/);
     assert.match(markdown, /Completed runs with usage: 0\/0/);
+    assert.match(markdown, /Final tasks done: 0\/0/);
+    assert.match(markdown, /Status counts: none/);
   });
 
   finish();

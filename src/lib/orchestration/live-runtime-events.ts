@@ -47,6 +47,7 @@ const DEFAULT_SQLITE_BUSY_BACKOFF_MS = 25;
 let nextRuntimeSeq = 1;
 const subscribers = new Set<LiveRuntimeEventSubscription>();
 const eventsByRunId = new Map<string, MCLiveEvent[]>();
+const pendingDurableTraceWrites = new Set<Promise<void>>();
 let runtimeTraceDbResolver: RuntimeTraceDbResolver = defaultRuntimeTraceDbResolver;
 
 function matchesSubscription(
@@ -313,7 +314,11 @@ async function persistDurableRuntimeTraceEvent(event: MCLiveEvent): Promise<void
 export function publishLiveRuntimeEvent(event: MCLiveEvent): MCLiveEvent {
   const published = event.seq === undefined ? { ...event, seq: nextRuntimeSeq++ } : event;
   appendToRingBuffer(published);
-  void persistDurableRuntimeTraceEvent(published);
+  const durableWrite = persistDurableRuntimeTraceEvent(published);
+  pendingDurableTraceWrites.add(durableWrite);
+  void durableWrite.finally(() => {
+    pendingDurableTraceWrites.delete(durableWrite);
+  });
 
   for (const subscription of subscribers) {
     notify(subscription, published);
@@ -387,6 +392,11 @@ export function __resetLiveRuntimeEventsForTests(): void {
 
 export const __liveRuntimeEventsTestHooks = {
   persistDurableRuntimeTraceEvent,
+  async flushDurableRuntimeTraceEventsForTests(): Promise<void> {
+    while (pendingDurableTraceWrites.size > 0) {
+      await Promise.allSettled([...pendingDurableTraceWrites]);
+    }
+  },
   setRuntimeTraceDbResolverForTests(resolver: RuntimeTraceDbResolver): void {
     runtimeTraceDbResolver = resolver;
   },

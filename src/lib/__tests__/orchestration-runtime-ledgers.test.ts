@@ -109,6 +109,42 @@ async function run() {
     assert.equal(row.total_tokens, 130);
   });
 
+  await test("usage ledger records total-only usage instead of dropping it", () => {
+    const totals = normalizedRuntimeUsageTotals({
+      totalTokens: 42,
+    });
+    assert.equal(totals.totalTokens, 42);
+    assert.equal(totals.inputTokens, 0);
+    assert.equal(totals.outputTokens, 0);
+
+    const id = recordRuntimeUsageLedgerEntry(db, {
+      sourceType: "manual",
+      idempotencyKey: "ledger-test:total-only",
+      provider: "codex",
+      model: "gpt-5.5",
+      usage: {
+        totalTokens: 42,
+      },
+    });
+    assert.ok(id);
+
+    const row = db.prepare(
+      `SELECT input_tokens, output_tokens, total_tokens
+       FROM runtime_usage_ledger
+       WHERE idempotency_key = ?`
+    ).get("ledger-test:total-only") as
+      | {
+          input_tokens: number;
+          output_tokens: number;
+          total_tokens: number;
+        }
+      | undefined;
+    assert.ok(row);
+    assert.equal(row!.input_tokens, 0);
+    assert.equal(row!.output_tokens, 0);
+    assert.equal(row!.total_tokens, 42);
+  });
+
   await test("context manifest stores prompt hash and size, not raw prompt text", () => {
     const prompt = "System: secret context should not be duplicated in ledger.";
     recordRuntimeContextManifest(db, {

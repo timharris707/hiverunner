@@ -130,6 +130,7 @@ export function recordRuntimeUsageLedgerEntry(
   if (
     totals.inputTokens <= 0 &&
     totals.outputTokens <= 0 &&
+    totals.totalTokens <= 0 &&
     totals.cacheReadInputTokens <= 0 &&
     totals.cacheWriteInputTokens <= 0 &&
     totals.costCents <= 0

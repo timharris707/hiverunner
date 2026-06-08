@@ -2114,7 +2114,10 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
   const failureClass = result.failureClass ?? parsedFailure.failureClass;
   persistRunnerFailureClass(db, input.executionRunId, failureClass);
   const sessionId = stringFrom(parsed.sessionId) || stringFrom(parsed.runId);
-  const parsedUsage = asRecord(parsed.usage) ?? parsed;
+  const parsedUsage = {
+    ...parsed,
+    ...(asRecord(parsed.usage) ?? {}),
+  };
   const resultRunnerProvider = stringFrom(parsed.runnerProvider) || config.runnerProvider;
   const resultRunnerModel =
     stringFrom(parsed.runnerModel) ||

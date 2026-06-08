@@ -21,6 +21,7 @@ const RUNNER_VERSION = "hiverunner-symphony-runner 0.1.0";
 const LIVE_EVENT_SCHEMA = "hiverunner.external-runner.live-event.v1";
 const LIVE_EVENT_PREFIX = "::hiverunner-live-event ";
 const DEFAULT_LIVE_EVENT_LIMIT = 200;
+const USAGE_CONTAINER_KEYS = ["usage", "token_usage", "tokenUsage", "metrics", "data", "event", "message", "result"];
 
 if (process.argv.includes("--version") || process.argv.includes("-v")) {
   console.log(RUNNER_VERSION);
@@ -51,6 +52,77 @@ function mergeUsage(base, next) {
     totalCostUsd: mergeUsageValue(base.totalCostUsd, next.totalCostUsd),
     totalCostCents: mergeUsageValue(base.totalCostCents, next.totalCostCents),
   };
+}
+
+function usageSnapshotFromRecord(record) {
+  return {
+    inputTokens: firstNumberFromRecord(record, [
+      "inputTokens",
+      "input_tokens",
+      "promptTokens",
+      "prompt_tokens",
+      "totalInputTokens",
+      "total_input_tokens",
+    ]),
+    outputTokens: firstNumberFromRecord(record, [
+      "outputTokens",
+      "output_tokens",
+      "completionTokens",
+      "completion_tokens",
+      "totalOutputTokens",
+      "total_output_tokens",
+    ]),
+    cacheReadInputTokens: firstNumberFromRecord(record, [
+      "cacheReadInputTokens",
+      "cache_read_input_tokens",
+      "cacheReadTokens",
+      "cache_read_tokens",
+      "cachedReadTokens",
+      "cached_read_tokens",
+      "cachedInputTokens",
+      "cached_input_tokens",
+    ]),
+    cacheCreationInputTokens: firstNumberFromRecord(record, [
+      "cacheCreationInputTokens",
+      "cache_creation_input_tokens",
+      "cacheWriteTokens",
+      "cache_write_tokens",
+      "cachedWriteTokens",
+      "cached_write_tokens",
+    ]),
+    totalTokens: firstNumberFromRecord(record, ["totalTokens", "total_tokens"]),
+    totalCostUsd: firstNumberFromRecord(record, ["totalCostUsd", "total_cost_usd", "costUsd", "cost_usd"]),
+    totalCostCents: firstNumberFromRecord(record, ["totalCostCents", "total_cost_cents", "costCents", "cost_cents"]),
+  };
+}
+
+function usageWithDerivedTotal(usage) {
+  if (!usage.totalTokens && (usage.inputTokens || usage.outputTokens)) {
+    return {
+      ...usage,
+      totalTokens: (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
+    };
+  }
+  return usage;
+}
+
+function usageFromArray(value, depth) {
+  return value.reduce((usage, item) => mergeUsage(usage, extractUsage(item, depth + 1)), {});
+}
+
+function nestedUsageFromRecord(record, depth) {
+  return USAGE_CONTAINER_KEYS.reduce(
+    (usage, key) => mergeUsage(usage, extractUsage(record[key], depth + 1)),
+    usageSnapshotFromRecord(record),
+  );
+}
+
+function extractUsage(value, depth = 0) {
+  if (depth > 4) return {};
+  if (Array.isArray(value)) return usageWithDerivedTotal(usageFromArray(value, depth));
+  const record = asRecord(value);
+  if (!record) return {};
+  return usageWithDerivedTotal(nestedUsageFromRecord(record, depth));
 }
 
 function numberFromEnvNames(names, fallback) {
@@ -441,47 +513,7 @@ function createCodexLiveStdoutForwarder() {
 function collectUsage(records) {
   let usage = {};
   for (const record of records) {
-    const candidate = record.usage ?? record.token_usage ?? record.tokenUsage ?? record;
-    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
-    usage = mergeUsage(usage, {
-      inputTokens: firstNumberFromRecord(candidate, [
-        "inputTokens",
-        "input_tokens",
-        "promptTokens",
-        "prompt_tokens",
-        "totalInputTokens",
-        "total_input_tokens",
-      ]),
-      outputTokens: firstNumberFromRecord(candidate, [
-        "outputTokens",
-        "output_tokens",
-        "completionTokens",
-        "completion_tokens",
-        "totalOutputTokens",
-        "total_output_tokens",
-      ]),
-      cacheReadInputTokens: firstNumberFromRecord(candidate, [
-        "cacheReadInputTokens",
-        "cache_read_input_tokens",
-        "cacheReadTokens",
-        "cache_read_tokens",
-        "cachedReadTokens",
-        "cached_read_tokens",
-        "cachedInputTokens",
-        "cached_input_tokens",
-      ]),
-      cacheCreationInputTokens: firstNumberFromRecord(candidate, [
-        "cacheCreationInputTokens",
-        "cache_creation_input_tokens",
-        "cacheWriteTokens",
-        "cache_write_tokens",
-        "cachedWriteTokens",
-        "cached_write_tokens",
-      ]),
-      totalTokens: firstNumberFromRecord(candidate, ["totalTokens", "total_tokens"]),
-      totalCostUsd: firstNumberFromRecord(candidate, ["totalCostUsd", "total_cost_usd", "costUsd", "cost_usd"]),
-      totalCostCents: firstNumberFromRecord(candidate, ["totalCostCents", "total_cost_cents", "costCents", "cost_cents"]),
-    });
+    usage = mergeUsage(usage, extractUsage(record));
   }
   if (!usage.totalTokens && (usage.inputTokens || usage.outputTokens)) {
     usage.totalTokens = (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0);

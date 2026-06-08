@@ -362,6 +362,7 @@ async function run() {
     const { ensureCompanyExecutionHives } = await import("@/lib/orchestration/service/execution-hives");
     const { __testHooks: symphonyAdapterTestHooks } = await import("@/lib/orchestration/execution/adapters/symphony");
     const {
+      __liveRuntimeEventsTestHooks,
       __resetLiveRuntimeEventsForTests,
       subscribeLiveRuntimeEvents,
     } = await import("@/lib/orchestration/live-runtime-events");
@@ -837,7 +838,7 @@ async function run() {
       assert.strictEqual(cancelled.cancelled.status, "skipped");
       assert.strictEqual(cancelled.cancelled.reason, "execution_run_already_terminal");
 
-      assert.strictEqual(getTask(task.id).task.status, "review");
+      assert.strictEqual(getTask(task.id).task.status, "done");
       const routedTask = db
         .prepare(
           `SELECT assignee_agent_id
@@ -849,7 +850,7 @@ async function run() {
       assert.strictEqual(
         routedTask?.assignee_agent_id,
         agent.id,
-        "default review handoff should not assign stale QA agents with failed registered runtimes",
+        "ungated self-review completion should not assign stale QA agents with failed registered runtimes",
       );
     });
 
@@ -1023,7 +1024,7 @@ async function run() {
         assert.strictEqual(usage.timedOut, false);
         assert.strictEqual(usage.silentTimedOut, false);
         assert.ok(String(usage.resultText).includes("recovered no-output"));
-        assert.strictEqual(getTask(recoveredTask.id).task.status, "review");
+        assert.strictEqual(getTask(recoveredTask.id).task.status, "done");
       } finally {
         delete process.env.FAKE_SYMPHONY_MODE;
       }
@@ -1287,6 +1288,9 @@ async function run() {
 
         const usage = JSON.parse(executionRun!.token_usage_json ?? "{}") as Record<string, unknown>;
         assert.strictEqual(usage.runnerModel, "gpt-5.5");
+        assert.strictEqual(usage.inputTokens, 11);
+        assert.strictEqual(usage.outputTokens, 7);
+        assert.strictEqual(usage.totalTokens, 18);
       } finally {
         delete process.env.FAKE_SYMPHONY_USAGE_MODEL;
       }
@@ -2125,6 +2129,7 @@ async function run() {
       assert.ok(!preflight!.summary_json.includes(tempRoot), "preflight summary should not store raw paths");
     });
 
+    await __liveRuntimeEventsTestHooks.flushDurableRuntimeTraceEventsForTests();
     closeOrchestrationDb();
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });

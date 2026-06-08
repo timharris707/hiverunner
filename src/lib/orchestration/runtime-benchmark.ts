@@ -31,6 +31,17 @@ type RuntimeExecutionUsageValidation = {
   invalidUsageRunIds: string[];
 };
 
+export type RuntimeFinalTaskStatusMetrics = {
+  total: number;
+  done: number;
+  nonDone: number;
+  missingStatusCount: number;
+  blockedWithoutReason: number;
+  byStatus: Record<string, number>;
+  nonDoneTaskKeys: string[];
+  blockedWithoutReasonTaskKeys: string[];
+};
+
 export type RuntimeFailureBuckets = {
   deterministicPreflight: number;
   intentionalCancellation: number;
@@ -85,6 +96,7 @@ export type RuntimeLatencyMetrics = {
 export type RuntimeBenchmarkSummary = {
   scope: RuntimeBenchmarkScope;
   protocol: RuntimeBenchmarkProtocol;
+  finalTaskStatus: RuntimeFinalTaskStatusMetrics;
   taskCount: number;
   executionRunCount: number;
   completedRunCount: number;
@@ -203,6 +215,17 @@ const EMPTY_EXECUTION_USAGE_VALIDATION: RuntimeExecutionUsageValidation = {
   invalidUsageRunIds: [],
 };
 
+const EMPTY_FINAL_TASK_STATUS: RuntimeFinalTaskStatusMetrics = {
+  total: 0,
+  done: 0,
+  nonDone: 0,
+  missingStatusCount: 0,
+  blockedWithoutReason: 0,
+  byStatus: {},
+  nonDoneTaskKeys: [],
+  blockedWithoutReasonTaskKeys: [],
+};
+
 type SprintRow = {
   id: string;
   parent_id: string | null;
@@ -212,6 +235,8 @@ type TaskRow = {
   id: string;
   task_key: string | null;
   company_id: string | null;
+  status: string | null;
+  blocked_reason: string | null;
 };
 
 type RunRow = {
@@ -421,6 +446,61 @@ export function usageTotalsFromJson(rows: Array<{ usage_json?: string | null; to
 
 function unique(values: Array<string | null | undefined>): string[] {
   return Array.from(new Set(values.filter((value): value is string => Boolean(value))));
+}
+
+function taskDisplayKey(task: Pick<TaskRow, "id" | "task_key">): string {
+  return task.task_key ?? task.id;
+}
+
+function normalizedTaskStatus(status: string | null | undefined): string {
+  const normalized = String(status ?? "").trim().toLowerCase();
+  return normalized || "missing";
+}
+
+function sortedStatusCounts(counts: Record<string, number>): Record<string, number> {
+  return Object.fromEntries(Object.entries(counts).sort(([left], [right]) => left.localeCompare(right)));
+}
+
+function statusCountsSummary(counts: Record<string, number>): string {
+  const entries = Object.entries(sortedStatusCounts(counts));
+  return entries.length > 0
+    ? entries.map(([status, count]) => `${status}:${count}`).join(", ")
+    : "none";
+}
+
+function finalTaskStatusMetricsForTasks(taskRows: TaskRow[]): RuntimeFinalTaskStatusMetrics {
+  const counts: Record<string, number> = {};
+  const nonDoneTaskKeys: string[] = [];
+  const blockedWithoutReasonTaskKeys: string[] = [];
+  let done = 0;
+  let missingStatusCount = 0;
+
+  for (const task of taskRows) {
+    const status = normalizedTaskStatus(task.status);
+    counts[status] = (counts[status] ?? 0) + 1;
+    if (status === "done") {
+      done += 1;
+    } else {
+      nonDoneTaskKeys.push(taskDisplayKey(task));
+    }
+    if (status === "missing") {
+      missingStatusCount += 1;
+    }
+    if (status === "blocked" && !String(task.blocked_reason ?? "").trim()) {
+      blockedWithoutReasonTaskKeys.push(taskDisplayKey(task));
+    }
+  }
+
+  return {
+    total: taskRows.length,
+    done,
+    nonDone: taskRows.length - done,
+    missingStatusCount,
+    blockedWithoutReason: blockedWithoutReasonTaskKeys.length,
+    byStatus: sortedStatusCounts(counts),
+    nonDoneTaskKeys,
+    blockedWithoutReasonTaskKeys,
+  };
 }
 
 function placeholders(count: number): string {
@@ -720,7 +800,15 @@ export function buildRuntimeBenchmarkSummary(
   const sprintRows = db.prepare("SELECT id, parent_id FROM sprints").all() as SprintRow[];
   const sprintIds = collectChildSprintIds(sprintRows, goal.id);
   const allTaskRows = db
-    .prepare(`SELECT id, task_key, company_id FROM tasks WHERE sprint_id IN (${placeholders(sprintIds.length)})`)
+    .prepare(
+      `SELECT id,
+              task_key,
+              company_id,
+              ${nullableColumnSelect(db, "tasks", "status")},
+              ${nullableColumnSelect(db, "tasks", "blocked_reason")}
+         FROM tasks
+        WHERE sprint_id IN (${placeholders(sprintIds.length)})`,
+    )
     .all(...sprintIds) as TaskRow[];
   const requestedTaskKeys = normalizeTaskKeyList(options.taskKeys);
   const taskRows = requestedTaskKeys.length > 0
@@ -874,6 +962,7 @@ export function buildRuntimeBenchmarkSummary(
       : taskRows.length === expectedTaskCount
       ? taskRows.map((task) => task.task_key ?? task.id).sort()
       : []);
+  const finalTaskStatus = finalTaskStatusMetricsForTasks(taskRows);
 
   return {
     scope: {
@@ -894,6 +983,7 @@ export function buildRuntimeBenchmarkSummary(
       expectedTaskCount,
       frozenTaskKeys,
     },
+    finalTaskStatus,
     taskCount: taskRows.length,
     executionRunCount: runRows.length,
     completedRunCount: runRows.filter((run) => run.status === "completed").length,
@@ -948,6 +1038,10 @@ function executionUsageValidationForSummary(summary: RuntimeBenchmarkSummary): R
   return summary.executionUsageValidation ?? null;
 }
 
+function finalTaskStatusForSummary(summary: RuntimeBenchmarkSummary): RuntimeFinalTaskStatusMetrics | null {
+  return summary.finalTaskStatus ?? null;
+}
+
 function completedRunUsageEvidenceCheck(summary: RuntimeBenchmarkSummary, label: string): RuntimePromotionGateCheck {
   const validation = executionUsageValidationForSummary(summary);
   if (!validation) {
@@ -972,6 +1066,40 @@ function completedRunUsageEvidenceCheck(summary: RuntimeBenchmarkSummary, label:
     detail: countMatches
       ? `${validation.withUsageCount}/${validation.completedRunCount} completed runs have non-null usage${sampleRunIds.length > 0 ? `; sample run ids ${sampleRunIds.join(", ")}` : ""}`
       : `usage validation covers ${validation.completedRunCount}/${summary.completedRunCount} completed runs`,
+  };
+}
+
+function finalTaskStatusEvidenceCheck(summary: RuntimeBenchmarkSummary, label: string): RuntimePromotionGateCheck {
+  const finalStatus = finalTaskStatusForSummary(summary);
+  if (!finalStatus) {
+    return {
+      name: `${label} final fixture tasks are all done`,
+      ok: false,
+      value: "missing final task status evidence",
+      threshold: "all done",
+      detail: "summary does not include finalTaskStatus evidence",
+    };
+  }
+
+  const statusCounts = statusCountsSummary(finalStatus.byStatus);
+  const countMatches = finalStatus.total === summary.taskCount && finalStatus.done + finalStatus.nonDone === finalStatus.total;
+  const nonDoneSample = finalStatus.nonDoneTaskKeys.slice(0, 8);
+  const blockedWithoutReasonSample = finalStatus.blockedWithoutReasonTaskKeys.slice(0, 8);
+  const details = [
+    countMatches
+      ? `${finalStatus.done}/${finalStatus.total} final tasks done`
+      : `final task status covers ${finalStatus.total}/${summary.taskCount} tasks`,
+    `status counts ${statusCounts}`,
+  ];
+  if (nonDoneSample.length > 0) details.push(`non-done task keys ${nonDoneSample.join(", ")}`);
+  if (blockedWithoutReasonSample.length > 0) details.push(`blocked without reason ${blockedWithoutReasonSample.join(", ")}`);
+
+  return {
+    name: `${label} final fixture tasks are all done`,
+    ok: countMatches && finalStatus.missingStatusCount === 0 && finalStatus.nonDone === 0,
+    value: statusCounts,
+    threshold: "all done",
+    detail: details.join("; "),
   };
 }
 
@@ -1008,6 +1136,7 @@ export function evaluateRuntimeBenchmarkPromotionGate(
       threshold: requiredTaskCount,
       detail: `fixture ${summary.protocol?.fixtureId ?? "unlabeled"}`,
     },
+    finalTaskStatusEvidenceCheck(summary, "candidate"),
     {
       name: "candidate repeat protocol satisfied",
       ok: candidateRepeatCount >= requiredRepeats,
@@ -1194,10 +1323,19 @@ function runtimeQualityRate(summary: RuntimeBenchmarkSummary): number {
   return summary.executionRunCount > 0 ? summary.failureBuckets.runtimeQuality / summary.executionRunCount : 0;
 }
 
+function finalTaskBlockedCount(summary: RuntimeBenchmarkSummary): number | null {
+  const finalStatus = finalTaskStatusForSummary(summary);
+  return finalStatus ? finalStatus.byStatus.blocked ?? 0 : null;
+}
+
 function armStats(summaries: RuntimeBenchmarkSummary[]): RuntimeBenchmarkArmStats {
   return {
     repeatCount: summaries.length,
     metrics: {
+      finalTasksDone: metricStats(summaries.map((summary) => finalTaskStatusForSummary(summary)?.done)),
+      finalTasksNonDone: metricStats(summaries.map((summary) => finalTaskStatusForSummary(summary)?.nonDone)),
+      finalTasksBlocked: metricStats(summaries.map(finalTaskBlockedCount)),
+      finalTasksBlockedWithoutReason: metricStats(summaries.map((summary) => finalTaskStatusForSummary(summary)?.blockedWithoutReason)),
       totalRuns: metricStats(summaries.map((summary) => summary.executionRunCount)),
       averageRunsPerTask: metricStats(summaries.map((summary) => summary.averageRunsPerTask)),
       runtimeQualityRate: metricStats(summaries.map(runtimeQualityRate)),
@@ -1289,12 +1427,64 @@ function repeatedProtocolChecks(input: {
   ];
 }
 
+function repeatedFinalTaskStatusCheck(summaries: RuntimeBenchmarkSummary[], label: string): RuntimePromotionGateCheck {
+  let missingEvidenceCount = 0;
+  let total = 0;
+  let done = 0;
+  let nonDone = 0;
+  let missingStatusCount = 0;
+  let blockedWithoutReason = 0;
+  const aggregateCounts: Record<string, number> = {};
+  const nonDoneSamples: string[] = [];
+  const blockedWithoutReasonSamples: string[] = [];
+
+  for (const summary of summaries) {
+    const finalStatus = finalTaskStatusForSummary(summary);
+    if (!finalStatus) {
+      missingEvidenceCount += 1;
+      continue;
+    }
+    const repeat = summary.protocol?.repeatIndex ?? "?";
+    total += finalStatus.total;
+    done += finalStatus.done;
+    nonDone += finalStatus.nonDone;
+    missingStatusCount += finalStatus.missingStatusCount;
+    blockedWithoutReason += finalStatus.blockedWithoutReason;
+    for (const [status, count] of Object.entries(finalStatus.byStatus)) {
+      aggregateCounts[status] = (aggregateCounts[status] ?? 0) + count;
+    }
+    nonDoneSamples.push(...finalStatus.nonDoneTaskKeys.slice(0, 5).map((key) => `r${repeat}:${key}`));
+    blockedWithoutReasonSamples.push(...finalStatus.blockedWithoutReasonTaskKeys.slice(0, 5).map((key) => `r${repeat}:${key}`));
+  }
+
+  const statusCounts = statusCountsSummary(aggregateCounts);
+  const details = [
+    `${done}/${total} final tasks done`,
+    `status counts ${statusCounts}`,
+  ];
+  if (missingEvidenceCount > 0) details.push(`${missingEvidenceCount} summaries missing finalTaskStatus evidence`);
+  if (nonDoneSamples.length > 0) details.push(`non-done task keys ${nonDoneSamples.slice(0, 8).join(", ")}`);
+  if (blockedWithoutReason > 0) details.push(`${blockedWithoutReason} blocked tasks missing blocked_reason`);
+  if (blockedWithoutReasonSamples.length > 0) {
+    details.push(`blocked without reason ${blockedWithoutReasonSamples.slice(0, 8).join(", ")}`);
+  }
+
+  return {
+    name: `${label} final fixture tasks are all done`,
+    ok: summaries.length > 0 && missingEvidenceCount === 0 && missingStatusCount === 0 && nonDone === 0,
+    value: missingEvidenceCount > 0 ? `${missingEvidenceCount} missing final task status evidence` : statusCounts,
+    threshold: "all done",
+    detail: details.join("; "),
+  };
+}
+
 function candidateQualityChecks(input: {
   candidateSummaries: RuntimeBenchmarkSummary[];
   candidateQualityRates: number[];
   noRepeatedDeterministicFailures: boolean;
 }): RuntimePromotionGateCheck[] {
   return [
+    repeatedFinalTaskStatusCheck(input.candidateSummaries, "candidate"),
     {
       name: "candidate total runs below 15 in every repeat",
       ok: input.candidateSummaries.length > 0 && input.candidateSummaries.every((summary) => summary.executionRunCount < 15),
@@ -1520,10 +1710,12 @@ export function formatRuntimeBenchmarkMarkdown(summary: RuntimeBenchmarkSummary)
   const browserProof = summary.browserProof ?? EMPTY_BROWSER_PROOF_METRICS;
   const latency = summary.latency ?? EMPTY_LATENCY_METRICS;
   const usageValidation = summary.executionUsageValidation ?? EMPTY_EXECUTION_USAGE_VALIDATION;
+  const finalTaskStatus = summary.finalTaskStatus ?? EMPTY_FINAL_TASK_STATUS;
   const pct = (value: number, denominator: number) => denominator > 0 ? `${((value / denominator) * 100).toFixed(1)}%` : "0.0%";
   const hours = (ms: number) => (ms / 3_600_000).toFixed(2);
   const tokens = (value: number) => Math.round(value).toLocaleString("en-US");
   const ms = (value: number | null) => value === null ? "n/a" : `${Math.round(value)}ms`;
+  const taskKeys = (keys: string[]) => keys.length > 0 ? keys.join(", ") : "none";
 
   return [
     `# Runtime Benchmark Baseline - ${summary.scope.goalKey}`,
@@ -1538,6 +1730,15 @@ export function formatRuntimeBenchmarkMarkdown(summary: RuntimeBenchmarkSummary)
     `- Company IDs: ${summary.scope.companyIds.join(", ") || "none"}`,
     `- Run window: ${summary.scope.runStartedAt ?? "n/a"} to ${summary.scope.runEndedAt ?? "n/a"}`,
     `- Overseer scope: ${summary.scope.overseerScope} (goal-level turn linkage is not durable yet)`,
+    "",
+    "## Final Task Status",
+    "",
+    `- Final tasks done: ${finalTaskStatus.done}/${finalTaskStatus.total}`,
+    `- Final non-done tasks: ${finalTaskStatus.nonDone}`,
+    `- Status counts: ${statusCountsSummary(finalTaskStatus.byStatus)}`,
+    `- Missing task statuses: ${finalTaskStatus.missingStatusCount}`,
+    `- Blocked without reason: ${finalTaskStatus.blockedWithoutReason} (${taskKeys(finalTaskStatus.blockedWithoutReasonTaskKeys)})`,
+    `- Non-done task keys: ${taskKeys(finalTaskStatus.nonDoneTaskKeys)}`,
     "",
     "## Execution Runs",
     "",
