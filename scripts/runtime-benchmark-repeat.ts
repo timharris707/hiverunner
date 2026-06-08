@@ -358,6 +358,8 @@ async function main() {
   console.log(JSON.stringify(output, null, 2));
   if (scopeViolation && !options.allowGeneratedTasks) {
     process.exitCode = 2;
+  } else if (!terminal) {
+    process.exitCode = 3;
   }
 }
 
