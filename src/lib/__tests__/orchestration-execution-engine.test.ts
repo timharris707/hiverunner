@@ -58,6 +58,7 @@ async function run() {
   const { getTaskBridgeRecord } = await import("@/lib/orchestration/bridge");
   const { pollTaskExecutionStatus, triggerTaskExecution, triggerTaskNudge } = await import("@/lib/orchestration/execution");
   const { executeCreateTask, executeUpdateTask } = await import("@/lib/orchestration/engine/engine");
+  const { routeForReview } = await import("@/lib/orchestration/engine/review-handler");
   const { createApproval } = await import("@/lib/orchestration/service/approval");
   const { configureCompanyExecutionHive, ensureCompanyExecutionHives } = await import("@/lib/orchestration/service/execution-hives");
 
@@ -547,6 +548,84 @@ async function run() {
     };
     assert.strictEqual(row.status, "review");
     assert.ok(row.assignee_agent_id, "review handoff should leave the task assigned");
+  });
+
+  await test("review routing skips reviewers blocked by pending protected runtime approvals", () => {
+    const db = getOrchestrationDb();
+    const builder = createProjectAgent({
+      projectId: project.id,
+      name: `Approval Gated Builder ${Date.now()}`,
+      emoji: "B",
+      role: "Builder",
+      personality: "Submits work.",
+      status: "idle",
+      skills: [],
+    }).agent;
+    const blockedQa = createProjectAgent({
+      projectId: project.id,
+      name: `A Approval Gated QA ${Date.now()}`,
+      emoji: "A",
+      role: "QA",
+      personality: "Would review if approved.",
+      status: "idle",
+      skills: [],
+    }).agent;
+    const openQa = createProjectAgent({
+      projectId: project.id,
+      name: `B Open QA ${Date.now()}`,
+      emoji: "O",
+      role: "QA",
+      personality: "Can review immediately.",
+      status: "idle",
+      skills: [],
+    }).agent;
+    db.prepare(
+      `UPDATE agents
+          SET adapter_type = 'codex',
+              review_specialist_categories = '["qa","general"]'
+        WHERE id IN (?, ?)`,
+    ).run(blockedQa.id, openQa.id);
+    db.prepare("UPDATE agents SET adapter_type = 'codex' WHERE id = ?").run(builder.id);
+    db.prepare("DELETE FROM agent_runtimes WHERE agent_id IN (?, ?, ?)").run(builder.id, blockedQa.id, openQa.id);
+
+    const task = createTask({
+      projectId: project.id,
+      title: `Approval gated review handoff ${Date.now()}`,
+      description: "Review routing should choose a reviewer that can run now.",
+      priority: "P2",
+      type: "maintenance",
+      status: "in-progress",
+      assignee: builder.id,
+      labels: [],
+      createdBy: "test",
+      executionEngine: "symphony",
+    }).task;
+    createApproval({
+      companyIdOrSlug: company.id,
+      type: "protected_runtime_command",
+      requestedByAgentId: blockedQa.id,
+      linkedTaskId: task.id,
+      payload: {
+        agentId: blockedQa.id,
+        command: "symphony execution for approval-gated review",
+        fingerprint: `approval-gated-review:${task.id}:${blockedQa.id}`,
+      },
+    });
+
+    const selected = routeForReview(
+      {
+        companyId: company.id,
+        producerAgentId: builder.id,
+        task: {
+          id: task.id,
+          title: task.title,
+          type: task.type,
+          labelsJson: "[]",
+        },
+      },
+      db,
+    );
+    assert.strictEqual(selected?.id, openQa.id);
   });
 
   await test("protected runtime approval dedupe is scoped by command fingerprint", () => {

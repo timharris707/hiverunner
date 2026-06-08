@@ -79,8 +79,32 @@ function hasRunnableRegisteredRuntime(
   });
 }
 
+function hasPendingProtectedRuntimeApprovalForTask(
+  db: Database.Database,
+  input: { taskId: string | null | undefined; agentId: string },
+): boolean {
+  if (!input.taskId) return false;
+
+  const row = db
+    .prepare(
+      `SELECT 1 AS present
+       FROM approvals
+       WHERE linked_task_id = ?
+         AND type = 'protected_runtime_command'
+         AND status IN ('pending', 'revision_requested')
+         AND (
+           requested_by_agent_id = ?
+           OR (json_valid(payload_json) AND json_extract(payload_json, '$.agentId') = ?)
+         )
+       LIMIT 1`,
+    )
+    .get(input.taskId, input.agentId, input.agentId) as { present: number } | undefined;
+
+  return row?.present === 1;
+}
+
 export function routeForReview(
-  input: { companyId: string; producerAgentId: string; task?: { title?: string | null; type?: string | null; labelsJson?: string | null } },
+  input: { companyId: string; producerAgentId: string; task?: { id?: string | null; title?: string | null; type?: string | null; labelsJson?: string | null } },
   db: Database.Database,
 ): { id: string; name: string } | null {
   const labels = safeJsonStringArray(input.task?.labelsJson);
@@ -125,6 +149,7 @@ export function routeForReview(
     if (candidate.status === "paused" || candidate.status === "offline" || candidate.status === "error") continue;
     if (!isExecutableAgentRuntime(candidate.adapter_type)) continue;
     if (!hasRunnableRegisteredRuntime(db, candidate)) continue;
+    if (hasPendingProtectedRuntimeApprovalForTask(db, { taskId: input.task?.id, agentId: candidate.id })) continue;
     const score = reviewAgentScore(candidate, Array.from(desiredCategories));
     if (!Number.isFinite(score)) continue;
     if (!selected || score < selected.score) {
@@ -164,7 +189,7 @@ export function autoRouteReviewHandoff(input: {
   const reviewer = routeForReview({
     companyId: input.task.company_id,
     producerAgentId: input.producerAgentId,
-    task: { title: input.task.title, type: input.task.type, labelsJson: input.task.labels_json },
+    task: { id: input.task.id, title: input.task.title, type: input.task.type, labelsJson: input.task.labels_json },
   }, input.db);
   if (!reviewer || reviewer.id === input.task.assignee_agent_id) return { assigneeApplied: false };
 
