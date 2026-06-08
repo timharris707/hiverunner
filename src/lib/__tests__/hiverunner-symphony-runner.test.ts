@@ -207,6 +207,17 @@ if (process.env.FAKE_CODEX_MODE === "silent-sleep") {
   setTimeout(() => {}, 60_000);
   return;
 }
+if (process.env.FAKE_CODEX_MODE === "streaming-progress") {
+  process.stdout.write(JSON.stringify({ type: "session", session_id: "fixture-stream-session" }) + "\\n");
+  process.stdout.write(JSON.stringify({ type: "message", role: "assistant", message: "Fixture Codex streamed an early progress update." }) + "\\n");
+  setTimeout(() => {
+    if (outputFile) {
+      fs.writeFileSync(outputFile, "Fixture Codex completed after streaming progress.", "utf8");
+    }
+    process.stdout.write(JSON.stringify({ type: "usage", input_tokens: 3, output_tokens: 5, total_tokens: 8 }) + "\\n");
+  }, 80);
+  return;
+}
 if (outputFile) {
   fs.writeFileSync(outputFile, "Fixture Codex completed the external runner task.", "utf8");
 }
@@ -344,6 +355,40 @@ async function run() {
       assert.strictEqual(usage.terminationReason, "no_output_timeout");
       const prompt = readFileSync(promptFile, "utf8");
       assert.ok(prompt.includes("Implement the fixture task."));
+    });
+
+    await test("runner forwards live Codex stdout events without polluting final JSON stdout", () => {
+      const result = spawnSync(process.execPath, ["scripts/hiverunner-symphony-runner.mjs"], {
+        cwd: process.cwd(),
+        input: JSON.stringify(payload),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          HIVERUNNER_SYMPHONY_CODEX_COMMAND: fakeCodex,
+          HIVERUNNER_SYMPHONY_MODEL: "",
+          FAKE_CODEX_ARGS_FILE: argsFile,
+          FAKE_CODEX_PROMPT_FILE: promptFile,
+          FAKE_CODEX_MODE: "streaming-progress",
+        },
+      });
+
+      assert.strictEqual(result.status, 0, result.stderr || String(result.error));
+      assert.ok(!result.stdout.includes("::hiverunner-live-event"), "live frames must stay out of final stdout JSON");
+      const output = JSON.parse(result.stdout) as Record<string, unknown>;
+      assert.strictEqual(output.sessionId, "fixture-stream-session");
+      assert.strictEqual(output.resultText, "Fixture Codex completed after streaming progress.");
+      assert.strictEqual(output.totalTokens, 8);
+
+      const liveLines = result.stderr
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith("::hiverunner-live-event "));
+      assert.ok(liveLines.length >= 2, `expected live event frames on stderr, got ${result.stderr}`);
+      const assistantFrame = liveLines
+        .map((line) => JSON.parse(line.slice("::hiverunner-live-event ".length)) as Record<string, unknown>)
+        .map((frame) => frame.event as Record<string, unknown>)
+        .find((event) => event.kind === "assistant_text_delta");
+      assert.ok(assistantFrame, "expected an assistant_text_delta live frame");
+      assert.match(String(assistantFrame!.body), /early progress update/);
     });
 
     await test("runner reports the Codex configured default when the CLI owns model selection", () => {

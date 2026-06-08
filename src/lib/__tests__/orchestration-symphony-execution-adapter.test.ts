@@ -194,6 +194,40 @@ if (process.env.FAKE_SYMPHONY_MODE === "sleep") {
 const taskKey = payload.task && payload.task.key ? payload.task.key : "SYM-1";
 const action = JSON.stringify({ action: "update_task", taskKey, status: "review" });
 
+if (process.env.FAKE_SYMPHONY_MODE === "live-protocol-delay") {
+  process.stderr.write("::hiverunner-live-event " + JSON.stringify({
+    schema: "hiverunner.external-runner.live-event.v1",
+    event: {
+      kind: "assistant_text_delta",
+      role: "assistant",
+      title: "Codex event",
+      body: "Fixture Codex streamed an early adapter-visible update.",
+      metadata: {
+        runnerProvider: "codex",
+        source: "fixture-live-protocol"
+      }
+    }
+  }) + "\\n");
+  setTimeout(() => {
+    process.stdout.write(JSON.stringify({
+      sessionId: "symphony-live-protocol-session",
+      resultText: "External runner completed fixture work after live progress.\\n\\n\`\`\`mc-action\\n" + action + "\\n\`\`\`",
+      assistantSummary: "External runner completed fixture work after live progress.",
+      runnerProvider: "codex",
+      runnerModel: "gpt-5.4-mini",
+      transcriptEvents: [
+        {
+          role: "assistant",
+          kind: "message",
+          title: "External runner result",
+          body: "External runner completed fixture work after live progress."
+        }
+      ]
+    }) + "\\n");
+  }, 350);
+  return;
+}
+
 process.stdout.write(JSON.stringify({
   sessionId: "symphony-fixture-session",
   resultText: "External runner completed fixture work.\\n\\n\`\`\`mc-action\\n" + action + "\\n\`\`\`",
@@ -400,6 +434,41 @@ async function run() {
         .get(taskId, agentId) as ExecutionRunRecord | undefined;
       assert.ok(executionRun, "execution_run should be created");
       return executionRun!;
+    }
+
+    async function waitForTranscriptEvent(input: {
+      taskId: string;
+      agentId: string;
+      bodyIncludes: string;
+      timeoutMs?: number;
+    }): Promise<{ executionRunId: string; eventKind: string; body: string; metadata: Record<string, unknown> }> {
+      const deadline = Date.now() + (input.timeoutMs ?? 1500);
+      while (Date.now() < deadline) {
+        const row = db
+          .prepare(
+            `SELECT er.id AS execution_run_id, events.event_kind, events.body, events.metadata_json
+             FROM execution_runs er
+             INNER JOIN execution_run_transcript_events events ON events.execution_run_id = er.id
+             WHERE er.task_id = ?
+               AND er.agent_id = ?
+               AND events.body LIKE ?
+             ORDER BY events.sequence ASC
+             LIMIT 1`,
+          )
+          .get(input.taskId, input.agentId, `%${input.bodyIncludes}%`) as
+            | { execution_run_id: string; event_kind: string; body: string; metadata_json: string }
+            | undefined;
+        if (row) {
+          return {
+            executionRunId: row.execution_run_id,
+            eventKind: row.event_kind,
+            body: row.body,
+            metadata: JSON.parse(row.metadata_json || "{}") as Record<string, unknown>,
+          };
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      throw new Error(`Timed out waiting for live transcript event containing '${input.bodyIncludes}'`);
     }
 
     function readRunUsage(executionRun: { token_usage_json: string | null }): Record<string, unknown> {
@@ -709,6 +778,85 @@ async function run() {
         agent.id,
         "default review handoff should not assign stale QA agents with failed registered runtimes",
       );
+    });
+
+    await test("Symphony runner live protocol persists transcript rows before final JSON exits", async () => {
+      __resetLiveRuntimeEventsForTests();
+      const liveProtocolAgent = createSymphonyAgentFixture({
+        name: "Live Protocol Fixture Agent",
+        emoji: "L",
+      });
+      upsertSymphonyRuntimeFixture({
+        agentId: liveProtocolAgent.id,
+        runtimeSlug: "fixture-live-protocol",
+        displayName: "Fixture Live Protocol Runner",
+        runtimeKind: "external",
+        metadata: {
+          commandPath: fakeSymphony,
+          runnerConfig: { provider: "codex" },
+        },
+      });
+      const liveProtocolTask = createSymphonyTaskFixture({
+        title: "Run live protocol visibility fixture",
+        description: "Proves Symphony-backed Codex progress is visible before final JSON.",
+        assignee: liveProtocolAgent.id,
+        labels: ["symphony", "live-progress"],
+      });
+      const liveEvents: Array<{
+        kind: string;
+        runId: string;
+        provider: string;
+        summary: string;
+        payload?: Record<string, unknown>;
+      }> = [];
+      const unsubscribe = subscribeLiveRuntimeEvents((event) => {
+        liveEvents.push(event);
+      }, { companyId: company.id });
+
+      process.env.FAKE_SYMPHONY_MODE = "live-protocol-delay";
+      try {
+        const queued = await triggerTaskExecution({
+          taskId: liveProtocolTask.id,
+          reason: "symphony_live_protocol_visibility_test",
+        });
+        assert.strictEqual(queued.mode, "symphony");
+        assert.ok(queued.runId, "triggerTaskExecution should enqueue a heartbeat run");
+
+        const executionPromise = executeHeartbeatRun(queued.runId!, db);
+        const liveRow = await waitForTranscriptEvent({
+          taskId: liveProtocolTask.id,
+          agentId: liveProtocolAgent.id,
+          bodyIncludes: "early adapter-visible update",
+        });
+
+        assert.strictEqual(liveRow.eventKind, "assistant_text_delta");
+        assert.strictEqual(liveRow.metadata.live, true);
+        assert.strictEqual(liveRow.metadata.source, "fixture-live-protocol");
+
+        const inFlightRun = db
+          .prepare("SELECT status FROM execution_runs WHERE id = ? LIMIT 1")
+          .get(liveRow.executionRunId) as { status: string } | undefined;
+        assert.strictEqual(inFlightRun?.status, "running", "live transcript row should be visible while execution is still running");
+
+        const result = await executionPromise;
+        assert.strictEqual(result.status, "succeeded", result.error ?? "heartbeat should succeed after delayed final JSON");
+        assert.ok(
+          liveEvents.some((event) => event.runId === liveRow.executionRunId && event.kind === "assistant_text_delta"),
+          "runner live protocol should also publish assistant_text_delta live runtime events",
+        );
+        assert.ok(
+          !liveEvents.some((event) =>
+            event.runId === liveRow.executionRunId &&
+            event.kind === "stderr_chunk" &&
+            typeof event.payload?.chunk === "string" &&
+            event.payload.chunk.includes("::hiverunner-live-event")
+          ),
+          "runner live protocol frames must not leak as generic stderr chunks",
+        );
+      } finally {
+        delete process.env.FAKE_SYMPHONY_MODE;
+        unsubscribe();
+      }
     });
 
     await test("transition execution coalesced into active comment wake cancels orphan execution run", async () => {

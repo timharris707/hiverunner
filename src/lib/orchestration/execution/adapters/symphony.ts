@@ -7,6 +7,7 @@
  * Symphony's current reference Linear poller.
  */
 
+import { randomUUID } from "crypto";
 import { spawn, spawnSync } from "child_process";
 import fs from "fs";
 import path from "path";
@@ -139,6 +140,8 @@ type MergeRunnerMetadataOptions = {
 };
 
 const DEFAULT_SYMPHONY_MAX_BUFFER = 10 * 1024 * 1024;
+const RUNNER_LIVE_EVENT_SCHEMA = "hiverunner.external-runner.live-event.v1";
+const RUNNER_LIVE_EVENT_PREFIX = "::hiverunner-live-event ";
 const BUNDLED_RUNNER_SCRIPT_NAMES = new Set([
   "hiverunner-symphony-runner.mjs",
   "hiverunner-claude-runner.mjs",
@@ -177,6 +180,27 @@ function liveEventForTranscript(event: Record<string, unknown>, providerMetaPatc
       summary,
       provider: "symphony",
       payload: { text: body },
+      providerMeta,
+    };
+  }
+  if (kind === "assistant_text_delta") {
+    return {
+      kind: "assistant_text_delta" as const,
+      summary,
+      provider: "symphony",
+      payload: { delta: body, accumulatedText: body },
+      providerMeta,
+    };
+  }
+  if (kind === "runtime_progress") {
+    return {
+      kind: "runtime_progress" as const,
+      summary,
+      provider: "symphony",
+      payload: {
+        phase: typeof metadata?.phase === "string" ? metadata.phase : "running",
+        message: body,
+      },
       providerMeta,
     };
   }
@@ -233,6 +257,193 @@ function parseJson(value: string | null | undefined): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+type LiveTranscriptEventInput = {
+  kind: string;
+  role?: string | null;
+  title?: string | null;
+  body?: string | null;
+  metadata?: Record<string, unknown>;
+  occurredAt?: string | null;
+};
+
+function normalizeLiveTranscriptEvent(value: unknown): LiveTranscriptEventInput | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  const kind = stringFrom(record.kind) || stringFrom(record.eventKind);
+  if (!kind) return null;
+  const body =
+    typeof record.body === "string" ? record.body :
+    typeof record.message === "string" ? record.message :
+    typeof record.summary === "string" ? record.summary :
+    "";
+  return {
+    kind,
+    role: typeof record.role === "string" ? record.role : null,
+    title: typeof record.title === "string" ? record.title : null,
+    body,
+    metadata: asRecord(record.metadata) ?? {},
+    occurredAt: typeof record.occurredAt === "string" && record.occurredAt.trim()
+      ? record.occurredAt
+      : null,
+  };
+}
+
+function parseRunnerLiveProtocolLine(line: string): LiveTranscriptEventInput | null {
+  const text = line.trim();
+  if (!text.startsWith(RUNNER_LIVE_EVENT_PREFIX)) return null;
+  const parsed = parseJson(text.slice(RUNNER_LIVE_EVENT_PREFIX.length));
+  if (parsed.schema !== undefined && parsed.schema !== RUNNER_LIVE_EVENT_SCHEMA) return null;
+  return normalizeLiveTranscriptEvent(parsed.event);
+}
+
+function createRunnerLiveProtocolParser(onEvent: (event: LiveTranscriptEventInput) => void) {
+  let pendingLine = "";
+  const ingestLine = (line: string) => {
+    const event = parseRunnerLiveProtocolLine(line);
+    if (!event) return;
+    onEvent(event);
+  };
+
+  return {
+    push(chunk: Buffer) {
+      const text = pendingLine + chunk.toString("utf8");
+      const lines = text.split(/\r?\n/);
+      pendingLine = lines.pop() ?? "";
+      for (const line of lines) ingestLine(line);
+    },
+    flush() {
+      if (pendingLine.trim()) ingestLine(pendingLine);
+      pendingLine = "";
+    },
+  };
+}
+
+function stripRunnerLiveProtocolLines(value: string): string {
+  if (!value.includes(RUNNER_LIVE_EVENT_PREFIX)) return value;
+  return value
+    .split(/\r?\n/)
+    .filter((line) => !line.trim().startsWith(RUNNER_LIVE_EVENT_PREFIX))
+    .join("\n");
+}
+
+function createRunnerLiveProtocolStripper() {
+  let pendingProtocolLine: string | null = null;
+
+  const stripChunk = (value: string): string => {
+    let text = value;
+    let output = "";
+
+    if (pendingProtocolLine !== null) {
+      text = pendingProtocolLine + text;
+      pendingProtocolLine = null;
+    }
+
+    while (text.length > 0) {
+      const newlineIndex = text.search(/\r?\n/);
+      if (newlineIndex === -1) {
+        const trimmed = text.trimStart();
+        if (trimmed.startsWith(RUNNER_LIVE_EVENT_PREFIX) || RUNNER_LIVE_EVENT_PREFIX.startsWith(trimmed)) {
+          pendingProtocolLine = text;
+          return output;
+        }
+        output += text;
+        return output;
+      }
+
+      const lineEnd = text[newlineIndex] === "\r" && text[newlineIndex + 1] === "\n"
+        ? newlineIndex + 2
+        : newlineIndex + 1;
+      const line = text.slice(0, lineEnd);
+      text = text.slice(lineEnd);
+      if (line.trimStart().startsWith(RUNNER_LIVE_EVENT_PREFIX)) continue;
+      output += line;
+    }
+
+    return output;
+  };
+
+  return {
+    push(chunk: Buffer): string {
+      return stripChunk(chunk.toString("utf8"));
+    },
+    flush(): string {
+      const remaining = pendingProtocolLine;
+      pendingProtocolLine = null;
+      if (!remaining) return "";
+      return remaining.trimStart().startsWith(RUNNER_LIVE_EVENT_PREFIX) ? "" : remaining;
+    },
+  };
+}
+
+function isMeaningfulRunnerLiveProtocolEvent(event: LiveTranscriptEventInput | null): boolean {
+  if (!event) return false;
+  if (event.kind === "runtime_progress") {
+    const metadata = event.metadata ?? {};
+    const childOutputBytes =
+      numberFrom(metadata.stdoutBytes) ??
+      numberFrom(metadata.childStdoutBytes) ??
+      numberFrom(metadata.codexStdoutBytes) ??
+      0;
+    const childErrorBytes =
+      numberFrom(metadata.stderrBytes) ??
+      numberFrom(metadata.childStderrBytes) ??
+      numberFrom(metadata.codexStderrBytes) ??
+      0;
+    return childOutputBytes + childErrorBytes > 0;
+  }
+  return Boolean((event.body ?? "").trim() || (event.title ?? "").trim());
+}
+
+function appendLiveExecutionTranscriptEvent(input: {
+  db: Database.Database;
+  executionRunId: string;
+  provider: string;
+  event: LiveTranscriptEventInput;
+  providerMeta?: Record<string, unknown>;
+}): void {
+  const kind = stringFrom(input.event.kind);
+  if (!kind) return;
+  const occurredAt = input.event.occurredAt || new Date().toISOString();
+  const metadata = {
+    live: true,
+    ...(input.providerMeta ?? {}),
+    ...(input.event.metadata ?? {}),
+  };
+  const title = input.event.title ? trimForStorage(input.event.title, 500) : null;
+  const body = trimForStorage(input.event.body ?? title ?? kind);
+
+  input.db.transaction(() => {
+    const row = input.db
+      .prepare(
+        `SELECT COALESCE(MAX(sequence), -1) + 1 AS sequence
+         FROM execution_run_transcript_events
+         WHERE execution_run_id = ?`,
+      )
+      .get(input.executionRunId) as { sequence: number } | undefined;
+    input.db.prepare(
+      `INSERT INTO execution_run_transcript_events
+        (id, execution_run_id, provider, event_kind, role, title, body,
+         metadata_json, sequence, occurred_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      randomUUID(),
+      input.executionRunId,
+      input.provider,
+      kind,
+      input.event.role ?? null,
+      title,
+      body,
+      JSON.stringify(metadata),
+      row?.sequence ?? 0,
+      occurredAt,
+      occurredAt,
+    );
+    input.db
+      .prepare("UPDATE execution_runs SET updated_at = ? WHERE id = ? AND status IN ('pending', 'running')")
+      .run(occurredAt, input.executionRunId);
+  })();
 }
 
 function stringArrayFrom(value: unknown): string[] {
@@ -692,6 +903,9 @@ function createMeaningfulOutputDetector(): (chunk: Buffer) => boolean {
     if (!text) return false;
     if (isProgressDiagnosticLine(text)) return false;
     if (isWrapperChildProgressDiagnosticLine(text)) return true;
+    if (text.startsWith(RUNNER_LIVE_EVENT_PREFIX)) {
+      return isMeaningfulRunnerLiveProtocolEvent(parseRunnerLiveProtocolLine(text));
+    }
 
     const codexChildProgress = parseCodexChildProgressDiagnostic(text);
     if (codexChildProgress) {
@@ -1104,6 +1318,28 @@ function runCommand(
   const stdinPayload = `${JSON.stringify(payload, null, 2)}\n`;
 
   return new Promise((resolve) => {
+    const appendLiveTranscript = (
+      event: LiveTranscriptEventInput,
+      providerMeta: Record<string, unknown> = {},
+    ) => {
+      if (!options?.executionRunId || !options.db) return;
+      try {
+        appendLiveExecutionTranscriptEvent({
+          db: options.db,
+          executionRunId: options.executionRunId,
+          provider: "symphony",
+          event,
+          providerMeta: {
+            runnerProvider: config.runnerProvider,
+            runnerModel: config.runnerModel,
+            heartbeatRunId: options.heartbeatRunId ?? null,
+            ...providerMeta,
+          },
+        });
+      } catch {
+        // Live transcript rows are observational; command execution remains authoritative.
+      }
+    };
     options?.emitLiveEvent?.({
       kind: "command_start",
       summary: `Starting external runner: ${config.displayName}`,
@@ -1116,6 +1352,21 @@ function runCommand(
       providerMeta: {
         runnerProvider: config.runnerProvider,
         runnerModel: config.runnerModel,
+        launchCommand: config.launchCommand,
+        launchArgs: config.launchArgs,
+        runtimeSlug: config.runtimeSlug,
+      },
+    });
+    appendLiveTranscript({
+      kind: "run_start",
+      role: "system",
+      title: "External runner handoff started",
+      body: `${config.command} ${config.args.join(" ")}`.trim(),
+      occurredAt: new Date(startedAt).toISOString(),
+      metadata: {
+        cwd: config.cwd,
+        command: config.command,
+        args: config.args,
         launchCommand: config.launchCommand,
         launchArgs: config.launchArgs,
         runtimeSlug: config.runtimeSlug,
@@ -1146,6 +1397,17 @@ function runCommand(
         pgid,
         runnerProvider: config.runnerProvider,
         argv: [config.launchCommand, ...config.launchArgs],
+      },
+    });
+    appendLiveTranscript({
+      kind: "provider_event",
+      role: "system",
+      title: "External runner process spawned",
+      body: pid ? `External runner process spawned (${pid})` : "External runner process spawned",
+      metadata: {
+        pid: pid ?? null,
+        pgid,
+        command: path.basename(config.launchCommand),
       },
     });
     const stdoutChunks: Buffer[] = [];
@@ -1262,6 +1524,20 @@ function runCommand(
             durationMs: Date.now() - startedAt,
           },
         });
+        appendLiveTranscript({
+          kind: "provider_error",
+          role: "system",
+          title: "External runner termination requested",
+          body: detail,
+          metadata: {
+            phase: status,
+            pid: pid ?? null,
+            pgid,
+            terminationSignal: "SIGTERM",
+            terminationSignalMethod,
+            durationMs: Date.now() - startedAt,
+          },
+        });
         mergeProgressMetadata(status, {
           terminationSignal: "SIGTERM",
           terminationSignalMethod,
@@ -1281,6 +1557,20 @@ function runCommand(
             },
             providerMeta: {
               runnerProvider: config.runnerProvider,
+              pid: pid ?? null,
+              pgid,
+              terminationSignal: "SIGKILL",
+              terminationSignalMethod,
+              durationMs: Date.now() - startedAt,
+            },
+          });
+          appendLiveTranscript({
+            kind: "provider_error",
+            role: "system",
+            title: "External runner force kill requested",
+            body: "External runner did not exit after SIGTERM; sending SIGKILL.",
+            metadata: {
+              phase: "force_killed",
               pid: pid ?? null,
               pgid,
               terminationSignal: "SIGKILL",
@@ -1347,20 +1637,35 @@ function runCommand(
     progressTimer = setInterval(() => {
       progressUpdateCount += 1;
       const silentForMs = Date.now() - (lastOutputAt ?? startedAt);
+      const progressMessage =
+        `External runner still active after ${formatDuration(Date.now() - startedAt)}; ${formatDuration(silentForMs)} since last stdout/stderr.`;
       options?.emitEvent?.(
         "waiting",
-        `External runner still active after ${formatDuration(Date.now() - startedAt)}; ${formatDuration(silentForMs)} since last stdout/stderr.`,
+        progressMessage,
       );
       options?.emitLiveEvent?.({
         kind: "runtime_progress",
-        summary: `External runner still active after ${formatDuration(Date.now() - startedAt)}; ${formatDuration(silentForMs)} since last stdout/stderr.`,
+        summary: progressMessage,
         provider: "symphony",
         payload: {
           phase: lastOutputAt ? "running" : "running_silent",
-          message: `External runner still active after ${formatDuration(Date.now() - startedAt)}; ${formatDuration(silentForMs)} since last stdout/stderr.`,
+          message: progressMessage,
         },
         providerMeta: {
           runnerProvider: config.runnerProvider,
+          progressUpdateCount,
+          silentForMs,
+          stdoutBytes,
+          stderrBytes,
+        },
+      });
+      appendLiveTranscript({
+        kind: "runtime_progress",
+        role: "system",
+        title: "External runner active",
+        body: progressMessage,
+        metadata: {
+          phase: lastOutputAt ? "running" : "running_silent",
           progressUpdateCount,
           silentForMs,
           stdoutBytes,
@@ -1372,6 +1677,21 @@ function runCommand(
 
     const stdoutHasMeaningfulOutput = createMeaningfulOutputDetector();
     const stderrHasMeaningfulOutput = createMeaningfulOutputDetector();
+    const runnerLiveProtocolStripper = createRunnerLiveProtocolStripper();
+    const runnerLiveProtocol = createRunnerLiveProtocolParser((event) => {
+      appendLiveTranscript(event, {
+        source: "runner-live-protocol",
+      });
+      options?.emitLiveEvent?.(liveEventForTranscript(event, {
+        runnerProvider: config.runnerProvider,
+        runnerModel: config.runnerModel,
+        source: "runner-live-protocol",
+      }));
+      if (isMeaningfulRunnerLiveProtocolEvent(event)) {
+        lastOutputAt = Date.now();
+        resetNoOutputTimer();
+      }
+    });
 
     child.stdout.on("data", (chunk: Buffer) => {
       stdoutBytes += chunk.length;
@@ -1394,7 +1714,9 @@ function runCommand(
       stderrBytes += chunk.length;
       stderrTail = appendTail(stderrTail, chunk);
       if (stderrBytes <= maxBufferBytes) stderrChunks.push(chunk);
-      stderrLive.push(chunk);
+      runnerLiveProtocol.push(chunk);
+      const cleanStderrChunk = runnerLiveProtocolStripper.push(chunk);
+      if (cleanStderrChunk) stderrLive.push(cleanStderrChunk);
       if (stderrHasMeaningfulOutput(chunk)) {
         lastOutputAt = Date.now();
         resetNoOutputTimer();
@@ -1416,11 +1738,15 @@ function runCommand(
     child.on("close", (exitCode, signal) => {
       clearTimeout(timer);
       clearRuntimeTimers();
+      runnerLiveProtocol.flush();
       stdoutLive.flush();
+      const remainingCleanStderrChunk = runnerLiveProtocolStripper.flush();
+      if (remainingCleanStderrChunk) stderrLive.push(remainingCleanStderrChunk);
       stderrLive.flush();
       const stdout = Buffer.concat(stdoutChunks).toString("utf8");
-      const stderr = Buffer.concat(stderrChunks).toString("utf8");
-      const compactStderrTail = stderrTail.trim().replace(/\s+/g, " ").slice(-500);
+      const stderr = stripRunnerLiveProtocolLines(Buffer.concat(stderrChunks).toString("utf8"));
+      const cleanStderrTail = stripRunnerLiveProtocolLines(stderrTail);
+      const compactStderrTail = cleanStderrTail.trim().replace(/\s+/g, " ").slice(-500);
       const reason = terminationReason({ spawnError, timedOut, silentTimedOut, killedForBuffer, exitCode, signal });
       const failureClass = failureClassForTermination(reason);
       const errorMessage = spawnError
@@ -1454,7 +1780,7 @@ function runCommand(
             progressUpdateCount,
             lastOutputAt: lastOutputAt ? new Date(lastOutputAt).toISOString() : null,
             stdoutTail: trimForStorage(stdoutTail),
-            stderrTail: trimForStorage(stderrTail),
+            stderrTail: trimForStorage(cleanStderrTail),
           });
         } catch {}
       }
@@ -1504,7 +1830,7 @@ function runCommand(
         stdout,
         stderr,
         stdoutTail: trimForStorage(stdoutTail),
-        stderrTail: trimForStorage(stderrTail),
+        stderrTail: trimForStorage(cleanStderrTail),
         stdoutBytes,
         stderrBytes,
         exitCode,

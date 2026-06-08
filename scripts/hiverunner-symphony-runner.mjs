@@ -18,6 +18,9 @@ const DEFAULT_CODEX_NO_OUTPUT_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_CODEX_PROGRESS_INTERVAL_MS = 60 * 1000;
 const DEFAULT_CODEX_TERMINATION_GRACE_MS = 5 * 1000;
 const RUNNER_VERSION = "hiverunner-symphony-runner 0.1.0";
+const LIVE_EVENT_SCHEMA = "hiverunner.external-runner.live-event.v1";
+const LIVE_EVENT_PREFIX = "::hiverunner-live-event ";
+const DEFAULT_LIVE_EVENT_LIMIT = 200;
 
 if (process.argv.includes("--version") || process.argv.includes("-v")) {
   console.log(RUNNER_VERSION);
@@ -182,6 +185,91 @@ function extractText(value) {
     stringFrom(record.summaryText) ||
     stringFrom(record.output_text)
   );
+}
+
+function trimForLiveEvent(value, maxChars = 4000) {
+  const text = stringFrom(value);
+  if (text.length <= maxChars) return text;
+  return text.slice(-maxChars);
+}
+
+function emitRunnerLiveEvent(event) {
+  try {
+    process.stderr.write(`${LIVE_EVENT_PREFIX}${JSON.stringify({
+      schema: LIVE_EVENT_SCHEMA,
+      event,
+    })}\n`);
+  } catch {
+    // Live progress is best effort; final JSON output is still authoritative.
+  }
+}
+
+function createCodexLiveStdoutForwarder() {
+  const limit = numberFromEnv("HIVERUNNER_SYMPHONY_LIVE_EVENT_LIMIT", DEFAULT_LIVE_EVENT_LIMIT);
+  let lineBuffer = "";
+  let forwarded = 0;
+  let limitReported = false;
+
+  const maybeEmitLimit = () => {
+    if (limitReported) return;
+    limitReported = true;
+    emitRunnerLiveEvent({
+      kind: "runtime_progress",
+      role: "system",
+      title: "Codex live event limit reached",
+      body: `Codex live output exceeded ${limit} forwarded event(s); continuing to buffer final output.`,
+      metadata: {
+        runnerProvider: "codex",
+        source: "codex-stdout",
+        liveEventLimit: limit,
+      },
+    });
+  };
+
+  const ingestLine = (rawLine) => {
+    const line = rawLine.trim();
+    if (!line) return;
+    if (forwarded >= limit) {
+      maybeEmitLimit();
+      return;
+    }
+
+    const record = parseJsonLine(line);
+    if (!record) return;
+    const type = stringFrom(record.type);
+    const body = trimForLiveEvent(extractText(record));
+    const role = stringFrom(record.role) || (body ? "assistant" : "system");
+    const sessionId = stringFrom(record.session_id) || stringFrom(record.sessionId);
+    if (!body && !sessionId && type !== "session") return;
+
+    const assistantLike = body && (role === "assistant" || type === "message" || type === "assistant");
+    emitRunnerLiveEvent({
+      kind: assistantLike ? "assistant_text_delta" : "provider_event",
+      role,
+      title: type === "session" ? "Codex session started" : "Codex event",
+      body: body || (sessionId ? `Codex session ${sessionId} started.` : type || "Codex event"),
+      metadata: {
+        runnerProvider: "codex",
+        source: "codex-stdout",
+        codexEventType: type || null,
+        sessionId: sessionId || null,
+      },
+    });
+    forwarded += 1;
+  };
+
+  return {
+    push(chunk) {
+      lineBuffer += chunk.toString("utf8");
+      const lines = lineBuffer.split(/\r?\n/);
+      lineBuffer = lines.pop() ?? "";
+      for (const line of lines) ingestLine(line);
+    },
+    finish() {
+      if (lineBuffer.trim()) ingestLine(lineBuffer);
+      lineBuffer = "";
+    },
+  };
 }
 
 function collectUsage(records) {
@@ -367,6 +455,7 @@ function runCodex({ command, args, cwd, prompt }) {
     ],
     DEFAULT_CODEX_TERMINATION_GRACE_MS,
   );
+  const liveStdout = createCodexLiveStdoutForwarder();
 
   return runBufferedCommand({
     command,
@@ -387,6 +476,9 @@ function runCodex({ command, args, cwd, prompt }) {
     describeNoOutputTimeout: () => `Codex command produced no stdout/stderr for ${noOutputTimeoutMs}ms`,
     describeBufferLimit: () => `Codex command exceeded ${maxBufferBytes} bytes of stdout`,
     describeExit: ({ exitCode, signal }) => `Codex command exited with code ${exitCode}${signal ? ` (${signal})` : ""}`,
+    onStdout: (chunk) => {
+      liveStdout.push(chunk);
+    },
     onProgress: ({ durationMs, silentForMs, stdoutBytes, stderrBytes }) => {
       process.stderr.write(
         `[hiverunner-symphony-runner] Codex still active after ${formatDuration(durationMs)}; ` +
@@ -394,6 +486,8 @@ function runCodex({ command, args, cwd, prompt }) {
         `(${stdoutBytes} stdout bytes, ${stderrBytes} stderr bytes).\n`,
       );
     },
+  }).finally(() => {
+    liveStdout.finish();
   });
 }
 

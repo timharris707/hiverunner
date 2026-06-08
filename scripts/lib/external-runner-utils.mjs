@@ -190,6 +190,8 @@ export function runBufferedCommand({
   describeBufferLimit,
   describeExit,
   onProgress,
+  onStdout,
+  onStderr,
 }) {
   const startedAt = Date.now();
 
@@ -277,6 +279,11 @@ export function runBufferedCommand({
     child.stdout?.on("data", (chunk) => {
       lastOutputAt = Date.now();
       stdoutBytes += chunk.length;
+      try {
+        onStdout?.(chunk);
+      } catch {
+        // Output taps are observational and must not break command execution.
+      }
       if (stdoutBytes <= maxBufferBytes) stdoutChunks.push(chunk);
       resetNoOutputTimer();
       if (stdoutBytes > maxBufferBytes && !killedForBuffer) {
@@ -287,6 +294,11 @@ export function runBufferedCommand({
     child.stderr?.on("data", (chunk) => {
       lastOutputAt = Date.now();
       stderrBytes += chunk.length;
+      try {
+        onStderr?.(chunk);
+      } catch {
+        // Output taps are observational and must not break command execution.
+      }
       if (stderrBytes <= maxBufferBytes) stderrChunks.push(chunk);
       resetNoOutputTimer();
     });
