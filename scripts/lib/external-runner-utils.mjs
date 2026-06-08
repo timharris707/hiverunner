@@ -3,6 +3,10 @@ import { spawn, spawnSync } from "node:child_process";
 const EXTERNAL_RUNNER_ENV_DENYLIST = [
   "HIVERUNNER_RUNTIME_PROMOTION_DB",
   "HIVERUNNER_EPHEMERAL_DATA_DIR",
+  "ANTHROPIC_API_KEY",
+  "ANTHROPIC_AUTH_TOKEN",
+  "ANTHROPIC_BASE_URL",
+  "CLAUDE_API_KEY",
   "MC_API_KEY",
   "MC_APP_ROOT",
   "MC_DATA_DIR",
@@ -13,20 +17,27 @@ const EXTERNAL_RUNNER_ENV_DENYLIST = [
   "MC_SWEEP_INTERVAL_MS",
   "MC_TICK_MAX_CONCURRENT",
   "MC_WORKSPACE_ROOT",
+  "OPENAI_API_BASE",
+  "OPENAI_API_KEY",
+  "OPENAI_BASE_URL",
+  "OPENAI_ORG_ID",
+  "OPENAI_ORGANIZATION",
+  "OPENAI_PROJECT",
+  "OPENROUTER_API_KEY",
   "ORCHESTRATION_DB_PATH",
   "PORT",
   "WORKSPACE_ROOT",
 ];
 
 export function buildExternalRunnerEnv(overrides = {}) {
-  const env = { ...process.env };
+  const env = {
+    ...process.env,
+    ...overrides,
+  };
   for (const key of EXTERNAL_RUNNER_ENV_DENYLIST) {
     delete env[key];
   }
-  return {
-    ...env,
-    ...overrides,
-  };
+  return env;
 }
 
 export function readStdin() {

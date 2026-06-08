@@ -21,6 +21,7 @@ import {
   createGeminiCliModelConfig,
   type GeminiCliModelConfig,
 } from "@/lib/orchestration/gemini-cli-model-config";
+import { buildExternalRunnerEnv } from "@/lib/orchestration/execution/adapters/child-env";
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_BUFFER_BYTES = 10 * 1024 * 1024;
@@ -168,11 +169,10 @@ function buildPrompt(input: {
 function buildEnv(command: string, modelConfig: GeminiCliModelConfig | null = null): NodeJS.ProcessEnv {
   const pathEntries = [process.env.PATH ?? "", "/opt/homebrew/bin", "/usr/local/bin"];
   if (path.isAbsolute(command)) pathEntries.unshift(path.dirname(command));
-  return {
-    ...process.env,
+  return buildExternalRunnerEnv(process.env, {
     ...(modelConfig ? { GEMINI_CLI_SYSTEM_SETTINGS_PATH: modelConfig.settingsPath } : {}),
     PATH: pathEntries.filter(Boolean).join(":"),
-  };
+  });
 }
 
 function readGitDiffSnapshot(cwd: string): GitDiffSnapshot | null {

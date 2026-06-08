@@ -617,6 +617,91 @@ async function run() {
     assert.strictEqual(executionRun!.status, "completed");
   });
 
+  await test("review handoff with medium live-target wording does not require protected runtime approval", async () => {
+    const reviewTask = createTask({
+      projectId: project.id,
+      title: "Review update to live operator docs",
+      description: "Verify the docs update for governed live mode. Review only; do not deploy, publish, or change production systems.",
+      priority: "P2",
+      type: "maintenance",
+      status: "review",
+      assignee: agent.id,
+      labels: [],
+      createdBy: "test",
+    }).task;
+
+    const wake = enqueueWakeup({
+      agentId: agent.id,
+      companyId: company.id,
+      source: "explicit",
+      reason: "review handoff protected wording test",
+      invocationSource: "issue_assigned",
+      contextSnapshot: {
+        wakeSource: "issue_assigned",
+        wakeReason: "engine_default_review_handoff",
+        taskId: reviewTask.id,
+        taskStatus: "review",
+        projectId: project.id,
+      },
+    }, db);
+
+    const result = await executeHeartbeatRun(wake.heartbeatRunId, db);
+    assert.strictEqual(result.status, "succeeded", result.error ?? "review-only wake should not require protected approval");
+
+    const approvalCount = (
+      db.prepare(
+        `SELECT COUNT(*) AS count
+         FROM approvals
+         WHERE type = 'protected_runtime_command'
+           AND linked_task_id = ?`,
+      ).get(reviewTask.id) as { count: number }
+    ).count;
+    assert.strictEqual(approvalCount, 0, "review-only wake should not create protected runtime approval");
+  });
+
+  await test("review handoff with high-risk command wording still requires protected runtime approval", async () => {
+    const reviewTask = createTask({
+      projectId: project.id,
+      title: "Review production migration command",
+      description: "Review the proposed prisma migrate deploy command before it can run anywhere.",
+      priority: "P1",
+      type: "maintenance",
+      status: "review",
+      assignee: agent.id,
+      labels: [],
+      createdBy: "test",
+    }).task;
+
+    const wake = enqueueWakeup({
+      agentId: agent.id,
+      companyId: company.id,
+      source: "explicit",
+      reason: "review handoff high risk protected wording test",
+      invocationSource: "issue_assigned",
+      contextSnapshot: {
+        wakeSource: "issue_assigned",
+        wakeReason: "engine_default_review_handoff",
+        taskId: reviewTask.id,
+        taskStatus: "review",
+        projectId: project.id,
+      },
+    }, db);
+
+    const result = await executeHeartbeatRun(wake.heartbeatRunId, db);
+    assert.strictEqual(result.status, "cancelled", "high-risk review wake should still require protected approval");
+
+    const approval = db.prepare(
+      `SELECT payload_json
+       FROM approvals
+       WHERE type = 'protected_runtime_command'
+         AND linked_task_id = ?
+       LIMIT 1`,
+    ).get(reviewTask.id) as { payload_json: string } | undefined;
+    assert.ok(approval, "high-risk review wake should create protected runtime approval");
+    const payload = JSON.parse(approval.payload_json) as { risks?: Array<{ code?: string }> };
+    assert.ok(payload.risks?.some((risk) => risk.code === "database_change"), "approval should retain high-risk database command");
+  });
+
   await test("hire actions inherit requesting Codex runtime defaults", async () => {
     const outcome = await executeMcAction(
       {

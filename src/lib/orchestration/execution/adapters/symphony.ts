@@ -47,6 +47,7 @@ import {
   captureWorkspaceGitSnapshots,
   detectReadOnlyIntent,
 } from "../workspace-run-visibility";
+import { buildExternalRunnerEnv } from "./child-env";
 import { createAdapterLiveChunkEmitter } from "./live-event-utils";
 
 type SymphonyRuntimeRow = {
@@ -1569,11 +1570,10 @@ function runCommand(
     });
     const child = spawn(config.launchCommand, config.launchArgs, {
       cwd: config.cwd,
-      env: {
-        ...process.env,
+      env: buildExternalRunnerEnv(process.env, {
         ...config.env,
         HIVERUNNER_SYMPHONY_PAYLOAD: "stdin-json",
-      },
+      }),
       stdio: ["pipe", "pipe", "pipe"],
       detached: process.platform !== "win32",
     });

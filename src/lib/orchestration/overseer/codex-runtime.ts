@@ -27,6 +27,7 @@ import type {
   OverseerQuotaSnapshot,
   OverseerUsageSnapshot,
 } from "./types";
+import { buildExternalRunnerEnv } from "@/lib/orchestration/execution/adapters/child-env";
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_BUFFER_BYTES = 8 * 1024 * 1024;
@@ -354,7 +355,7 @@ export function detectCodexStatus(command = "codex"): {
   const lower = loginStatus.toLowerCase();
   const chatgpt = lower.includes("chatgpt");
   const apiKey = lower.includes("api key") || lower.includes("api-key") || lower.includes("openai api");
-  const authReady = login.status === 0 && (chatgpt || apiKey || lower.includes("logged in"));
+  const authReady = login.status === 0 && !apiKey && (chatgpt || lower.includes("logged in"));
   return {
     command,
     installed: true,
@@ -545,7 +546,7 @@ function runCodexProcess(input: {
   return new Promise((resolve) => {
     const child = spawn(input.command, args, {
       cwd: input.workspaceRoot,
-      env: process.env,
+      env: buildExternalRunnerEnv(process.env),
       stdio: ["pipe", "pipe", "pipe"],
     });
     setOverseerTurnProcess({ sessionId: input.sessionId, turnId: input.turnId, pid: child.pid ?? null });

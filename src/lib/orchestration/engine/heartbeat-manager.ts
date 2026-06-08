@@ -894,6 +894,8 @@ export async function executeHeartbeatRun(
       provider: executionRunProvider,
       taskId: taskKey,
       runId,
+      wakeReason: typeof contextSnapshot.wakeReason === "string" ? contextSnapshot.wakeReason : null,
+      taskStatus: typeof contextSnapshot.taskStatus === "string" ? contextSnapshot.taskStatus : null,
     });
 
     if (!protectedGate.allowed) {

@@ -33,6 +33,7 @@ import {
   bridgeAnthropicStdoutChunk,
   summarizeAnthropicCliOutput,
 } from "@/lib/orchestration/anthropic-execution-bridge";
+import { buildExternalRunnerEnv } from "@/lib/orchestration/execution/adapters/child-env";
 import { dbGetTransitions } from "@/lib/tasks-db";
 
 export { readJSON } from "@/lib/json-file";
@@ -410,11 +411,18 @@ const GEMINI_MODEL_MAP: Record<string, { id: string; name: string; modelFlag?: s
 
 const CLI_AVAILABLE_CACHE = new Map<string, boolean>();
 
+function buildSubscriptionCliEnv(overrides: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
+  return buildExternalRunnerEnv(process.env, {
+    PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ""}`,
+    ...overrides,
+  });
+}
+
 function isCliAvailable(cmd: string): boolean {
   if (CLI_AVAILABLE_CACHE.has(cmd)) return CLI_AVAILABLE_CACHE.get(cmd)!;
   try {
     execFileSync("which", [cmd], {
-      env: { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ""}` },
+      env: buildSubscriptionCliEnv(),
       stdio: "pipe",
     });
     CLI_AVAILABLE_CACHE.set(cmd, true);
@@ -626,10 +634,7 @@ function spawnVisualQAProcess(
 
     sendSystemEvent(`👁️ Visual QA reviewer spawning for: ${String(task.title || task.id).replace(/"/g, "'")}`);
 
-    const reviewEnv = {
-      ...process.env,
-      PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ""}`,
-    };
+    const reviewEnv = buildSubscriptionCliEnv();
 
     const child = execFile(
       "claude",
@@ -846,10 +851,7 @@ function spawnVigilQAProcess(
 
   sendSystemEvent(`🛡️ Vigil QA spawning for: ${String(task.title || task.id).replace(/"/g, "'")} (builder: ${builderAgentId})`);
 
-  const qaEnv = {
-    ...process.env,
-    PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ""}`,
-  };
+  const qaEnv = buildSubscriptionCliEnv();
 
   const child = execFile(
     "claude",
@@ -2858,10 +2860,7 @@ function spawnReviewProcess(task: any, reviewEntry: any, projectName: string, pr
 
   sendSystemEvent(`🔍 Auto-reviewer spawning for: ${String(task.title || task.id).replace(/"/g, "'")}`);
 
-  const reviewEnv = {
-    ...process.env,
-    PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ""}`,
-  };
+  const reviewEnv = buildSubscriptionCliEnv();
 
   const child = execFile(
     "claude",
@@ -2915,10 +2914,7 @@ function spawnGaterQAProcess(
 
   sendSystemEvent(`🚧 Gater QA spawning for: ${String(task.title || task.id).replace(/"/g, "'")} — final review gate`);
 
-  const gaterEnv = {
-    ...process.env,
-    PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ""}`,
-  };
+  const gaterEnv = buildSubscriptionCliEnv();
 
   const child = execFile(
     "claude",
@@ -3183,10 +3179,7 @@ function spawnBuildProcess(task: any, buildEntry: any, projectName: string, proj
   }
 
   // Ensure claude/codex binaries are findable — Next.js server may not have brew PATH
-  const env = {
-    ...process.env,
-    PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ""}`,
-  };
+  const env = buildSubscriptionCliEnv();
 
   if (process.env.HIVERUNNER_E2E_BUILD_STUB === "1") {
     return new Promise<{ pid: number | null }>((resolve, reject) => {

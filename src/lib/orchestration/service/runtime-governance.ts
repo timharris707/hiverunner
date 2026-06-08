@@ -377,12 +377,12 @@ function loadTaskContext(
          p.name AS project_name
        FROM tasks t
        INNER JOIN projects p ON p.id = t.project_id
-       WHERE t.id = ?
+       WHERE (t.id = ? OR t.task_key = ?)
          AND p.company_id = ?
          AND t.archived_at IS NULL
        LIMIT 1`,
     )
-    .get(taskId, companyId) as RuntimeGovernanceTaskRow | undefined;
+    .get(taskId, taskId, companyId) as RuntimeGovernanceTaskRow | undefined;
 
   if (!task) return null;
 
@@ -398,6 +398,28 @@ function loadTaskContext(
   return { task, text };
 }
 
+function isReviewOnlyRuntimeWake(input: {
+  wakeReason?: string | null;
+  taskStatus?: string | null;
+}, task: RuntimeGovernanceTaskRow): boolean {
+  const status = normalizeText(input.taskStatus ?? task.status).toLowerCase();
+  const wakeReason = normalizeText(input.wakeReason ?? "").toLowerCase();
+  return status === "review" && (wakeReason.length === 0 || wakeReason.includes("review"));
+}
+
+function runtimeRisksForContext(
+  context: { task: RuntimeGovernanceTaskRow; text: string },
+  input: { wakeReason?: string | null; taskStatus?: string | null },
+): ProtectedRuntimeRisk[] {
+  const risks = assessRisks(context.text);
+  if (!isReviewOnlyRuntimeWake(input, context.task)) return risks;
+
+  // Review handoffs verify already-produced work. Medium environment-target
+  // wording in the source task should not block a read-only QA pass, but high
+  // risk commands/secrets still require approval before any runtime starts.
+  return risks.filter((risk) => risk.severity === "high");
+}
+
 export function checkProtectedRuntimeExecution(input: {
   db: Database.Database;
   companyId: string;
@@ -406,6 +428,8 @@ export function checkProtectedRuntimeExecution(input: {
   provider: string;
   taskId: string;
   runId: string;
+  wakeReason?: string | null;
+  taskStatus?: string | null;
 }): ProtectedRuntimeGate {
   if (!shouldRequireProtectedRuntimeApprovals(input.companyId, input.db)) {
     return {
@@ -438,7 +462,7 @@ export function checkProtectedRuntimeExecution(input: {
     };
   }
 
-  const risks = assessRisks(context.text);
+  const risks = runtimeRisksForContext(context, input);
   if (risks.length === 0) {
     return {
       allowed: true,
