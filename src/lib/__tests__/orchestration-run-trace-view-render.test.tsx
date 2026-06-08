@@ -434,6 +434,16 @@ assert.match(proofHtml, /sha256 cccccccccccccccccccccccccccccccccccccccccccccccc
 assert.match(proofHtml, /Registered task artifact/);
 assert.match(proofHtml, /BASE_URL=http:\/\/localhost:3000 playwright test e2e\/run-trace.spec.ts --project=chromium/);
 
+const legacyProofTraceResponse = baseResponse({
+  proofAttachments: [proofAttachment({ id: "proof-legacy" })],
+});
+assert.ok(legacyProofTraceResponse.trace);
+delete (legacyProofTraceResponse.trace as { proofAttachments?: RunTraceProofAttachment[] | null }).proofAttachments;
+const legacyProofTraceHtml = render(legacyProofTraceResponse);
+assert.match(legacyProofTraceHtml, /Trace coverage/);
+assert.match(legacyProofTraceHtml, /Browser proof attachments/);
+assert.match(legacyProofTraceHtml, /task-page.png/);
+
 const failedHtml = render(baseResponse({
   run: {
     ...baseResponse().run,

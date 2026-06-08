@@ -287,6 +287,10 @@ interface WorkspaceRunVisibility {
   warnings: string[];
 }
 
+type RunTraceViewModelPayload = Omit<RunTraceViewModel, "proofAttachments"> & {
+  proofAttachments?: RunTraceProofAttachment[] | null;
+};
+
 /** Wire format from the run events API — uses `id` not `providerId` */
 interface ProviderInfo {
   id: string;
@@ -313,7 +317,7 @@ export interface RunEventsResponse {
   memoryEvidence?: unknown;
   transcript: { entries: TranscriptEntry[]; provenance: TranscriptProvenance };
   timeline: TimelineEvent[];
-  trace?: RunTraceViewModel;
+  trace?: RunTraceViewModelPayload;
   traceExport?: RunTraceRedactedExport;
   evalCaseSuggestion?: EvalCaseSuggestion | null;
   experimentReports?: OrchestrationExperimentReportEvidence[];
@@ -1419,7 +1423,7 @@ function RunTraceEvidenceCard({
   data,
   traceExport,
 }: {
-  trace: RunTraceViewModel;
+  trace: RunTraceViewModelPayload;
   data: RunEventsResponse;
   traceExport?: RunTraceRedactedExport;
 }) {
@@ -1439,18 +1443,19 @@ function RunTraceEvidenceCard({
         count: value.count,
       }))
     : [];
+  const traceProofAttachments = trace.proofAttachments ?? [];
+  const proofAttachments = traceProofAttachments.length > 0 ? traceProofAttachments : data.proofAttachments ?? [];
   const traceMetadata = traceExport ?? {
     run: data.run,
     task: data.task,
     invocation: data.invocation,
     providerExecution: data.providerExecution,
-    proofAttachments: trace.proofAttachments,
+    proofAttachments,
     trace,
     provenance: data.provenance,
   };
   const evalSuggestion = data.evalCaseSuggestion ?? null;
   const experimentReports = data.experimentReports ?? [];
-  const proofAttachments = trace.proofAttachments.length > 0 ? trace.proofAttachments : data.proofAttachments ?? [];
 
   return (
     <div style={{
