@@ -324,6 +324,53 @@ async function run() {
     }
   });
 
+  await test("runtime action ledger retries transient SQLite busy writes", () => {
+    let insertAttempts = 0;
+    const fakeDb = {
+      prepare(sql: string) {
+        return {
+          get() {
+            if (sql.includes("sqlite_master")) return { name: "runtime_action_ledger" };
+            if (sql.includes("SELECT id FROM runtime_action_ledger")) return { id: "ledger-after-retry" };
+            return undefined;
+          },
+          run() {
+            if (sql.includes("INSERT INTO runtime_action_ledger")) {
+              insertAttempts += 1;
+              if (insertAttempts < 3) {
+                const error = new Error("database is locked") as Error & { code?: string };
+                error.code = "SQLITE_BUSY";
+                throw error;
+              }
+            }
+            return { changes: 1 };
+          },
+        };
+      },
+    } as unknown as Database.Database;
+    const originalAttempts = process.env.HIVERUNNER_ACTION_LEDGER_BUSY_WRITE_ATTEMPTS;
+    const originalBackoff = process.env.HIVERUNNER_ACTION_LEDGER_BUSY_BACKOFF_MS;
+    process.env.HIVERUNNER_ACTION_LEDGER_BUSY_WRITE_ATTEMPTS = "3";
+    process.env.HIVERUNNER_ACTION_LEDGER_BUSY_BACKOFF_MS = "1";
+    try {
+      const actionLedgerId = recordRuntimeActionLedgerEntry(fakeDb, {
+        source: "heartbeat_import",
+        status: "parsed",
+        companyId: company.id,
+        agentId: agent.id,
+        taskKey: "INS-TEST",
+        action: { action: "report", summary: "Retry action ledger write." },
+      });
+      assert.equal(actionLedgerId, "ledger-after-retry");
+      assert.equal(insertAttempts, 3);
+    } finally {
+      if (originalAttempts === undefined) delete process.env.HIVERUNNER_ACTION_LEDGER_BUSY_WRITE_ATTEMPTS;
+      else process.env.HIVERUNNER_ACTION_LEDGER_BUSY_WRITE_ATTEMPTS = originalAttempts;
+      if (originalBackoff === undefined) delete process.env.HIVERUNNER_ACTION_LEDGER_BUSY_BACKOFF_MS;
+      else process.env.HIVERUNNER_ACTION_LEDGER_BUSY_BACKOFF_MS = originalBackoff;
+    }
+  });
+
   await test("action ledger replay executes through dispatcher and records manual replay row", async () => {
     const task = createTask({
       projectId: project.id,

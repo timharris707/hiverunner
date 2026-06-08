@@ -40,11 +40,47 @@ export type RuntimeActionLedgerInput = {
   durationMs?: number | null;
 };
 
+const DEFAULT_SQLITE_BUSY_WRITE_ATTEMPTS = 3;
+const DEFAULT_SQLITE_BUSY_BACKOFF_MS = 25;
+
 function hasTable(db: Database.Database, tableName: string): boolean {
   const row = db
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
     .get(tableName) as { name: string } | undefined;
   return row?.name === tableName;
+}
+
+function positiveIntegerFromEnv(name: string, fallback: number): number {
+  const parsed = Number.parseInt(process.env[name] ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function sqliteBusyWriteAttempts(): number {
+  return Math.min(
+    10,
+    positiveIntegerFromEnv("HIVERUNNER_ACTION_LEDGER_BUSY_WRITE_ATTEMPTS", DEFAULT_SQLITE_BUSY_WRITE_ATTEMPTS),
+  );
+}
+
+function sqliteBusyBackoffMs(attempt: number): number {
+  const base = positiveIntegerFromEnv("HIVERUNNER_ACTION_LEDGER_BUSY_BACKOFF_MS", DEFAULT_SQLITE_BUSY_BACKOFF_MS);
+  return Math.min(250, base * Math.max(1, attempt));
+}
+
+function sleepSync(ms: number): void {
+  const buffer = new SharedArrayBuffer(4);
+  const view = new Int32Array(buffer);
+  Atomics.wait(view, 0, 0, ms);
+}
+
+function isSqliteBusyError(error: unknown): boolean {
+  const record = error && typeof error === "object" ? error as { code?: unknown; message?: unknown } : {};
+  const code = typeof record.code === "string" ? record.code : "";
+  const message = typeof record.message === "string" ? record.message.toLowerCase() : "";
+  return code === "SQLITE_BUSY" ||
+    code === "SQLITE_LOCKED" ||
+    message.includes("database is locked") ||
+    message.includes("database is busy");
 }
 
 function stableJson(value: unknown): string {
@@ -115,85 +151,93 @@ export function recordRuntimeActionLedgerEntry(
   db: Database.Database,
   input: RuntimeActionLedgerInput,
 ): string | null {
-  try {
-    if (!hasTable(db, "runtime_action_ledger")) return null;
-    const id = randomUUID();
-    const fingerprint = actionFingerprint(input);
-    const idempotencyKey = input.idempotencyKey ?? defaultIdempotencyKey(input, fingerprint);
-    const now = new Date().toISOString();
-    const actionJson = input.action ? stableJson(input.action) : "{}";
-    const outcomeJson = stableJson(input.outcome ?? {});
-    const actionType = input.actionType ?? input.action?.action ?? null;
-    const actionTarget = input.actionTarget ?? inferActionTarget(input.action);
+  const attempts = sqliteBusyWriteAttempts();
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      if (!hasTable(db, "runtime_action_ledger")) return null;
+      const id = randomUUID();
+      const fingerprint = actionFingerprint(input);
+      const idempotencyKey = input.idempotencyKey ?? defaultIdempotencyKey(input, fingerprint);
+      const now = new Date().toISOString();
+      const actionJson = input.action ? stableJson(input.action) : "{}";
+      const outcomeJson = stableJson(input.outcome ?? {});
+      const actionType = input.actionType ?? input.action?.action ?? null;
+      const actionTarget = input.actionTarget ?? inferActionTarget(input.action);
 
-    db.prepare(
-      `INSERT INTO runtime_action_ledger
-         (id, idempotency_key, company_id, agent_id, task_id, task_key,
-          heartbeat_run_id, execution_run_id, overseer_session_id, overseer_turn_id,
-          overseer_message_id, approval_id, source, message_index, block_index,
-          action_type, action_target, action_fingerprint, status, status_reason,
-          parse_error, action_json, raw_block, outcome_json, duration_ms, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(idempotency_key) DO UPDATE SET
-         company_id = COALESCE(excluded.company_id, runtime_action_ledger.company_id),
-         agent_id = COALESCE(excluded.agent_id, runtime_action_ledger.agent_id),
-         task_id = COALESCE(excluded.task_id, runtime_action_ledger.task_id),
-         task_key = COALESCE(excluded.task_key, runtime_action_ledger.task_key),
-         heartbeat_run_id = COALESCE(excluded.heartbeat_run_id, runtime_action_ledger.heartbeat_run_id),
-         execution_run_id = COALESCE(excluded.execution_run_id, runtime_action_ledger.execution_run_id),
-         overseer_session_id = COALESCE(excluded.overseer_session_id, runtime_action_ledger.overseer_session_id),
-         overseer_turn_id = COALESCE(excluded.overseer_turn_id, runtime_action_ledger.overseer_turn_id),
-         overseer_message_id = COALESCE(excluded.overseer_message_id, runtime_action_ledger.overseer_message_id),
-         approval_id = COALESCE(excluded.approval_id, runtime_action_ledger.approval_id),
-         action_type = COALESCE(excluded.action_type, runtime_action_ledger.action_type),
-         action_target = COALESCE(excluded.action_target, runtime_action_ledger.action_target),
-         status = excluded.status,
-         status_reason = COALESCE(excluded.status_reason, runtime_action_ledger.status_reason),
-         parse_error = COALESCE(excluded.parse_error, runtime_action_ledger.parse_error),
-         action_json = excluded.action_json,
-         raw_block = COALESCE(excluded.raw_block, runtime_action_ledger.raw_block),
-         outcome_json = excluded.outcome_json,
-         duration_ms = COALESCE(excluded.duration_ms, runtime_action_ledger.duration_ms),
-         updated_at = excluded.updated_at`,
-    ).run(
-      id,
-      idempotencyKey,
-      input.companyId ?? null,
-      input.agentId ?? null,
-      input.taskId ?? null,
-      input.taskKey ?? null,
-      input.heartbeatRunId ?? null,
-      input.executionRunId ?? null,
-      input.overseerSessionId ?? null,
-      input.overseerTurnId ?? null,
-      input.overseerMessageId ?? null,
-      input.approvalId ?? null,
-      input.source,
-      input.messageIndex ?? null,
-      input.blockIndex ?? 0,
-      cleanText(actionType, 120),
-      cleanText(actionTarget, 240),
-      fingerprint,
-      input.status,
-      cleanText(input.statusReason, 1000),
-      cleanText(input.parseError, 1000),
-      actionJson,
-      cleanText(input.rawBlock, 8000),
-      outcomeJson,
-      nonNegativeInteger(input.durationMs),
-      now,
-      now,
-    );
-    const row = db
-      .prepare("SELECT id FROM runtime_action_ledger WHERE idempotency_key = ? LIMIT 1")
-      .get(idempotencyKey) as { id: string } | undefined;
-    return row?.id ?? id;
-  } catch (err) {
-    if (process.env.NODE_ENV !== "test") {
-      console.warn("[runtime-action-ledger] failed to record action ledger entry", err);
+      db.prepare(
+        `INSERT INTO runtime_action_ledger
+           (id, idempotency_key, company_id, agent_id, task_id, task_key,
+            heartbeat_run_id, execution_run_id, overseer_session_id, overseer_turn_id,
+            overseer_message_id, approval_id, source, message_index, block_index,
+            action_type, action_target, action_fingerprint, status, status_reason,
+            parse_error, action_json, raw_block, outcome_json, duration_ms, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(idempotency_key) DO UPDATE SET
+           company_id = COALESCE(excluded.company_id, runtime_action_ledger.company_id),
+           agent_id = COALESCE(excluded.agent_id, runtime_action_ledger.agent_id),
+           task_id = COALESCE(excluded.task_id, runtime_action_ledger.task_id),
+           task_key = COALESCE(excluded.task_key, runtime_action_ledger.task_key),
+           heartbeat_run_id = COALESCE(excluded.heartbeat_run_id, runtime_action_ledger.heartbeat_run_id),
+           execution_run_id = COALESCE(excluded.execution_run_id, runtime_action_ledger.execution_run_id),
+           overseer_session_id = COALESCE(excluded.overseer_session_id, runtime_action_ledger.overseer_session_id),
+           overseer_turn_id = COALESCE(excluded.overseer_turn_id, runtime_action_ledger.overseer_turn_id),
+           overseer_message_id = COALESCE(excluded.overseer_message_id, runtime_action_ledger.overseer_message_id),
+           approval_id = COALESCE(excluded.approval_id, runtime_action_ledger.approval_id),
+           action_type = COALESCE(excluded.action_type, runtime_action_ledger.action_type),
+           action_target = COALESCE(excluded.action_target, runtime_action_ledger.action_target),
+           status = excluded.status,
+           status_reason = COALESCE(excluded.status_reason, runtime_action_ledger.status_reason),
+           parse_error = COALESCE(excluded.parse_error, runtime_action_ledger.parse_error),
+           action_json = excluded.action_json,
+           raw_block = COALESCE(excluded.raw_block, runtime_action_ledger.raw_block),
+           outcome_json = excluded.outcome_json,
+           duration_ms = COALESCE(excluded.duration_ms, runtime_action_ledger.duration_ms),
+           updated_at = excluded.updated_at`,
+      ).run(
+        id,
+        idempotencyKey,
+        input.companyId ?? null,
+        input.agentId ?? null,
+        input.taskId ?? null,
+        input.taskKey ?? null,
+        input.heartbeatRunId ?? null,
+        input.executionRunId ?? null,
+        input.overseerSessionId ?? null,
+        input.overseerTurnId ?? null,
+        input.overseerMessageId ?? null,
+        input.approvalId ?? null,
+        input.source,
+        input.messageIndex ?? null,
+        input.blockIndex ?? 0,
+        cleanText(actionType, 120),
+        cleanText(actionTarget, 240),
+        fingerprint,
+        input.status,
+        cleanText(input.statusReason, 1000),
+        cleanText(input.parseError, 1000),
+        actionJson,
+        cleanText(input.rawBlock, 8000),
+        outcomeJson,
+        nonNegativeInteger(input.durationMs),
+        now,
+        now,
+      );
+      const row = db
+        .prepare("SELECT id FROM runtime_action_ledger WHERE idempotency_key = ? LIMIT 1")
+        .get(idempotencyKey) as { id: string } | undefined;
+      return row?.id ?? id;
+    } catch (err) {
+      if (isSqliteBusyError(err) && attempt < attempts) {
+        sleepSync(sqliteBusyBackoffMs(attempt));
+        continue;
+      }
+      if (process.env.NODE_ENV !== "test") {
+        console.warn("[runtime-action-ledger] failed to record action ledger entry", err);
+      }
+      return null;
     }
-    return null;
   }
+  return null;
 }
 
 export function requireRuntimeActionLedgerEntry(
