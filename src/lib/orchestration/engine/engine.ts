@@ -100,6 +100,7 @@ export type {
 } from "@/lib/orchestration/engine/wakeup-queue";
 import {
   emitRunEvent,
+  enqueueEngineReassignmentWakeup,
   extractAssistantTexts,
   getLatestReviewSubmissionAuthor,
   loadStoredSessionMessages,
@@ -1319,6 +1320,7 @@ configureHeartbeatManagerDependencies({
   buildHeartbeatPrompt,
   checkAndTripCircuitBreaker,
   decideFinishRunContinuation,
+  enqueueEngineReassignmentWakeup,
   enqueueWakeup,
   importAssistantTextAndExecuteActions,
   importSessionOutputAndExecuteActions,

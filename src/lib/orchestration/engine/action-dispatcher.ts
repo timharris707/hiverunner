@@ -3830,7 +3830,7 @@ type EngineReassignmentWakeReason =
   | "engine_review_completion_return_to_producer"
   | "engine_action_reassign";
 
-function enqueueEngineReassignmentWakeup(input: {
+export function enqueueEngineReassignmentWakeup(input: {
   db: Database.Database;
   agentId: string | null | undefined;
   companyId: string | null | undefined;

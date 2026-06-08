@@ -49,6 +49,11 @@ import {
   taskExecutionPolicyForWakeup,
   taskRouteInputForRun,
 } from "@/lib/orchestration/engine/execution-router";
+import {
+  autoRouteReviewHandoff,
+  type ReviewHandlerTask,
+} from "@/lib/orchestration/engine/review-handler";
+import { planningTaskHasSprintDraft } from "@/lib/orchestration/engine/status-transitions";
 
 export { taskExecutionPolicyForWakeup };
 
@@ -146,12 +151,24 @@ type ActionResults = {
   fatalError?: string | null;
 };
 
+type EngineReviewHandoffWakeupInput = {
+  db: Database.Database;
+  agentId: string | null | undefined;
+  companyId: string | null | undefined;
+  taskId: string;
+  taskStatus: string;
+  projectId: string | null;
+  runId: string;
+  reason: "engine_default_review_handoff";
+};
+
 type HeartbeatManagerDependencies = {
   autoFlipTaskToReviewAfterMissingEndDeclaration: (db: Database.Database, input: { taskId: string; agentId: string; runId: string; runWindowStart: string | null; now: string }) => boolean;
   autoMarkTaskInProgressForExecutionRun: (db: Database.Database, input: { taskId: string; agentId: string; runId: string; executionRunId: string }) => void;
   buildHeartbeatPrompt: (agent: AgentRow, contextSnapshot: Record<string, unknown>, session: TaskSession, db: Database.Database, executionRunId?: string | null) => string;
   checkAndTripCircuitBreaker: (input: { taskId: string; runId: string; agentId: string; runWindowStart: string; now: string }, db: Database.Database) => boolean;
   decideFinishRunContinuation: (taskId: string, runId: string, status: HeartbeatRunStatus, db: Database.Database) => { shouldContinue: boolean; reason?: string };
+  enqueueEngineReassignmentWakeup: (input: EngineReviewHandoffWakeupInput) => unknown;
   enqueueWakeup: (input: { agentId: string; companyId: string; source: "timer" | "issue_assigned" | "routine" | "explicit" | "api" | "kickoff"; reason?: string; triggerDetail?: string; payload?: Record<string, unknown>; idempotencyKey?: string; invocationSource?: "on_demand" | "timer" | "issue_assigned" | "wakeup_request" | "kickoff"; contextSnapshot?: Record<string, unknown> }, db?: Database.Database) => EnqueueWakeupResult;
   importAssistantTextAndExecuteActions: (input: { assistantTexts: string[]; agentId: string; agentName: string; companyId: string; taskKey: string; wakeReason: string; runId: string; executionRunId?: string | null; db: Database.Database; source: string; telemetry: Record<string, unknown> }) => Promise<ActionResults>;
   importSessionOutputAndExecuteActions: (input: { sessionKey: string; sessionId: string; agentId: string; agentName: string; companyId: string; taskKey: string; wakeReason: string; runId: string; executionRunId?: string | null; db: Database.Database; messageCountBefore: number; telemetry: Record<string, unknown> }) => Promise<ActionResults>;
@@ -183,6 +200,7 @@ function autoMarkTaskInProgressForExecutionRun(...args: Parameters<HeartbeatMana
 function buildHeartbeatPrompt(...args: Parameters<HeartbeatManagerDependencies["buildHeartbeatPrompt"]>): string { return deps().buildHeartbeatPrompt(...args); }
 function checkAndTripCircuitBreaker(...args: Parameters<HeartbeatManagerDependencies["checkAndTripCircuitBreaker"]>): boolean { return deps().checkAndTripCircuitBreaker(...args); }
 function decideFinishRunContinuation(...args: Parameters<HeartbeatManagerDependencies["decideFinishRunContinuation"]>): { shouldContinue: boolean; reason?: string } { return deps().decideFinishRunContinuation(...args); }
+function enqueueEngineReassignmentWakeup(...args: Parameters<HeartbeatManagerDependencies["enqueueEngineReassignmentWakeup"]>): unknown { return deps().enqueueEngineReassignmentWakeup(...args); }
 function enqueueWakeup(...args: Parameters<HeartbeatManagerDependencies["enqueueWakeup"]>): EnqueueWakeupResult { return deps().enqueueWakeup(...args); }
 function importAssistantTextAndExecuteActions(...args: Parameters<HeartbeatManagerDependencies["importAssistantTextAndExecuteActions"]>): Promise<ActionResults> { return deps().importAssistantTextAndExecuteActions(...args); }
 function importSessionOutputAndExecuteActions(...args: Parameters<HeartbeatManagerDependencies["importSessionOutputAndExecuteActions"]>): Promise<ActionResults> { return deps().importSessionOutputAndExecuteActions(...args); }
@@ -194,6 +212,46 @@ function getActionResultsTerminalFailure(...args: Parameters<HeartbeatManagerDep
 function isInsufficientProgress(...args: Parameters<HeartbeatManagerDependencies["isInsufficientProgress"]>): boolean { return deps().isInsufficientProgress(...args); }
 function adapterActionTexts(...args: Parameters<HeartbeatManagerDependencies["adapterActionTexts"]>): string[] { return deps().adapterActionTexts(...args); }
 function persistAdapterFailureDiagnostic(...args: Parameters<HeartbeatManagerDependencies["persistAdapterFailureDiagnostic"]>): void { return deps().persistAdapterFailureDiagnostic(...args); }
+
+function routeAutoflippedReviewHandoff(input: {
+  db: Database.Database;
+  taskId: string;
+  producerAgentId: string;
+  runId: string;
+}): void {
+  if (planningTaskHasSprintDraft(input.db, input.taskId)) return;
+  const task = input.db
+    .prepare(
+      `SELECT t.id,
+              t.project_id,
+              t.parent_task_id,
+              t.sprint_id,
+              t.status,
+              t.assignee_agent_id,
+              t.task_key,
+              t.title,
+              t.type,
+              t.labels_json,
+              COALESCE(t.company_id, p.company_id) AS company_id
+       FROM tasks t
+       LEFT JOIN projects p ON p.id = t.project_id
+       WHERE t.id = ?
+         AND t.archived_at IS NULL
+       LIMIT 1`,
+    )
+    .get(input.taskId) as ReviewHandlerTask | undefined;
+  if (!task || task.status !== "review") return;
+
+  autoRouteReviewHandoff({
+    db: input.db,
+    task,
+    producerAgentId: input.producerAgentId,
+    runId: input.runId,
+    normalizedStatus: "review",
+    emitRunEvent,
+    enqueueEngineReassignmentWakeup,
+  });
+}
 
 function finishRuntimePreflightFailure(input: {
   preflight: RuntimePreflightTerminalResult;
@@ -2178,13 +2236,21 @@ export function finishRun(
         .get(executionRunId) as { task_id: string | null } | undefined;
       if (executionRunRow?.task_id) {
         if (execStatus === "completed") {
-          autoFlipTaskToReviewAfterMissingEndDeclaration(db, {
+          const autoFlippedToReview = autoFlipTaskToReviewAfterMissingEndDeclaration(db, {
             taskId: executionRunRow.task_id,
             agentId: run.agent_id,
             runId,
             runWindowStart: run.started_at ?? run.created_at,
             now,
           });
+          if (autoFlippedToReview) {
+            routeAutoflippedReviewHandoff({
+              db,
+              taskId: executionRunRow.task_id,
+              producerAgentId: run.agent_id,
+              runId,
+            });
+          }
         }
         reconcileTerminalOpenClawTaskState(executionRunRow.task_id, db);
 

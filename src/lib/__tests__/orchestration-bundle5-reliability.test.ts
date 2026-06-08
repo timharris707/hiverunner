@@ -20,6 +20,7 @@ import { getAgentLiveState } from "@/lib/orchestration/agent-live-state";
 import { getOperationalStatusTag } from "@/lib/orchestration/comment-visibility";
 import { createCompany } from "@/lib/orchestration/company-service";
 import { getOrchestrationDb, runOrchestrationMigrations } from "@/lib/orchestration/db";
+import { finishRun } from "@/lib/orchestration/engine/heartbeat-manager";
 import { __testHooks as engineTestHooks, adapterActionTexts, executeUpdateTask, importAssistantTextAndExecuteActions } from "@/lib/orchestration/engine/engine";
 import { sweepOpenTasks } from "@/lib/orchestration/engine/sweeper";
 import { recordRuntimeActionLedgerEntry } from "@/lib/orchestration/runtime-action-ledger";
@@ -986,6 +987,92 @@ async function run() {
       db,
     );
     assert.equal(second.statusApplied, true);
+    assertEngineReassignWake({
+      taskId: task.id,
+      agentId: reviewer.id,
+      runId,
+      reason: "engine_default_review_handoff",
+      taskStatus: "review",
+    });
+  });
+
+  await test("end-of-run autoflip routes review handoff and wakes reviewer", () => {
+    const { reviewCompany, reviewProject } = createReviewProjectFixture({
+      companyName: `Bundle 5 H Autoflip Review Handoff ${suffix}`,
+      companyDescription: "Autoflip review handoff fixture",
+      projectName: `Autoflip Review Handoff Project ${suffix}`,
+      projectDescription: "Autoflip review handoff project",
+      color: "#14b8a6",
+      emoji: "icon:activity",
+    });
+    const producer = createProducerFixtureAgent({
+      projectId: reviewProject.id,
+      name: `H Autoflip Producer ${suffix}`,
+    });
+    const reviewer = createReviewerFixtureAgent({
+      projectId: reviewProject.id,
+      name: `H Autoflip Gator ${suffix}`,
+      emoji: "icon:shield",
+    });
+    db.prepare("UPDATE agents SET adapter_type = 'codex', review_specialist_categories = '[\"qa\",\"general\"]' WHERE id IN (?, ?)")
+      .run(producer.id, reviewer.id);
+    db.prepare("DELETE FROM agent_runtimes WHERE agent_id IN (?, ?)").run(producer.id, reviewer.id);
+    const task = createTask({
+      projectId: reviewProject.id,
+      title: "Autoflip review handoff wake task",
+      description: "Completed work without a terminal update_task should still wake review.",
+      priority: "P1",
+      type: "feature",
+      status: "in-progress",
+      assignee: producer.id,
+      labels: ["bundle-5"],
+      createdBy: "bundle-5-test",
+    }).task;
+    db.prepare("UPDATE tasks SET status = 'in_progress' WHERE id = ?").run(task.id);
+    const runId = randomUUID();
+    const executionRunId = randomUUID();
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO heartbeat_runs
+        (id, agent_id, company_id, invocation_source, trigger_detail, status, result_json, context_snapshot_json, started_at, created_at, updated_at)
+       VALUES (?, ?, ?, 'wakeup_request', 'autoflip review handoff test', 'running', ?, ?, ?, ?, ?)`,
+    ).run(
+      runId,
+      producer.id,
+      reviewCompany.id,
+      JSON.stringify({ messagesImported: 1, actionsFound: 0, actionsExecuted: 0, actionsSkippedDedup: 0, tasksCreated: [], approvalsCreated: [], reportsImported: 0, errors: [] }),
+      JSON.stringify({ taskId: task.id, taskKey: task.key }),
+      now,
+      now,
+      now,
+    );
+    db.prepare(
+      `INSERT INTO execution_runs
+        (id, task_id, agent_id, provider, runner_provider, runner_model, status, started_at, created_at, updated_at)
+       VALUES (?, ?, ?, 'codex', 'codex', 'gpt-5.5', 'running', ?, ?, ?)`,
+    ).run(executionRunId, task.id, producer.id, now, now, now);
+    db.prepare(
+      `INSERT INTO task_events
+        (id, project_id, task_id, agent_id, event_type, metadata_json, created_at)
+       VALUES (?, ?, ?, ?, 'task.comment_added', ?, ?)`,
+    ).run(
+      randomUUID(),
+      reviewProject.id,
+      task.id,
+      producer.id,
+      JSON.stringify({ source: "engine_action", runId }),
+      now,
+    );
+
+    const heartbeatRun = db.prepare("SELECT * FROM heartbeat_runs WHERE id = ?").get(runId) as Parameters<typeof finishRun>[1];
+    finishRun(runId, heartbeatRun, "succeeded", null, Date.now() - 1000, db, undefined, executionRunId);
+
+    const row = db.prepare("SELECT status, assignee_agent_id FROM tasks WHERE id = ?").get(task.id) as {
+      status: string;
+      assignee_agent_id: string | null;
+    };
+    assert.equal(row.status, "review");
+    assert.equal(row.assignee_agent_id, reviewer.id);
     assertEngineReassignWake({
       taskId: task.id,
       agentId: reviewer.id,
