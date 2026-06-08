@@ -596,12 +596,14 @@ async function run() {
     );
     assert.strictEqual(result.statusApplied, true, result.statusRejectedReason);
 
-    const row = db.prepare("SELECT status, assignee_agent_id FROM tasks WHERE id = ?").get(task.id) as {
+    const row = db.prepare("SELECT status, assignee_agent_id, completed_at FROM tasks WHERE id = ?").get(task.id) as {
       status: string;
       assignee_agent_id: string | null;
+      completed_at: string | null;
     };
-    assert.strictEqual(row.status, "review");
+    assert.strictEqual(row.status, "done");
     assert.strictEqual(row.assignee_agent_id, builder.id);
+    assert.ok(row.completed_at, "ungated review request should terminally complete the task");
     const wake = db
       .prepare("SELECT COUNT(*) AS count FROM agent_wakeup_requests WHERE reason = 'engine_default_review_handoff' AND json_extract(payload_json, '$.taskId') = ?")
       .get(task.id) as { count: number };

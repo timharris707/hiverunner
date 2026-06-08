@@ -47,6 +47,7 @@ import {
   applyReviewDecision,
   autoRouteReviewHandoff,
   safeJsonStringArray,
+  taskRequiresAutonomousReviewHandoff,
 } from "@/lib/orchestration/engine/review-handler";
 import { resolveHiveRunnerWorkspaceRoot, resolveOpenClawDir } from "@/lib/workspaces/root";
 export { safeJsonStringArray } from "@/lib/orchestration/engine/review-handler";
@@ -3636,7 +3637,7 @@ export function executeUpdateTask(
     }
 
     if (transition.statusWritten) {
-      const normalized = transition.normalizedStatus as string;
+      let normalized = transition.normalizedStatus as string;
       appliedTaskStatus = normalized;
       const implicitInProgressOwner = transition.implicitInProgressOwner ?? null;
 
@@ -3668,12 +3669,33 @@ export function executeUpdateTask(
         result.assigneeApplied = true;
       }
 
-      if (
+      const reviewIsPlanningDraft = normalized === "review" && planningTaskHasSprintDraft(db, task.id);
+      const reviewRequiresHandoff =
         normalized === "review" &&
         !action.assignee &&
         task.company_id &&
-        !planningTaskHasSprintDraft(db, task.id)
-      ) {
+        !reviewIsPlanningDraft &&
+        taskRequiresAutonomousReviewHandoff(task);
+
+      if (normalized === "review" && !reviewRequiresHandoff && !reviewIsPlanningDraft && !action.assignee && task.company_id) {
+        db.prepare(
+          `UPDATE tasks
+              SET status = 'done',
+                  completed_at = COALESCE(completed_at, ?),
+                  updated_at = ?
+            WHERE id = ?`,
+        ).run(now, now, task.id);
+        normalized = "done";
+        appliedTaskStatus = normalized;
+        task.status = "done";
+        emitRunEvent(
+          input.runId,
+          input.agentId,
+          "action_executed",
+          `Converted ${action.taskKey} review request to done because no explicit review gate is required.`,
+          db,
+        );
+      } else if (reviewRequiresHandoff) {
         const routed = autoRouteReviewHandoff({
           db,
           task,
