@@ -406,9 +406,25 @@ async function run() {
     const row = db.prepare("SELECT status FROM tasks WHERE id = ?").get(task.id) as { status: string };
     assert.equal(row.status, "done");
     const replayRow = db
-      .prepare("SELECT source, status, action_type FROM runtime_action_ledger WHERE id = ?")
-      .get(replay.replayLedgerId) as { source: string; status: string; action_type: string } | undefined;
-    assert.deepEqual(replayRow, { source: "manual", status: "executed", action_type: "update_task" });
+      .prepare("SELECT source, status, action_type, execution_status, replay_of_action_ledger_id FROM runtime_action_ledger WHERE id = ?")
+      .get(replay.replayLedgerId) as {
+        source: string;
+        status: string;
+        action_type: string;
+        execution_status: string;
+        replay_of_action_ledger_id: string | null;
+      } | undefined;
+    assert.deepEqual(replayRow, {
+      source: "manual",
+      status: "executed",
+      action_type: "update_task",
+      execution_status: "executed",
+      replay_of_action_ledger_id: actionLedgerId,
+    });
+    const originalRow = db
+      .prepare("SELECT replay_count FROM runtime_action_ledger WHERE id = ?")
+      .get(actionLedgerId) as { replay_count: number } | undefined;
+    assert.equal(originalRow?.replay_count, 1);
   });
 
   await test("single parse error in a run produces a single HARNESS_WARNING comment on the task", async () => {
@@ -440,6 +456,27 @@ async function run() {
     assert.equal(warnings.length, 1);
     assert.match(warnings[0].body, /1 mc-action block/);
     assert.match(warnings[0].body, /failed to parse/);
+    const ledger = db
+      .prepare(
+        `SELECT status, validation_status, execution_status, raw_json, raw_start_offset, raw_end_offset
+           FROM runtime_action_ledger
+          WHERE task_id = ? AND status = 'parse_failed'
+          LIMIT 1`,
+      )
+      .get(task.id) as {
+        status: string;
+        validation_status: string;
+        execution_status: string;
+        raw_json: string | null;
+        raw_start_offset: number | null;
+        raw_end_offset: number | null;
+      } | undefined;
+    assert.equal(ledger?.status, "parse_failed");
+    assert.equal(ledger?.validation_status, "invalid");
+    assert.equal(ledger?.execution_status, "parse_failed");
+    assert.match(ledger?.raw_json ?? "", /unterminated/);
+    assert.equal(ledger?.raw_start_offset, 0);
+    assert.ok((ledger?.raw_end_offset ?? 0) > (ledger?.raw_start_offset ?? 0));
     const run = db.prepare("SELECT result_json FROM heartbeat_runs WHERE id = ?").get(runId) as { result_json: string };
     assert.equal((JSON.parse(run.result_json) as { hadDroppedActions?: boolean }).hadDroppedActions, true);
     db.prepare("UPDATE heartbeat_runs SET status = 'succeeded', finished_at = ?, updated_at = ? WHERE id = ?")

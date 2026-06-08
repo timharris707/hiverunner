@@ -234,6 +234,7 @@ type OverseerTurnRow = {
 
 type RuntimeActionLedgerRow = {
   status: string;
+  execution_status?: string | null;
   task_id: string | null;
   execution_run_id: string | null;
   heartbeat_run_id: string | null;
@@ -249,6 +250,10 @@ type RuntimeLatencyEventRow = {
   execution_run_id: string;
   occurred_at: string | null;
 };
+
+function actionLedgerExecutionStatus(row: RuntimeActionLedgerRow): string {
+  return row.execution_status ?? (row.status === "parsed" ? "not_started" : row.status);
+}
 
 type JsonRecord = Record<string, unknown>;
 
@@ -813,6 +818,7 @@ export function buildRuntimeBenchmarkSummary(
     actionLedgerRows = db
       .prepare(
         `SELECT status,
+                ${nullableColumnSelect(db, "runtime_action_ledger", "execution_status")},
                 ${nullableColumnSelect(db, "runtime_action_ledger", "task_id")},
                 ${nullableColumnSelect(db, "runtime_action_ledger", "execution_run_id")},
                 ${nullableColumnSelect(db, "runtime_action_ledger", "heartbeat_run_id")},
@@ -837,6 +843,7 @@ export function buildRuntimeBenchmarkSummary(
     ? db
       .prepare(
         `SELECT status,
+                ${nullableColumnSelect(db, "runtime_action_ledger", "execution_status")},
                 ${nullableColumnSelect(db, "runtime_action_ledger", "task_id")},
                 ${nullableColumnSelect(db, "runtime_action_ledger", "execution_run_id")},
                 ${nullableColumnSelect(db, "runtime_action_ledger", "heartbeat_run_id")},
@@ -916,10 +923,10 @@ export function buildRuntimeBenchmarkSummary(
       .sort((a, b) => b.count - a.count || String(a.taskKey).localeCompare(String(b.taskKey))),
     actionLedger: {
       total: actionLedgerRows.length,
-      terminal: actionLedgerRows.filter((row) => row.status !== "parsed").length,
-      nonTerminalParsed: actionLedgerRows.filter((row) => row.status === "parsed").length,
-      parseFailed: actionLedgerRows.filter((row) => row.status === "parse_failed").length,
-      pendingApproval: actionLedgerRows.filter((row) => row.status === "pending_approval").length,
+      terminal: actionLedgerRows.filter((row) => actionLedgerExecutionStatus(row) !== "not_started").length,
+      nonTerminalParsed: actionLedgerRows.filter((row) => actionLedgerExecutionStatus(row) === "not_started").length,
+      parseFailed: actionLedgerRows.filter((row) => actionLedgerExecutionStatus(row) === "parse_failed").length,
+      pendingApproval: actionLedgerRows.filter((row) => actionLedgerExecutionStatus(row) === "pending_approval").length,
       untracked: actionLedgerRows.filter((row) => !row.task_id && !row.execution_run_id && !row.heartbeat_run_id && !row.overseer_turn_id).length,
     },
     browserProof: {

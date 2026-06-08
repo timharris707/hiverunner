@@ -14,6 +14,17 @@ export type RuntimeActionLedgerStatus =
   | "failed"
   | "skipped_duplicate";
 
+export type RuntimeActionValidationStatus = "not_applicable" | "valid" | "invalid";
+export type RuntimeActionExecutionStatus =
+  | "not_started"
+  | "observed"
+  | "pending_approval"
+  | "executed"
+  | "deferred"
+  | "failed"
+  | "skipped_duplicate"
+  | "parse_failed";
+
 export type RuntimeActionLedgerInput = {
   source: RuntimeActionLedgerSource;
   status: RuntimeActionLedgerStatus;
@@ -33,9 +44,15 @@ export type RuntimeActionLedgerInput = {
   action?: McAction | null;
   actionType?: string | null;
   actionTarget?: string | null;
+  validationStatus?: RuntimeActionValidationStatus | null;
+  executionStatus?: RuntimeActionExecutionStatus | null;
   statusReason?: string | null;
   parseError?: string | null;
   rawBlock?: string | null;
+  rawJson?: string | null;
+  rawStartOffset?: number | null;
+  rawEndOffset?: number | null;
+  replayOfActionLedgerId?: string | null;
   outcome?: Record<string, unknown> | null;
   durationMs?: number | null;
 };
@@ -112,6 +129,35 @@ function nonNegativeInteger(value: number | null | undefined): number | null {
   return Math.max(0, Math.round(value));
 }
 
+function validationStatusForLedger(input: RuntimeActionLedgerInput): RuntimeActionValidationStatus {
+  if (input.validationStatus) return input.validationStatus;
+  if (input.status === "parse_failed" || input.parseError) return "invalid";
+  if (input.action || input.status !== "observed") return "valid";
+  return "not_applicable";
+}
+
+function executionStatusForLedger(input: RuntimeActionLedgerInput): RuntimeActionExecutionStatus {
+  if (input.executionStatus) return input.executionStatus;
+  switch (input.status) {
+    case "parse_failed":
+      return "parse_failed";
+    case "observed":
+      return "observed";
+    case "pending_approval":
+      return "pending_approval";
+    case "executed":
+      return "executed";
+    case "deferred":
+      return "deferred";
+    case "failed":
+      return "failed";
+    case "skipped_duplicate":
+      return "skipped_duplicate";
+    case "parsed":
+      return "not_started";
+  }
+}
+
 function inferActionTarget(action: McAction | null | undefined): string | null {
   if (!action) return null;
   const record = action as Record<string, unknown>;
@@ -163,6 +209,8 @@ export function recordRuntimeActionLedgerEntry(
       const outcomeJson = stableJson(input.outcome ?? {});
       const actionType = input.actionType ?? input.action?.action ?? null;
       const actionTarget = input.actionTarget ?? inferActionTarget(input.action);
+      const validationStatus = validationStatusForLedger(input);
+      const executionStatus = executionStatusForLedger(input);
 
       db.prepare(
         `INSERT INTO runtime_action_ledger
@@ -170,8 +218,10 @@ export function recordRuntimeActionLedgerEntry(
             heartbeat_run_id, execution_run_id, overseer_session_id, overseer_turn_id,
             overseer_message_id, approval_id, source, message_index, block_index,
             action_type, action_target, action_fingerprint, status, status_reason,
-            parse_error, action_json, raw_block, outcome_json, duration_ms, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            parse_error, action_json, raw_block, raw_json, raw_start_offset, raw_end_offset,
+            validation_status, execution_status, replay_of_action_ledger_id,
+            outcome_json, duration_ms, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(idempotency_key) DO UPDATE SET
            company_id = COALESCE(excluded.company_id, runtime_action_ledger.company_id),
            agent_id = COALESCE(excluded.agent_id, runtime_action_ledger.agent_id),
@@ -190,6 +240,12 @@ export function recordRuntimeActionLedgerEntry(
            parse_error = COALESCE(excluded.parse_error, runtime_action_ledger.parse_error),
            action_json = excluded.action_json,
            raw_block = COALESCE(excluded.raw_block, runtime_action_ledger.raw_block),
+           raw_json = COALESCE(excluded.raw_json, runtime_action_ledger.raw_json),
+           raw_start_offset = COALESCE(excluded.raw_start_offset, runtime_action_ledger.raw_start_offset),
+           raw_end_offset = COALESCE(excluded.raw_end_offset, runtime_action_ledger.raw_end_offset),
+           validation_status = excluded.validation_status,
+           execution_status = excluded.execution_status,
+           replay_of_action_ledger_id = COALESCE(excluded.replay_of_action_ledger_id, runtime_action_ledger.replay_of_action_ledger_id),
            outcome_json = excluded.outcome_json,
            duration_ms = COALESCE(excluded.duration_ms, runtime_action_ledger.duration_ms),
            updated_at = excluded.updated_at`,
@@ -217,6 +273,12 @@ export function recordRuntimeActionLedgerEntry(
         cleanText(input.parseError, 1000),
         actionJson,
         cleanText(input.rawBlock, 8000),
+        cleanText(input.rawJson, 8000),
+        nonNegativeInteger(input.rawStartOffset),
+        nonNegativeInteger(input.rawEndOffset),
+        validationStatus,
+        executionStatus,
+        input.replayOfActionLedgerId ?? null,
         outcomeJson,
         nonNegativeInteger(input.durationMs),
         now,
@@ -248,4 +310,17 @@ export function requireRuntimeActionLedgerEntry(
   if (id) return id;
   const actionType = input.actionType ?? input.action?.action ?? "unknown";
   throw new Error(`runtime_action_ledger write failed for ${input.source}:${input.status}:${actionType}`);
+}
+
+export function incrementRuntimeActionLedgerReplayCount(
+  db: Database.Database,
+  actionLedgerId: string,
+): void {
+  if (!hasTable(db, "runtime_action_ledger")) return;
+  db.prepare(
+    `UPDATE runtime_action_ledger
+        SET replay_count = replay_count + 1,
+            updated_at = ?
+      WHERE id = ?`,
+  ).run(new Date().toISOString(), actionLedgerId);
 }

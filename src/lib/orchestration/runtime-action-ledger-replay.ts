@@ -9,6 +9,7 @@ import {
   type McActionExecutionOutcome,
 } from "@/lib/orchestration/engine/action-dispatcher";
 import {
+  incrementRuntimeActionLedgerReplayCount,
   requireRuntimeActionLedgerEntry,
 } from "@/lib/orchestration/runtime-action-ledger";
 
@@ -24,6 +25,9 @@ type RuntimeActionLedgerReplayRow = {
   action_target: string | null;
   action_json: string;
   raw_block: string | null;
+  raw_json: string | null;
+  raw_start_offset: number | null;
+  raw_end_offset: number | null;
   status: string;
 };
 
@@ -68,7 +72,8 @@ function getReplayRow(db: Database.Database, actionLedgerId: string): RuntimeAct
   const row = db
     .prepare(
       `SELECT id, company_id, agent_id, task_id, task_key, heartbeat_run_id, execution_run_id,
-              action_type, action_target, action_json, raw_block, status
+              action_type, action_target, action_json, raw_block, raw_json,
+              raw_start_offset, raw_end_offset, status
        FROM runtime_action_ledger
        WHERE id = ?
        LIMIT 1`,
@@ -141,6 +146,10 @@ export async function replayRuntimeActionLedgerEntry(
     actionType,
     actionTarget,
     rawBlock: row.raw_block,
+    rawJson: row.raw_json,
+    rawStartOffset: row.raw_start_offset,
+    rawEndOffset: row.raw_end_offset,
+    replayOfActionLedgerId: row.id,
     statusReason: input.dryRun ? "replay_dry_run" : "reserved_for_replay",
   });
 
@@ -179,11 +188,16 @@ export async function replayRuntimeActionLedgerEntry(
     actionType,
     actionTarget,
     rawBlock: row.raw_block,
+    rawJson: row.raw_json,
+    rawStartOffset: row.raw_start_offset,
+    rawEndOffset: row.raw_end_offset,
+    replayOfActionLedgerId: row.id,
     approvalId: outcome.kind === "created_approval" ? outcome.approvalId : null,
     outcome: outcome as unknown as Record<string, unknown>,
     statusReason: outcome.kind === "failed" ? outcome.reason : outcome.kind,
     durationMs: Date.now() - startedAt,
   });
+  incrementRuntimeActionLedgerReplayCount(db, row.id);
 
   return {
     actionLedgerId: row.id,

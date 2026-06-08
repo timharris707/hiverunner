@@ -4431,6 +4431,47 @@ const MIGRATIONS: Migration[] = [
         WHERE company_id IS NOT NULL;
     `,
   },
+  {
+    version: 125,
+    name: "runtime_action_ledger_truth_fields",
+    sql: `
+      ALTER TABLE runtime_action_ledger ADD COLUMN raw_json TEXT;
+      ALTER TABLE runtime_action_ledger ADD COLUMN raw_start_offset INTEGER CHECK (raw_start_offset IS NULL OR raw_start_offset >= 0);
+      ALTER TABLE runtime_action_ledger ADD COLUMN raw_end_offset INTEGER CHECK (raw_end_offset IS NULL OR raw_end_offset >= 0);
+      ALTER TABLE runtime_action_ledger ADD COLUMN validation_status TEXT NOT NULL DEFAULT 'not_applicable' CHECK (validation_status IN ('not_applicable','valid','invalid'));
+      ALTER TABLE runtime_action_ledger ADD COLUMN execution_status TEXT NOT NULL DEFAULT 'not_started' CHECK (execution_status IN ('not_started','observed','pending_approval','executed','deferred','failed','skipped_duplicate','parse_failed'));
+      ALTER TABLE runtime_action_ledger ADD COLUMN replay_of_action_ledger_id TEXT REFERENCES runtime_action_ledger(id) ON DELETE SET NULL;
+      ALTER TABLE runtime_action_ledger ADD COLUMN replay_count INTEGER NOT NULL DEFAULT 0 CHECK (replay_count >= 0);
+
+      UPDATE runtime_action_ledger
+         SET validation_status = CASE
+               WHEN status = 'parse_failed' THEN 'invalid'
+               WHEN status IN ('parsed','observed','pending_approval','executed','deferred','failed','skipped_duplicate') THEN 'valid'
+               ELSE validation_status
+             END,
+             execution_status = CASE status
+               WHEN 'parse_failed' THEN 'parse_failed'
+               WHEN 'parsed' THEN 'not_started'
+               WHEN 'observed' THEN 'observed'
+               WHEN 'pending_approval' THEN 'pending_approval'
+               WHEN 'executed' THEN 'executed'
+               WHEN 'deferred' THEN 'deferred'
+               WHEN 'failed' THEN 'failed'
+               WHEN 'skipped_duplicate' THEN 'skipped_duplicate'
+               ELSE execution_status
+             END
+       WHERE validation_status = 'not_applicable'
+          OR execution_status = 'not_started';
+
+      CREATE INDEX IF NOT EXISTS idx_runtime_action_ledger_execution_status
+        ON runtime_action_ledger(company_id, execution_status, created_at DESC)
+        WHERE company_id IS NOT NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_runtime_action_ledger_replay_of
+        ON runtime_action_ledger(replay_of_action_ledger_id, created_at DESC)
+        WHERE replay_of_action_ledger_id IS NOT NULL;
+    `,
+  },
 ];
 
 let dbInstance: Database.Database | null = null;

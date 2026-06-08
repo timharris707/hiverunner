@@ -56,6 +56,7 @@ function createFixtureDb(): Database.Database {
       task_id TEXT,
       execution_run_id TEXT,
       status TEXT NOT NULL,
+      execution_status TEXT,
       created_at TEXT
     );
     CREATE TABLE runtime_browser_proof_audit (
@@ -98,10 +99,10 @@ function createFixtureDb(): Database.Database {
     VALUES ('turn-1', 'company-1', '{"inputTokens":50,"cacheReadInputTokens":40,"outputTokens":5,"totalTokens":55}', '2026-01-01T00:00:06.000Z')
   `).run();
   db.prepare(`
-    INSERT INTO runtime_action_ledger (id, task_id, execution_run_id, status, created_at)
+    INSERT INTO runtime_action_ledger (id, task_id, execution_run_id, status, execution_status, created_at)
     VALUES
-      ('action-1', 'task-1', 'run-2', 'executed', '2026-01-01T00:00:04.000Z'),
-      ('action-2', 'task-2', 'run-4', 'parse_failed', '2026-01-01T00:00:12.000Z')
+      ('action-1', 'task-1', 'run-2', 'parsed', 'executed', '2026-01-01T00:00:04.000Z'),
+      ('action-2', 'task-2', 'run-4', 'parse_failed', 'parse_failed', '2026-01-01T00:00:12.000Z')
   `).run();
   db.prepare(`
     INSERT INTO runtime_browser_proof_audit (id, task_id, status, duration_ms, created_at)

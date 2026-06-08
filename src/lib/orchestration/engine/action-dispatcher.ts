@@ -1339,6 +1339,8 @@ export type ParsedMcActionBlock = {
   blockIndex: number;
   rawBlock: string;
   rawJson: string;
+  rawStartOffset: number;
+  rawEndOffset: number;
   action?: McAction;
   actionType?: string | null;
   parseError?: string;
@@ -1366,6 +1368,8 @@ export function parseActionBlocksFromText(text: string): {
       blockIndex,
       rawBlock,
       rawJson: jsonStr,
+      rawStartOffset: match.index,
+      rawEndOffset: match.index + rawBlock.length,
     };
     blockIndex += 1;
 
