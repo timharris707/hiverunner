@@ -30,6 +30,7 @@ import { linkTemplateGeneratedExecutionRun } from "@/lib/orchestration/template-
 import { normalizeTaskModelLane, resolveTaskModelRouting } from "@/lib/orchestration/task-model-routing";
 import { nonExecutableRuntimeReason } from "@/lib/orchestration/runtime-readiness";
 import { admitHeartbeatRuntimePreflight } from "@/lib/orchestration/runtime-preflight";
+import { evaluateRuntimeBudgetAdmission, type RuntimeBudgetAdmission } from "@/lib/orchestration/runtime-budget-policy";
 import { recordRuntimeUsageLedgerEntry } from "@/lib/orchestration/runtime-usage-ledger";
 import type { TaskExecutionEngine } from "@/lib/orchestration/types";
 import { enqueueWakeup as enqueueWakeupDirect } from "@/lib/orchestration/engine/wakeup-queue";
@@ -318,6 +319,91 @@ function finishRuntimePreflightFailure(input: {
       retryDecisionReason: input.preflight.failureCode,
       preflightResultId: input.preflight.circuitId,
     },
+  );
+}
+
+function finishRuntimeBudgetAdmissionBlock(input: {
+  admission: RuntimeBudgetAdmission & { allowed: false };
+  runId: string;
+  run: HeartbeatRunRow;
+  agent: AgentRow;
+  adapterType: string;
+  startTime: number;
+  db: Database.Database;
+  executionRunId?: string | null;
+}): ExecuteHeartbeatResult {
+  const idleAt = new Date().toISOString();
+  input.db.prepare(
+    `UPDATE agents
+     SET last_heartbeat = ?,
+         status = CASE WHEN status IN ('paused', 'offline') THEN status ELSE 'idle' END,
+         updated_at = ?
+     WHERE id = ?`,
+  ).run(idleAt, idleAt, input.agent.id);
+  getOrCreateRuntimeState(input.agent.id, input.agent.company_id, input.db, input.adapterType);
+  updateRuntimeState(input.agent.id, {
+    lastRunId: input.runId,
+    lastRunStatus: "cancelled",
+    lastError: input.admission.message,
+  }, input.db);
+
+  const eventType = input.admission.approvalId ? "runtime_budget_approval_required" : "runtime_budget_blocked";
+  emitRunEvent(
+    input.runId,
+    input.agent.id,
+    eventType,
+    input.admission.approvalId
+      ? `${input.admission.message} Approval ${input.admission.approvalId} is required before execution.`
+      : input.admission.message,
+    input.db,
+  );
+
+  if (input.executionRunId) {
+    const update = input.db.prepare(
+      `UPDATE execution_runs
+       SET status = 'cancelled',
+           completed_at = ?,
+           error_message = ?,
+           failure_class = COALESCE(failure_class, 'cancelled'),
+           terminalized_by = COALESCE(terminalized_by, 'budget_gate'),
+           failure_reason = COALESCE(failure_reason, ?),
+           retry_allowed = 0,
+           retry_decision_reason = ?,
+           updated_at = ?
+       WHERE id = ? AND status IN ('pending', 'running')`,
+    ).run(
+      idleAt,
+      input.admission.message,
+      input.admission.message,
+      input.admission.approvalId ? "budget_override_required" : "budget_threshold_blocked",
+      idleAt,
+      input.executionRunId,
+    );
+    if (update.changes > 0) {
+      recordExecutionRunAttemptEvent(input.db, {
+        executionRunId: input.executionRunId,
+        eventType: input.admission.approvalId ? "budget_approval_required" : "budget_blocked",
+        metadata: {
+          heartbeatRunId: input.runId,
+          approvalId: input.admission.approvalId,
+          policy: input.admission.policy,
+          totals: input.admission.totals,
+          exceeded: input.admission.exceeded,
+        },
+        createdAt: idleAt,
+      });
+    }
+  }
+
+  return finishRun(
+    input.runId,
+    input.run,
+    "cancelled",
+    input.admission.message,
+    input.startTime,
+    input.db,
+    undefined,
+    null,
   );
 }
 
@@ -988,6 +1074,32 @@ export async function executeHeartbeatRun(
         undefined,
         precreatedExecutionRunId,
       );
+    }
+  }
+
+  if (executionRunProvider) {
+    const budgetAdmission = evaluateRuntimeBudgetAdmission({
+      db,
+      companyId: agent.company_id,
+      agentId: agent.id,
+      taskId: taskKey !== "__heartbeat__" ? taskKey : null,
+      heartbeatRunId: runId,
+      provider: executionRunProvider,
+      model: primaryRouteAttempt?.target.model ?? null,
+      laneKey: executionRoute?.laneId ?? taskModelRouting.lane,
+    });
+
+    if (!budgetAdmission.allowed) {
+      return finishRuntimeBudgetAdmissionBlock({
+        admission: budgetAdmission,
+        runId,
+        run,
+        agent,
+        adapterType,
+        startTime,
+        db,
+        executionRunId: precreatedExecutionRunId,
+      });
     }
   }
 
