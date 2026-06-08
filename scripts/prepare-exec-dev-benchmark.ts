@@ -278,15 +278,33 @@ function resetSelectedTasks(db: Database.Database, taskKeys: string[], status: "
     )
     .run(status, now, ...taskKeys);
 
-  if (!columnExists(db, "tasks", "eligible_assignee_ids")) return;
+  const hasEligibleAssigneeIds = columnExists(db, "tasks", "eligible_assignee_ids");
   const selected = db
     .prepare(
-      `SELECT id, assignee_agent_id, eligible_assignee_ids
+      `SELECT id, task_key, assignee_agent_id, ${hasEligibleAssigneeIds ? "eligible_assignee_ids" : "NULL AS eligible_assignee_ids"}
          FROM tasks
         WHERE task_key IN (${placeholders(taskKeys.length)})
         ORDER BY task_key`,
     )
-    .all(...taskKeys) as Array<{ id: string; assignee_agent_id: string | null; eligible_assignee_ids: string | null }>;
+    .all(...taskKeys) as Array<{
+      id: string;
+      task_key: string | null;
+      assignee_agent_id: string | null;
+      eligible_assignee_ids: string | null;
+    }>;
+
+  const selectedAgentIds = Array.from(new Set(selected.flatMap((task) => [
+    task.assignee_agent_id,
+    ...parseJsonStringList(task.eligible_assignee_ids),
+  ]).filter((agentId): agentId is string => Boolean(agentId))));
+  resetSelectedRuntimeArtifacts(db, {
+    taskIds: selected.map((task) => task.id),
+    taskKeys: selected.map((task) => task.task_key ?? task.id),
+    agentIds: selectedAgentIds,
+    now,
+  });
+
+  if (!hasEligibleAssigneeIds) return;
   const updateAssignee = db.prepare("UPDATE tasks SET assignee_agent_id = ?, assigned_at = COALESCE(assigned_at, ?), updated_at = ? WHERE id = ?");
   for (const task of selected) {
     const eligible = parseJsonStringList(task.eligible_assignee_ids);
@@ -294,6 +312,161 @@ function resetSelectedTasks(db: Database.Database, taskKeys: string[], status: "
     if (!producerAssigneeId || producerAssigneeId === task.assignee_agent_id) continue;
     updateAssignee.run(producerAssigneeId, now, now, task.id);
   }
+}
+
+function resetSelectedRuntimeArtifacts(
+  db: Database.Database,
+  input: { taskIds: string[]; taskKeys: string[]; agentIds: string[]; now: string },
+): void {
+  resetSelectedWakeups(db, input);
+  resetSelectedHeartbeats(db, input);
+  resetSelectedExecutionRuns(db, input);
+  resetSelectedTaskSessions(db, input);
+  resetSelectedAgentCurrentTasks(db, input);
+}
+
+function jsonTaskTargetCondition(columnName: string, taskIds: string[]): { sql: string; args: string[] } | null {
+  if (taskIds.length === 0) return null;
+  return {
+    sql: `(json_valid(${columnName}) AND json_extract(${columnName}, '$.taskId') IN (${placeholders(taskIds.length)}))`,
+    args: taskIds,
+  };
+}
+
+function wakeupTaskTargetCondition(taskIds: string[]): { sql: string; args: string[] } | null {
+  const jsonTarget = jsonTaskTargetCondition("payload_json", taskIds);
+  if (!jsonTarget) return null;
+  return {
+    sql: `(${jsonTarget.sql} OR ${taskIds.map(() => "idempotency_key LIKE ?").join(" OR ")})`,
+    args: [...jsonTarget.args, ...taskIds.map((taskId) => `%${taskId}%`)],
+  };
+}
+
+function resetSelectedWakeups(
+  db: Database.Database,
+  input: { taskIds: string[]; agentIds: string[]; now: string },
+): void {
+  if (!tableExists(db, "agent_wakeup_requests")) return;
+  const taskTarget = wakeupTaskTargetCondition(input.taskIds);
+  if (taskTarget) {
+    db.prepare(
+      `UPDATE agent_wakeup_requests
+          SET status = CASE WHEN status IN ('queued', 'claimed') THEN 'failed' ELSE status END,
+              finished_at = CASE WHEN status IN ('queued', 'claimed') THEN COALESCE(finished_at, ?) ELSE finished_at END,
+              idempotency_key = NULL,
+              updated_at = ?
+        WHERE ${taskTarget.sql}`,
+    ).run(input.now, input.now, ...taskTarget.args);
+  }
+
+  if (input.agentIds.length === 0) return;
+  db.prepare(
+    `UPDATE agent_wakeup_requests
+        SET status = 'failed',
+            finished_at = COALESCE(finished_at, ?),
+            idempotency_key = NULL,
+            updated_at = ?
+      WHERE agent_id IN (${placeholders(input.agentIds.length)})
+        AND status IN ('queued', 'claimed')`,
+  ).run(input.now, input.now, ...input.agentIds);
+}
+
+function resetSelectedHeartbeats(
+  db: Database.Database,
+  input: { taskIds: string[]; agentIds: string[]; now: string },
+): void {
+  if (!tableExists(db, "heartbeat_runs")) return;
+  const clauses: string[] = [];
+  const args: string[] = [];
+  if (input.agentIds.length > 0) {
+    clauses.push(`agent_id IN (${placeholders(input.agentIds.length)})`);
+    args.push(...input.agentIds);
+  }
+  if (columnExists(db, "heartbeat_runs", "context_snapshot_json")) {
+    const taskTarget = jsonTaskTargetCondition("context_snapshot_json", input.taskIds);
+    if (taskTarget) {
+      clauses.push(taskTarget.sql);
+      args.push(...taskTarget.args);
+    }
+  }
+  if (clauses.length === 0) return;
+
+  db.prepare(
+    `UPDATE heartbeat_runs
+        SET status = 'cancelled',
+            finished_at = COALESCE(finished_at, ?),
+            error = COALESCE(error, 'benchmark replay reset'),
+            updated_at = ?
+      WHERE status IN ('queued', 'running', 'failed')
+        AND (${clauses.join(" OR ")})`,
+  ).run(input.now, input.now, ...args);
+}
+
+function resetSelectedExecutionRuns(
+  db: Database.Database,
+  input: { taskIds: string[]; now: string },
+): void {
+  if (!tableExists(db, "execution_runs") || input.taskIds.length === 0) return;
+  const setClauses = [
+    "status = CASE WHEN status IN ('pending', 'running') THEN 'cancelled' ELSE status END",
+  ];
+  const args: string[] = [];
+  if (columnExists(db, "execution_runs", "completed_at")) {
+    setClauses.push("completed_at = CASE WHEN status IN ('pending', 'running') THEN COALESCE(completed_at, ?) ELSE completed_at END");
+    args.push(input.now);
+  }
+  if (columnExists(db, "execution_runs", "idempotency_key")) {
+    setClauses.push("idempotency_key = NULL");
+  }
+  if (columnExists(db, "execution_runs", "process_pid")) {
+    setClauses.push("process_pid = NULL");
+  }
+  if (columnExists(db, "execution_runs", "updated_at")) {
+    setClauses.push("updated_at = ?");
+    args.push(input.now);
+  }
+  db.prepare(
+    `UPDATE execution_runs
+        SET ${setClauses.join(",\n            ")}
+      WHERE task_id IN (${placeholders(input.taskIds.length)})`,
+  ).run(...args, ...input.taskIds);
+}
+
+function resetSelectedTaskSessions(
+  db: Database.Database,
+  input: { taskKeys: string[]; now: string },
+): void {
+  if (!tableExists(db, "agent_task_sessions") || input.taskKeys.length === 0) return;
+  const setClauses: string[] = [];
+  if (columnExists(db, "agent_task_sessions", "session_params_json")) setClauses.push("session_params_json = '{}'");
+  if (columnExists(db, "agent_task_sessions", "session_display_id")) setClauses.push("session_display_id = NULL");
+  if (columnExists(db, "agent_task_sessions", "last_run_id")) setClauses.push("last_run_id = NULL");
+  if (columnExists(db, "agent_task_sessions", "last_error")) setClauses.push("last_error = NULL");
+  if (columnExists(db, "agent_task_sessions", "updated_at")) setClauses.push("updated_at = ?");
+  if (setClauses.length === 0) return;
+  db.prepare(
+    `UPDATE agent_task_sessions
+        SET ${setClauses.join(", ")}
+      WHERE task_key IN (${placeholders(input.taskKeys.length)})`,
+  ).run(...(setClauses.includes("updated_at = ?") ? [input.now] : []), ...input.taskKeys);
+}
+
+function resetSelectedAgentCurrentTasks(
+  db: Database.Database,
+  input: { taskIds: string[]; now: string },
+): void {
+  if (!tableExists(db, "agents") || !columnExists(db, "agents", "current_task_id") || input.taskIds.length === 0) return;
+  const setClauses = ["current_task_id = NULL"];
+  const args: string[] = [];
+  if (columnExists(db, "agents", "updated_at")) {
+    setClauses.push("updated_at = ?");
+    args.push(input.now);
+  }
+  db.prepare(
+    `UPDATE agents
+        SET ${setClauses.join(", ")}
+      WHERE current_task_id IN (${placeholders(input.taskIds.length)})`,
+  ).run(...args, ...input.taskIds);
 }
 
 function tableExists(db: Database.Database, tableName: string): boolean {
