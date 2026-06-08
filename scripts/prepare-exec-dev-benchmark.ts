@@ -17,6 +17,14 @@ type CliOptions = {
   companyWorkspaceRoot: string | null;
 };
 
+const BUNDLED_RUNNER_SCRIPT_NAMES = new Set([
+  "hiverunner-claude-runner.mjs",
+  "hiverunner-gemini-runner.mjs",
+  "hiverunner-hermes-runner.mjs",
+  "hiverunner-openclaw-runner.mjs",
+  "hiverunner-symphony-runner.mjs",
+]);
+
 function usage(): never {
   console.error([
     "Usage: node ./scripts/run-tsx.mjs scripts/prepare-exec-dev-benchmark.ts [--source-db data/orchestration.db] [--target-db data-exec-dev/orchestration.db] [--goal INS-G006]",
@@ -220,6 +228,16 @@ function replaceWorkspacePrefix(value: string | null, fromRoot: string | null, t
   return path.join(toRoot, relative);
 }
 
+function rewriteBundledRunnerCommand(command: string | null, sourceWorkspaceRoot: string | null): string | null {
+  const trimmed = command?.trim();
+  if (!trimmed || !sourceWorkspaceRoot) return command;
+  const parts = trimmed.split(/\s+/);
+  const first = parts[0] ?? "";
+  const scriptName = path.basename(first);
+  if (!BUNDLED_RUNNER_SCRIPT_NAMES.has(scriptName)) return command;
+  return [path.join(sourceWorkspaceRoot, "scripts", scriptName), ...parts.slice(1)].join(" ");
+}
+
 function rewriteWorkspaceRoots(
   db: Database.Database,
   taskKeys: string[],
@@ -233,6 +251,7 @@ function rewriteWorkspaceRoots(
   companyIds: string[];
   projectIds: string[];
   agentRuntimeRowsUpdated: number;
+  agentRuntimeCommandRowsUpdated: number;
 } {
   if (!input.sourceWorkspaceRoot && !input.companyWorkspaceRoot) {
     return {
@@ -241,6 +260,7 @@ function rewriteWorkspaceRoots(
       companyIds: [],
       projectIds: [],
       agentRuntimeRowsUpdated: 0,
+      agentRuntimeCommandRowsUpdated: 0,
     };
   }
   if (taskKeys.length === 0) {
@@ -292,6 +312,7 @@ function rewriteWorkspaceRoots(
   }
 
   let agentRuntimeRowsUpdated = 0;
+  let agentRuntimeCommandRowsUpdated = 0;
   if (input.companyWorkspaceRoot) {
     const companyId = companyIds[0];
     const oldCompanyRoot = projectRows.find((row) => row.company_id === companyId)?.company_workspace_root?.trim() || null;
@@ -310,12 +331,25 @@ function rewriteWorkspaceRoots(
     }
   }
 
+  if (input.sourceWorkspaceRoot && columnExists(db, "agent_runtimes", "command")) {
+    const runtimeRows = db
+      .prepare("SELECT id, command FROM agent_runtimes WHERE command IS NOT NULL")
+      .all() as Array<{ id: string; command: string | null }>;
+    const updateCommand = db.prepare("UPDATE agent_runtimes SET command = ?, updated_at = ? WHERE id = ?");
+    for (const row of runtimeRows) {
+      const rewritten = rewriteBundledRunnerCommand(row.command, input.sourceWorkspaceRoot);
+      if (rewritten === row.command) continue;
+      agentRuntimeCommandRowsUpdated += updateCommand.run(rewritten, now, row.id).changes;
+    }
+  }
+
   return {
     sourceWorkspaceRoot: input.sourceWorkspaceRoot,
     companyWorkspaceRoot: input.companyWorkspaceRoot,
     companyIds,
     projectIds,
     agentRuntimeRowsUpdated,
+    agentRuntimeCommandRowsUpdated,
   };
 }
 
