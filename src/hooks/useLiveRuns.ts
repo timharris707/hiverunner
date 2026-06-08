@@ -55,6 +55,13 @@ export interface LiveRun {
   /** Server-side snapshot of how long since the last signal (ms). Refined
    * client-side with a ticking timer for sub-poll smoothness. */
   lastEventAgeMs?: number | null;
+  /** ISO timestamp of the newest event that proves task-level runtime progress,
+   * separate from generic heartbeats or wrapper "still active" diagnostics. */
+  lastMeaningfulProgressAt?: string | null;
+  /** Server-side snapshot of how long since the last meaningful progress event. */
+  lastMeaningfulProgressAgeMs?: number | null;
+  /** When this run becomes suspicious if no more meaningful progress arrives. */
+  suspiciousAfterAt?: string | null;
   /** Operator-facing classification: live (recent signal), quiet (alive but
    * no recent signal), suspicious (90s+ without meaningful progress), completed (terminal). */
   liveness?: LiveRunLiveness;
@@ -207,6 +214,8 @@ export function useLiveRuns({ companySlug, enabled }: UseLiveRunsOptions): UseLi
           r.liveIndicatorUntil,
           r.liveIndicatorUntil ? new Date(r.liveIndicatorUntil).getTime() > now : false,
           r.lastEventAt ?? null,
+          r.lastMeaningfulProgressAt ?? null,
+          r.suspiciousAfterAt ?? null,
           r.liveness ?? null,
           r.runnerPid ?? null,
           r.runnerPidAlive ?? null,

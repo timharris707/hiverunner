@@ -79,6 +79,8 @@ export interface RunTraceRunEvidence {
   invocationSource?: string | null;
   startedAt?: string | null;
   finishedAt?: string | null;
+  lastMeaningfulProgressAt?: string | null;
+  suspiciousAfterAt?: string | null;
   durationMs?: number | null;
   usage?: Record<string, unknown> | null;
   result?: Record<string, unknown> | null;

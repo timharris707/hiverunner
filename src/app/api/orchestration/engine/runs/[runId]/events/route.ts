@@ -6,6 +6,7 @@ import { getHeartbeatRun } from "@/lib/orchestration/engine/engine";
 import { listExperimentReportEvidenceForRun } from "@/lib/orchestration/experiment-reports";
 import { listExecutionTranscriptEvents, type ExecutionTranscriptEvent } from "@/lib/orchestration/service/execution-transcript";
 import type { MCLiveEventKind } from "@/lib/orchestration/live-events";
+import { latestMeaningfulProgressMs, suspiciousAfterAt } from "@/lib/orchestration/live-run-liveness";
 import { ObservabilityTier, PROVIDER_PRODUCT_DESCRIPTORS, resolveProviderPresentation } from "@/lib/orchestration/adapters/types";
 import { getAdapter } from "@/lib/orchestration/adapters/registry";
 import { listSkillEffectivenessForRun } from "@/lib/orchestration/skill-effectiveness";
@@ -232,6 +233,15 @@ type BrowserProofAuditRow = {
   task_artifact_registered_at: string | null;
 };
 
+type AgentCommentRow = {
+  id: string;
+  body: string;
+  type: string;
+  source: string;
+  agent_name: string | null;
+  created_at: string;
+};
+
 function withRunTraceViewModel<T extends RunTraceEvidenceInput>(
   response: T,
   extra?: (trace: RunTraceViewModel) => Record<string, unknown>,
@@ -243,6 +253,28 @@ function withRunTraceViewModel<T extends RunTraceEvidenceInput>(
     traceExport: buildRedactedRunTraceExport(response),
     ...(extra ? extra(trace) : {}),
   };
+}
+
+function isoFromMs(value: number | null): string | null {
+  return value == null ? null : new Date(value).toISOString();
+}
+
+function latestCommentMeaningfulProgressMs(comments: AgentCommentRow[]): number | null {
+  return latestMeaningfulProgressMs(comments.map((comment) => ({
+    kind: "comment",
+    type: comment.type,
+    message: comment.body,
+    ts: comment.created_at,
+  })));
+}
+
+function latestTranscriptMeaningfulProgressMs(events: ExecutionTranscriptEvent[]): number | null {
+  return latestMeaningfulProgressMs(events.map((event) => ({
+    kind: "action",
+    type: event.kind,
+    message: event.body,
+    ts: event.occurredAt,
+  })));
 }
 
 function normalizeWorkspaceRunVisibility(value: unknown): Record<string, unknown> | null {
@@ -404,6 +436,7 @@ function buildHeartbeatRunResponse(
 
   // Agent-authored comments during the run window (filtered by agent_id)
   const agentComments = queryAgentComments(db, run.agentId, run.startedAt, run.finishedAt);
+  const lastMeaningfulProgressAt = isoFromMs(latestCommentMeaningfulProgressMs(agentComments));
 
   // Map engine events to canonical timeline
   const timelineEvents = engineEvents.map((e) => ({
@@ -466,6 +499,8 @@ function buildHeartbeatRunResponse(
       triggerDetail: run.triggerDetail,
       startedAt: run.startedAt,
       finishedAt: run.finishedAt,
+      lastMeaningfulProgressAt,
+      suspiciousAfterAt: run.finishedAt ? null : suspiciousAfterAt(lastMeaningfulProgressAt ?? run.startedAt),
       durationMs: metrics.durationMs,
       wakeupRequestId: run.wakeupRequestId,
       idempotencyKey: wakeupRequest?.idempotency_key ?? null,
@@ -626,6 +661,7 @@ function buildExecutionRunResponse(
   const usage = safeJsonParse(row.token_usage_json);
   const workspaceRunVisibility = normalizeWorkspaceRunVisibility(usage.workspaceRunVisibility);
   const transcriptEvents = listExecutionTranscriptEvents(db, row.id);
+  const lastMeaningfulProgressAt = isoFromMs(latestTranscriptMeaningfulProgressMs(transcriptEvents));
   for (const event of transcriptEvents) {
     const canonicalKind = toLiveEventKind(event.kind);
     const redactedTimelineEvent = redactRunTracePayload({
@@ -767,6 +803,8 @@ function buildExecutionRunResponse(
       triggerDetail: null,
       startedAt: row.started_at,
       finishedAt: row.completed_at,
+      lastMeaningfulProgressAt,
+      suspiciousAfterAt: row.completed_at ? null : suspiciousAfterAt(lastMeaningfulProgressAt ?? row.started_at),
       durationMs: metrics.durationMs,
       wakeupRequestId: linkedWakeupRequest?.id ?? null,
       idempotencyKey: row.idempotency_key,
@@ -1088,10 +1126,7 @@ function queryAgentComments(
        ORDER BY c.created_at ASC
        LIMIT 50`
     )
-    .all(agentId, startedAt, finishedAt ?? new Date().toISOString()) as Array<{
-      id: string; body: string; type: string; source: string;
-      agent_name: string | null; created_at: string;
-    }>;
+    .all(agentId, startedAt, finishedAt ?? new Date().toISOString()) as AgentCommentRow[];
 }
 
 function queryWakeupRequest(

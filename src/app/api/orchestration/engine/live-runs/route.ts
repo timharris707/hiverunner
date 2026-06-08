@@ -3,7 +3,7 @@ import { handleRouteError } from "@/lib/orchestration/api";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { resolveCompanyIdBySlug } from "@/lib/orchestration/company-service";
 import { resolveQueuedHeartbeatClaimCompanyId } from "@/lib/orchestration/service/dev-execution-test-mode";
-import { deriveRunLiveness, probeRunnerPidAlive } from "@/lib/orchestration/live-run-liveness";
+import { deriveRunLiveness, isRuntimeProgressDiagnostic, latestMeaningfulProgressMs, probeRunnerPidAlive } from "@/lib/orchestration/live-run-liveness";
 import { getRuntimeLaneStatus } from "@/lib/orchestration/runtime-lane-status";
 
 export const dynamic = "force-dynamic";
@@ -36,6 +36,7 @@ type ExecutionRunRow = {
   runner_provider: string | null;
   runner_model: string | null;
   process_pid: number | null;
+  metadata_json: string | null;
 };
 
 type HeartbeatRunRow = {
@@ -75,7 +76,8 @@ function resolveExecutionRunForHeartbeat(
   if (input.executionRunId) {
     return db
       .prepare(
-        `SELECT id, task_id, provider, status, started_at, completed_at, runner_provider, runner_model, process_pid
+        `SELECT id, task_id, provider, status, started_at, completed_at, runner_provider, runner_model, process_pid,
+         metadata_json
          FROM execution_runs
          WHERE id = ?
          LIMIT 1`,
@@ -88,7 +90,8 @@ function resolveExecutionRunForHeartbeat(
   // donate their provider, model, PID, or output to the visible heartbeat row.
   return db
     .prepare(
-      `SELECT id, task_id, provider, status, started_at, completed_at, runner_provider, runner_model, process_pid
+      `SELECT id, task_id, provider, status, started_at, completed_at, runner_provider, runner_model, process_pid,
+       metadata_json
        FROM execution_runs
        WHERE (
          (json_valid(token_usage_json) AND json_extract(token_usage_json, '$.heartbeatRunId') = ?)
@@ -204,8 +207,7 @@ function latestReadableOutput(transcript: TranscriptEntry[]): string | null {
 }
 
 function isProgressOnlyDiagnostic(entry: TranscriptEntry): boolean {
-  return entry.type === "waiting" &&
-    entry.message.trim().startsWith("External runner still active after");
+  return isRuntimeProgressDiagnostic({ type: entry.type, message: entry.message });
 }
 
 function latestTranscriptSignalMs(transcript: TranscriptEntry[]): number | null {
@@ -215,6 +217,15 @@ function latestTranscriptSignalMs(transcript: TranscriptEntry[]): number | null 
     if (!Number.isFinite(ms)) return acc;
     return acc == null || ms > acc ? ms : acc;
   }, null);
+}
+
+function latestExternalRunnerMeaningfulOutputMs(metadataJson: string | null | undefined): number | null {
+  const metadata = parseJsonRecord(metadataJson);
+  const externalRunner = metadata.externalRunner;
+  if (!externalRunner || typeof externalRunner !== "object" || Array.isArray(externalRunner)) return null;
+  const value = (externalRunner as Record<string, unknown>).lastMeaningfulOutputAt;
+  const ms = typeof value === "string" ? new Date(value).getTime() : null;
+  return typeof ms === "number" && Number.isFinite(ms) ? ms : null;
 }
 
 function shouldSuppressMirroredTerminalRun(input: {
@@ -436,12 +447,19 @@ function buildLiveRunResponseRow(input: {
   );
   const lastEventMs = latestTranscriptSignalMs(transcript) ?? startMs;
   const lastEventAt = lastEventMs != null ? new Date(lastEventMs).toISOString() : null;
+  const transcriptProgressMs = latestMeaningfulProgressMs(transcript);
+  const metadataProgressMs = latestExternalRunnerMeaningfulOutputMs(executionRun?.metadata_json);
+  const lastMeaningfulProgressMs = Math.max(transcriptProgressMs ?? 0, metadataProgressMs ?? 0) || null;
+  const lastMeaningfulProgressAt = lastMeaningfulProgressMs != null
+    ? new Date(lastMeaningfulProgressMs).toISOString()
+    : null;
   const runnerPidAlive = probeRunnerPidAlive(runnerPid);
   const liveness = deriveRunLiveness({
     status,
     startedAt: signalFloorAt,
     finishedAt: effectiveFinishedAt,
     lastEventAt,
+    lastMeaningfulProgressAt,
     runnerPid,
     runnerPidAlive,
   });
@@ -469,6 +487,9 @@ function buildLiveRunResponseRow(input: {
     triggerDetail: run.trigger_detail,
     lastEventAt,
     lastEventAgeMs: liveness.lastEventAgeMs,
+    lastMeaningfulProgressAt,
+    lastMeaningfulProgressAgeMs: liveness.lastMeaningfulProgressAgeMs,
+    suspiciousAfterAt: liveness.suspiciousAfterAt,
     liveness: liveness.liveness,
     livenessLabel: liveness.label,
   };

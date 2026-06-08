@@ -635,6 +635,10 @@ async function run() {
           metadata?: Record<string, unknown> | null;
         }>;
       };
+      run?: {
+        lastMeaningfulProgressAt?: string | null;
+        suspiciousAfterAt?: string | null;
+      };
     };
 
     const timeline = payload.trace?.timeline ?? [];
@@ -661,6 +665,11 @@ async function run() {
     assert.strictEqual(byId.get(`${traceFidelityRunId}-provider`)?.payload?.providerEventType, "Codex process started");
     assert.deepStrictEqual(byId.get(`${traceFidelityRunId}-tool-start`)?.payload?.input, { command: "npm test" });
     assert.strictEqual(byId.get(`${traceFidelityRunId}-tool-result`)?.payload?.isError, false);
+    assert.strictEqual(
+      payload.run?.lastMeaningfulProgressAt,
+      new Date(Date.parse(now) + 8).toISOString(),
+    );
+    assert.strictEqual(payload.run?.suspiciousAfterAt, null);
 
     const serializedTimeline = JSON.stringify(timeline.filter((event) => event.id.startsWith(traceFidelityRunId)));
     assert.match(serializedTimeline, /\[REDACTED:api_key\]/);

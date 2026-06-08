@@ -18,6 +18,8 @@ export interface RunLivenessInput {
   finishedAt?: string | null;
   /** Newest signal we have for this run (event, comment, task transition). */
   lastEventAt?: string | null;
+  /** Newest evidence that the CLI advanced the task, separate from heartbeat/noise. */
+  lastMeaningfulProgressAt?: string | null;
   /** Active process PID, when a CLI provider is still attached. */
   runnerPid?: number | null;
   /** Tri-state liveness of the runner PID. `true` = process verified alive
@@ -40,6 +42,10 @@ export interface RunLivenessSnapshot {
   ageMs: number | null;
   /** How long since the last visible signal. null when no signal yet. */
   lastEventAgeMs: number | null;
+  /** How long since the last meaningful runtime progress event. */
+  lastMeaningfulProgressAgeMs: number | null;
+  /** When the current run becomes suspicious if no more meaningful progress appears. */
+  suspiciousAfterAt: string | null;
   /** Human-readable badge label, e.g. "Live", "Quiet · 1m 12s", "Suspicious · 4m". */
   label: string;
 }
@@ -48,6 +54,25 @@ const DEFAULT_QUIET_MS = 30_000;
 const DEFAULT_SUSPICIOUS_MS = 90_000;
 const QUEUED_STATUSES = new Set(["queued", "pending"]);
 const TERMINAL_STATUSES = new Set(["succeeded", "failed", "cancelled", "timed_out"]);
+const MEANINGFUL_PROGRESS_KINDS = new Set([
+  "assistant_text_delta",
+  "assistant_text_final",
+  "assistant_final",
+  "assistant_text",
+  "thinking_delta",
+  "thinking_summary",
+  "tool_call_start",
+  "tool_call_end",
+  "tool_result",
+  "action_detected",
+  "comment_written",
+  "task_updated",
+  "report_written",
+  "stdout_chunk",
+  "stderr_chunk",
+  "task.comment_added",
+  "task.status_changed",
+]);
 
 function parseTs(value: string | null | undefined): number | null {
   if (!value) return null;
@@ -67,6 +92,48 @@ function formatDuration(ms: number): string {
   return remM > 0 ? `${h}h ${remM}m` : `${h}h`;
 }
 
+function hasReadableBody(value: string | null | undefined): boolean {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+export function isRuntimeProgressDiagnostic(input: { type?: string | null; message?: string | null }): boolean {
+  const type = input.type?.trim().toLowerCase() ?? "";
+  const message = input.message?.trim() ?? "";
+  if (type === "heartbeat" || type === "run_progress" || type === "runtime_progress") return true;
+  if (type === "waiting" && message.startsWith("External runner still active after")) return true;
+  return false;
+}
+
+function isMeaningfulProgressKind(kind: string | null | undefined): boolean {
+  return Boolean(kind && MEANINGFUL_PROGRESS_KINDS.has(kind));
+}
+
+export function isMeaningfulProgressEntry(input: {
+  kind?: string | null;
+  type?: string | null;
+  message?: string | null;
+}): boolean {
+  if (!hasReadableBody(input.message)) return false;
+  if (isRuntimeProgressDiagnostic({ type: input.type, message: input.message })) return false;
+  return isMeaningfulProgressKind(input.type) || input.kind === "comment";
+}
+
+export function latestMeaningfulProgressMs<T extends { ts?: string | null; type?: string | null; kind?: string | null; message?: string | null }>(
+  entries: T[],
+): number | null {
+  return entries.reduce<number | null>((acc, entry) => {
+    if (!isMeaningfulProgressEntry(entry)) return acc;
+    const ms = parseTs(entry.ts);
+    if (ms == null) return acc;
+    return acc == null || ms > acc ? ms : acc;
+  }, null);
+}
+
+export function suspiciousAfterAt(referenceAt: string | null | undefined, thresholdMs = DEFAULT_SUSPICIOUS_MS): string | null {
+  const referenceMs = parseTs(referenceAt);
+  return referenceMs == null ? null : new Date(referenceMs + thresholdMs).toISOString();
+}
+
 export function deriveRunLiveness(input: RunLivenessInput): RunLivenessSnapshot {
   const now = input.now ?? Date.now();
   const quietThresholdMs = input.quietThresholdMs ?? DEFAULT_QUIET_MS;
@@ -75,11 +142,17 @@ export function deriveRunLiveness(input: RunLivenessInput): RunLivenessSnapshot 
   const startedMs = parseTs(input.startedAt);
   const finishedMs = parseTs(input.finishedAt);
   const lastEventMs = parseTs(input.lastEventAt);
+  const lastMeaningfulProgressMs = parseTs(input.lastMeaningfulProgressAt);
 
   // Use the freshest signal we have for the activity clock. The run row's
   // started_at counts as a signal (the engine has at minimum kicked it off).
   const lastSignalMs = Math.max(lastEventMs ?? 0, startedMs ?? 0) || null;
   const lastEventAgeMs = lastSignalMs != null ? Math.max(0, now - lastSignalMs) : null;
+  const progressReferenceMs = lastMeaningfulProgressMs ?? startedMs;
+  const lastMeaningfulProgressAgeMs = progressReferenceMs != null ? Math.max(0, now - progressReferenceMs) : null;
+  const suspiciousAfter = progressReferenceMs != null
+    ? new Date(progressReferenceMs + suspiciousThresholdMs).toISOString()
+    : null;
   const ageMs = startedMs != null
     ? Math.max(0, (finishedMs ?? now) - startedMs)
     : null;
@@ -91,6 +164,8 @@ export function deriveRunLiveness(input: RunLivenessInput): RunLivenessSnapshot 
       liveness: "completed",
       ageMs,
       lastEventAgeMs: settledForMs,
+      lastMeaningfulProgressAgeMs,
+      suspiciousAfterAt: null,
       label: `Completed · ${formatDuration(settledForMs)} ago`,
     };
   }
@@ -101,6 +176,8 @@ export function deriveRunLiveness(input: RunLivenessInput): RunLivenessSnapshot 
       liveness: "queued",
       ageMs,
       lastEventAgeMs,
+      lastMeaningfulProgressAgeMs,
+      suspiciousAfterAt: suspiciousAfter,
       label: lastEventAgeMs == null
         ? queuedLabel
         : `${queuedLabel} · waiting ${formatDuration(lastEventAgeMs)}`,
@@ -114,26 +191,32 @@ export function deriveRunLiveness(input: RunLivenessInput): RunLivenessSnapshot 
       liveness: "live",
       ageMs,
       lastEventAgeMs: null,
+      lastMeaningfulProgressAgeMs: null,
+      suspiciousAfterAt: null,
       label: "Live",
     };
   }
 
-  if (lastEventAgeMs < quietThresholdMs) {
+  if (lastMeaningfulProgressAgeMs != null && lastMeaningfulProgressAgeMs < quietThresholdMs) {
     return {
       liveness: "live",
       ageMs,
       lastEventAgeMs,
-      label: `Live · last signal ${formatDuration(lastEventAgeMs)} ago`,
+      lastMeaningfulProgressAgeMs,
+      suspiciousAfterAt: suspiciousAfter,
+      label: `Live · progress ${formatDuration(lastMeaningfulProgressAgeMs)} ago`,
     };
   }
 
-  if (lastEventAgeMs < suspiciousThresholdMs) {
+  if (lastMeaningfulProgressAgeMs != null && lastMeaningfulProgressAgeMs < suspiciousThresholdMs) {
     const pidSuffix = input.runnerPid ? ` (pid ${input.runnerPid})` : "";
     return {
       liveness: "quiet",
       ageMs,
       lastEventAgeMs,
-      label: `Quiet · no signal for ${formatDuration(lastEventAgeMs)}${pidSuffix}`,
+      lastMeaningfulProgressAgeMs,
+      suspiciousAfterAt: suspiciousAfter,
+      label: `Quiet · no progress for ${formatDuration(lastMeaningfulProgressAgeMs)}${pidSuffix}`,
     };
   }
 
@@ -147,7 +230,9 @@ export function deriveRunLiveness(input: RunLivenessInput): RunLivenessSnapshot 
       liveness: "suspicious",
       ageMs,
       lastEventAgeMs,
-      label: `Suspicious · runner alive but no signal for ${formatDuration(lastEventAgeMs)}${pidSuffix}`,
+      lastMeaningfulProgressAgeMs,
+      suspiciousAfterAt: suspiciousAfter,
+      label: `Suspicious · runner alive but no progress for ${formatDuration(lastMeaningfulProgressAgeMs ?? lastEventAgeMs)}${pidSuffix}`,
     };
   }
 
@@ -155,7 +240,9 @@ export function deriveRunLiveness(input: RunLivenessInput): RunLivenessSnapshot 
     liveness: "suspicious",
     ageMs,
     lastEventAgeMs,
-    label: `Suspicious · no signal for ${formatDuration(lastEventAgeMs)}`,
+    lastMeaningfulProgressAgeMs,
+    suspiciousAfterAt: suspiciousAfter,
+    label: `Suspicious · no progress for ${formatDuration(lastMeaningfulProgressAgeMs ?? lastEventAgeMs)}`,
   };
 }
 
@@ -178,7 +265,3 @@ export function probeRunnerPidAlive(pid: number | null | undefined): boolean | n
     return false;
   }
 }
-
-export const LIVE_RUN_QUIET_THRESHOLD_MS = DEFAULT_QUIET_MS;
-/** @deprecated The stalled threshold now maps to the 90s suspicious threshold. */
-export const LIVE_RUN_STALLED_THRESHOLD_MS = DEFAULT_SUSPICIOUS_MS;

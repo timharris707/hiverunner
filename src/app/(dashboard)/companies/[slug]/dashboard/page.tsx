@@ -1023,8 +1023,8 @@ function useLiveElapsedMs(liveRun: LiveRun | null, isLive: boolean): number {
 /**
  * Re-derives a run's liveness snapshot client-side on a 1s ticking clock so
  * "no signal for Xs" actually counts up between server polls. The server is
- * the source of truth for the freshest `lastEventAt` we know about; the hook
- * just keeps the clock moving forward.
+ * the source of truth for the freshest meaningful-progress clock we know
+ * about; the hook just keeps the clock moving forward.
  */
 function useLiveRunLivenessSnapshot(liveRun: LiveRun | null, isLive: boolean): RunLivenessSnapshot | null {
   const [now, setNow] = useState(() => Date.now());
@@ -1041,6 +1041,7 @@ function useLiveRunLivenessSnapshot(liveRun: LiveRun | null, isLive: boolean): R
     startedAt: liveRun.startedAt,
     finishedAt: liveRun.finishedAt,
     lastEventAt: liveRun.lastEventAt ?? null,
+    lastMeaningfulProgressAt: liveRun.lastMeaningfulProgressAt ?? null,
     runnerPid: liveRun.runnerPid ?? null,
     runnerPidAlive: liveRun.runnerPidAlive ?? null,
     now,

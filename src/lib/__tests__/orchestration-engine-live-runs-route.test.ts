@@ -30,6 +30,10 @@ type LiveRunsResponse = {
     transcript: Array<{ id: string; message: string; type?: string }>;
     startedAt: string | null;
     finishedAt: string | null;
+    lastEventAt?: string | null;
+    lastMeaningfulProgressAt?: string | null;
+    lastMeaningfulProgressAgeMs?: number | null;
+    suspiciousAfterAt?: string | null;
     liveness: string;
   }>;
 };
@@ -459,6 +463,8 @@ async function run() {
     const progressOnlyRun = runById(body, progressOnlyRunId);
 
     assert.equal(progressOnlyRun.latestOutput, null);
+    assert.equal(progressOnlyRun.lastEventAt, iso(base, 1_000));
+    assert.equal(progressOnlyRun.lastMeaningfulProgressAt, null);
     assert.equal(progressOnlyRun.liveness, "quiet");
     assert.equal(
       progressOnlyRun.transcript.some((entry) => entry.message.includes("External runner still active after")),
@@ -499,12 +505,15 @@ async function run() {
     assert.equal(clarityRun.runnerModel, "claude-sonnet-4-6");
     assert.equal(clarityRun.runnerPid, null);
     assert.equal(clarityRun.latestOutput, "Clarity completed with Anthropic output.");
+    assert.equal(clarityRun.lastMeaningfulProgressAt, iso(base, 11_000));
+    assert.equal(clarityRun.suspiciousAfterAt, null);
 
     assert.equal(lensRun.status, "running");
     assert.equal(lensRun.runnerProvider, "gemini");
     assert.equal(lensRun.runnerModel, "gemini-3-pro-preview");
     assert.equal(lensRun.runnerPid, process.pid);
     assert.equal(lensRun.runnerPidAlive, true);
+    assert.equal(lensRun.lastMeaningfulProgressAt, null);
   });
 
   await test("surfaces cancelled execution status for stale queued heartbeat rows", async () => {

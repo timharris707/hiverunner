@@ -1,7 +1,13 @@
 import assert from "node:assert";
 
 import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
-import { deriveRunLiveness, probeRunnerPidAlive } from "@/lib/orchestration/live-run-liveness";
+import {
+  deriveRunLiveness,
+  isMeaningfulProgressEntry,
+  latestMeaningfulProgressMs,
+  probeRunnerPidAlive,
+  suspiciousAfterAt,
+} from "@/lib/orchestration/live-run-liveness";
 
 const { finish, test } = createTestRunner({ passLabel: "[PASS]", failLabel: "[FAIL]" });
 
@@ -23,7 +29,24 @@ async function run() {
     assert.strictEqual(snap.liveness, "live");
     assert.strictEqual(snap.ageMs, 5_000);
     assert.strictEqual(snap.lastEventAgeMs, 3_000);
+    assert.strictEqual(snap.lastMeaningfulProgressAgeMs, 5_000);
+    assert.strictEqual(snap.suspiciousAfterAt, iso(90_000));
     assert.match(snap.label, /^Live/);
+  });
+
+  await test("lastMeaningfulProgressAt drives the activity clock separately from lastEventAt", () => {
+    const snap = deriveRunLiveness({
+      status: "running",
+      startedAt: iso(0),
+      lastEventAt: iso(80_000),
+      lastMeaningfulProgressAt: iso(10_000),
+      now: T0 + 100_000,
+    });
+    assert.strictEqual(snap.lastEventAgeMs, 20_000);
+    assert.strictEqual(snap.lastMeaningfulProgressAgeMs, 90_000);
+    assert.strictEqual(snap.suspiciousAfterAt, iso(100_000));
+    assert.strictEqual(snap.liveness, "suspicious");
+    assert.match(snap.label, /no progress/);
   });
 
   await test("running run silent past quiet threshold is quiet", () => {
@@ -62,6 +85,8 @@ async function run() {
     assert.strictEqual(snap.liveness, "queued");
     assert.strictEqual(snap.ageMs, null);
     assert.strictEqual(snap.lastEventAgeMs, null);
+    assert.strictEqual(snap.lastMeaningfulProgressAgeMs, null);
+    assert.strictEqual(snap.suspiciousAfterAt, null);
     assert.strictEqual(snap.label, "Queued");
   });
 
@@ -76,6 +101,7 @@ async function run() {
     assert.strictEqual(snap.liveness, "completed");
     assert.strictEqual(snap.ageMs, 60_000);
     assert.strictEqual(snap.lastEventAgeMs, 30_000);
+    assert.strictEqual(snap.suspiciousAfterAt, null);
     assert.match(snap.label, /Completed/);
   });
 
@@ -176,6 +202,39 @@ async function run() {
     // OS maxes out far below 2^30, so this is reliably ESRCH-shaped.
     const ghostPid = 2_000_000_000;
     assert.strictEqual(probeRunnerPidAlive(ghostPid), false);
+  });
+
+  await test("meaningful progress classifier ignores runtime diagnostics", () => {
+    assert.strictEqual(isMeaningfulProgressEntry({
+      kind: "action",
+      type: "waiting",
+      message: "External runner still active after 43.0s; 43.0s since last stdout/stderr.",
+    }), false);
+    assert.strictEqual(isMeaningfulProgressEntry({
+      kind: "action",
+      type: "runtime_progress",
+      message: "Still running.",
+    }), false);
+    assert.strictEqual(isMeaningfulProgressEntry({
+      kind: "action",
+      type: "stdout_chunk",
+      message: "npm test started",
+    }), true);
+    assert.strictEqual(isMeaningfulProgressEntry({
+      kind: "comment",
+      type: "status_update",
+      message: "Implemented the route and attached evidence.",
+    }), true);
+  });
+
+  await test("latestMeaningfulProgressMs returns the newest meaningful entry only", () => {
+    const entries = [
+      { kind: "action", type: "waiting", message: "External runner still active after 90s", ts: iso(70_000) },
+      { kind: "action", type: "stdout_chunk", message: "tests passed", ts: iso(30_000) },
+      { kind: "action", type: "runtime_progress", message: "still active", ts: iso(80_000) },
+    ];
+    assert.strictEqual(latestMeaningfulProgressMs(entries), T0 + 30_000);
+    assert.strictEqual(suspiciousAfterAt(iso(30_000)), iso(120_000));
   });
 
   finish();

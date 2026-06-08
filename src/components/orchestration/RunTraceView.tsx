@@ -64,6 +64,8 @@ interface RunDetail {
   triggerDetail: string | null;
   startedAt: string | null;
   finishedAt: string | null;
+  lastMeaningfulProgressAt?: string | null;
+  suspiciousAfterAt?: string | null;
   durationMs: number | null;
   wakeupRequestId: string | null;
   idempotencyKey: string | null;
@@ -828,6 +830,8 @@ export function RunTraceView({
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 20px", fontSize: 11, color: A.textSec, padding: "6px 0" }}>
             {run.startedAt && <MetaLine label="Started" value={new Date(run.startedAt).toLocaleString()} />}
             {run.finishedAt && <MetaLine label="Finished" value={new Date(run.finishedAt).toLocaleString()} />}
+            {run.lastMeaningfulProgressAt && <MetaLine label="Last progress" value={new Date(run.lastMeaningfulProgressAt).toLocaleString()} />}
+            {!run.finishedAt && run.suspiciousAfterAt && <MetaLine label="Suspicious after" value={new Date(run.suspiciousAfterAt).toLocaleString()} />}
             {durationMs != null && <MetaLine label="Duration" value={formatDuration(durationMs)} />}
             <MetaLine label="Provider" value={providerLabel} />
             <MetaLine label="Invocation" value={formatInvocationSource(run.invocationSource)} />
