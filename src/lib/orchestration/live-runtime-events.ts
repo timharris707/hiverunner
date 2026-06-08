@@ -1,4 +1,7 @@
-import type { MCLiveEvent } from "./live-events";
+import type Database from "better-sqlite3";
+import type { MCLiveEvent, MCLiveEventKind } from "./live-events";
+import { redactRunTracePayload } from "./run-trace";
+import { persistExecutionTranscriptEvents } from "./service/execution-transcript";
 
 type LiveRuntimeEventSubscriber = (event: MCLiveEvent) => void;
 
@@ -22,6 +25,21 @@ interface LiveRuntimeEventSubscription {
 }
 
 export const LIVE_RUNTIME_RING_BUFFER_SIZE = 64;
+
+const LIVE_RUNTIME_TRACE_METADATA_SCHEMA = "hiverunner.live_runtime_event.v1";
+const DURABLE_RUNTIME_EVENT_KINDS = new Set<MCLiveEventKind>([
+  "command_start",
+  "command_exit",
+  "stdout_chunk",
+  "stderr_chunk",
+  "process_spawned",
+  "process_exit",
+  "runtime_progress",
+]);
+const MAX_TRACE_STRING_CHARS = 4000;
+const MAX_TRACE_ARRAY_ITEMS = 40;
+const MAX_TRACE_OBJECT_KEYS = 80;
+const MAX_TRACE_DEPTH = 5;
 
 let nextRuntimeSeq = 1;
 const subscribers = new Set<LiveRuntimeEventSubscription>();
@@ -54,9 +72,176 @@ function appendToRingBuffer(event: MCLiveEvent): void {
   eventsByRunId.set(event.runId, buffer);
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function boundTraceValue(value: unknown, depth = 0): unknown {
+  if (value === null || value === undefined) return value ?? null;
+  if (typeof value === "string") {
+    if (value.length <= MAX_TRACE_STRING_CHARS) return value;
+    return `${value.slice(0, MAX_TRACE_STRING_CHARS)}... [truncated ${value.length - MAX_TRACE_STRING_CHARS} chars]`;
+  }
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (depth >= MAX_TRACE_DEPTH) return "[truncated: max depth]";
+  if (Array.isArray(value)) {
+    const items = value.slice(0, MAX_TRACE_ARRAY_ITEMS).map((entry) => boundTraceValue(entry, depth + 1));
+    if (value.length > MAX_TRACE_ARRAY_ITEMS) {
+      items.push(`[truncated ${value.length - MAX_TRACE_ARRAY_ITEMS} items]`);
+    }
+    return items;
+  }
+  const record = asRecord(value);
+  if (!record) return String(value);
+  const entries = Object.entries(record);
+  const output: Record<string, unknown> = {};
+  for (const [key, entryValue] of entries.slice(0, MAX_TRACE_OBJECT_KEYS)) {
+    output[key] = boundTraceValue(entryValue, depth + 1);
+  }
+  if (entries.length > MAX_TRACE_OBJECT_KEYS) {
+    output._truncatedKeys = entries.length - MAX_TRACE_OBJECT_KEYS;
+  }
+  return output;
+}
+
+function textField(record: Record<string, unknown> | null, key: string): string | null {
+  const value = record?.[key];
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function numberField(record: Record<string, unknown> | null, key: string): number | null {
+  const value = record?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+async function getRuntimeTraceDb(): Promise<Database.Database> {
+  const { getOrchestrationDb } = await import("./db");
+  return getOrchestrationDb();
+}
+
+function durableEventTitle(event: MCLiveEvent, payload: Record<string, unknown> | null): string {
+  switch (event.kind) {
+    case "command_start":
+      return textField(payload, "command") ?? "command started";
+    case "command_exit": {
+      const exitCode = numberField(payload, "exitCode");
+      return exitCode === null ? "command exited" : `command exited ${exitCode}`;
+    }
+    case "stdout_chunk":
+      return "stdout";
+    case "stderr_chunk":
+      return "stderr";
+    case "process_spawned": {
+      const pid = numberField(payload, "pid");
+      return pid === null ? "process spawned" : `process spawned ${pid}`;
+    }
+    case "process_exit": {
+      const pid = numberField(payload, "pid");
+      const exitCode = numberField(payload, "exitCode");
+      if (pid !== null && exitCode !== null) return `process ${pid} exited ${exitCode}`;
+      if (pid !== null) return `process ${pid} exited`;
+      return "process exited";
+    }
+    case "runtime_progress":
+      return textField(payload, "phase") ?? "runtime progress";
+    default:
+      return event.kind;
+  }
+}
+
+function durableEventBody(event: MCLiveEvent, payload: Record<string, unknown> | null): string {
+  switch (event.kind) {
+    case "stdout_chunk":
+    case "stderr_chunk":
+      return textField(payload, "chunk") ?? event.summary;
+    case "command_start":
+      return textField(payload, "command") ?? event.summary;
+    case "runtime_progress":
+      return textField(payload, "message") ?? event.summary;
+    default:
+      return event.summary;
+  }
+}
+
+function durableEventRole(event: MCLiveEvent): string {
+  switch (event.kind) {
+    case "stdout_chunk":
+    case "stderr_chunk":
+      return "tool";
+    default:
+      return "system";
+  }
+}
+
+async function tableExists(tableName: string): Promise<boolean> {
+  const db = await getRuntimeTraceDb();
+  const row = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(tableName) as { name: string } | undefined;
+  return row?.name === tableName;
+}
+
+async function executionRunExists(runId: string): Promise<boolean> {
+  const db = await getRuntimeTraceDb();
+  const row = db
+    .prepare("SELECT id FROM execution_runs WHERE id = ? LIMIT 1")
+    .get(runId) as { id: string } | undefined;
+  return row?.id === runId;
+}
+
+async function persistDurableRuntimeTraceEvent(event: MCLiveEvent): Promise<void> {
+  if (!DURABLE_RUNTIME_EVENT_KINDS.has(event.kind)) return;
+
+  try {
+    if (!(await tableExists("execution_runs")) || !(await tableExists("execution_run_transcript_events"))) return;
+    if (!(await executionRunExists(event.runId))) return;
+
+    const redacted = redactRunTracePayload({
+      summary: event.summary,
+      payload: boundTraceValue(event.payload),
+      providerMeta: boundTraceValue(event.providerMeta ?? {}),
+    });
+    const payload = asRecord(redacted.value.payload);
+    const providerMeta = asRecord(redacted.value.providerMeta) ?? {};
+
+    persistExecutionTranscriptEvents({
+      db: await getRuntimeTraceDb(),
+      executionRunId: event.runId,
+      provider: event.provider,
+      events: [{
+        kind: event.kind,
+        role: durableEventRole(event),
+        title: durableEventTitle(event, payload),
+        body: durableEventBody({ ...event, summary: redacted.value.summary }, payload),
+        occurredAt: new Date(event.ts).toISOString(),
+        metadata: {
+          schema: LIVE_RUNTIME_TRACE_METADATA_SCHEMA,
+          liveRuntimeEvent: {
+            id: event.id,
+            kind: event.kind,
+            seq: event.seq ?? null,
+            provider: event.provider,
+            companyId: event.companyId,
+            agentId: event.agentId,
+          },
+          payload,
+          providerMeta,
+          redaction: redacted.redaction,
+        },
+      }],
+      occurredAt: new Date(event.ts).toISOString(),
+    });
+  } catch {
+    // Durable trace capture must never break live runtime streaming.
+  }
+}
+
 export function publishLiveRuntimeEvent(event: MCLiveEvent): MCLiveEvent {
   const published = event.seq === undefined ? { ...event, seq: nextRuntimeSeq++ } : event;
   appendToRingBuffer(published);
+  void persistDurableRuntimeTraceEvent(published);
 
   for (const subscription of subscribers) {
     notify(subscription, published);

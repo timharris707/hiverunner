@@ -4,7 +4,7 @@ import { errorResponse, handleRouteError } from "@/lib/orchestration/api";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { getHeartbeatRun } from "@/lib/orchestration/engine/engine";
 import { listExperimentReportEvidenceForRun } from "@/lib/orchestration/experiment-reports";
-import { listExecutionTranscriptEvents } from "@/lib/orchestration/service/execution-transcript";
+import { listExecutionTranscriptEvents, type ExecutionTranscriptEvent } from "@/lib/orchestration/service/execution-transcript";
 import type { MCLiveEventKind } from "@/lib/orchestration/live-events";
 import { ObservabilityTier, PROVIDER_PRODUCT_DESCRIPTORS, resolveProviderPresentation } from "@/lib/orchestration/adapters/types";
 import { getAdapter } from "@/lib/orchestration/adapters/registry";
@@ -13,6 +13,7 @@ import { getMemoryInjectionEvidenceForRun } from "@/lib/orchestration/memory-vau
 import {
   buildRedactedRunTraceExport,
   buildRunTraceViewModel,
+  redactRunTracePayload,
   type RunTraceEvidenceInput,
   type RunTraceProofAttachment,
   type RunTraceViewModel,
@@ -172,6 +173,9 @@ type TranscriptTimelineEvent = {
   commentSource?: string;
   commentType?: string;
   authorName?: string | null;
+  title?: string | null;
+  payload?: Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
 };
 
 type EvalCaseSuggestionOutcome = "accepted" | "returned";
@@ -623,18 +627,26 @@ function buildExecutionRunResponse(
   const workspaceRunVisibility = normalizeWorkspaceRunVisibility(usage.workspaceRunVisibility);
   const transcriptEvents = listExecutionTranscriptEvents(db, row.id);
   for (const event of transcriptEvents) {
+    const canonicalKind = toLiveEventKind(event.kind);
+    const redactedTimelineEvent = redactRunTracePayload({
+      summary: transcriptEventSummary(event),
+      title: event.title,
+      payload: buildTranscriptTimelinePayload(event, canonicalKind),
+      metadata: event.metadata,
+    }).value;
     timeline.push({
       id: event.id,
-      kind: toLiveEventKind(event.kind),
-      summary: event.title
-        ? `${event.title}${event.body ? `: ${event.body.slice(0, 260)}` : ""}`
-        : event.body.slice(0, 300),
+      kind: canonicalKind,
+      summary: redactedTimelineEvent.summary,
       ts: new Date(event.occurredAt).getTime(),
       source: "execution_transcript",
       providerEventType: event.kind,
       commentSource: event.provider,
       commentType: event.role ?? event.kind,
       authorName: event.role === "assistant" ? row.agent_name : event.provider,
+      title: redactedTimelineEvent.title,
+      payload: redactedTimelineEvent.payload,
+      metadata: redactedTimelineEvent.metadata,
     });
   }
   timeline.sort((a, b) => a.ts - b.ts);
@@ -1116,6 +1128,167 @@ function queryLinkedHeartbeatRuns(
     .all(sessionId, sessionId) as LinkedHeartbeatRow[];
 }
 
+const LIVE_RUNTIME_TRACE_METADATA_SCHEMA = "hiverunner.live_runtime_event.v1";
+
+function transcriptEventSummary(event: ExecutionTranscriptEvent): string {
+  return event.title
+    ? `${event.title}${event.body ? `: ${event.body.slice(0, 260)}` : ""}`
+    : event.body.slice(0, 300);
+}
+
+function metadataPayload(event: ExecutionTranscriptEvent): Record<string, unknown> | null {
+  const payload = asRecord(event.metadata.payload);
+  if (payload) return payload;
+  return asRecord(event.metadata.liveRuntimePayload);
+}
+
+function redactedTimelinePayload(payload: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!payload) return null;
+  return redactRunTracePayload(payload).value;
+}
+
+function payloadText(payload: Record<string, unknown> | null, key: string): string | null {
+  return textValue(payload?.[key]);
+}
+
+function metadataText(metadata: Record<string, unknown>, ...keys: string[]): string | null {
+  for (const key of keys) {
+    const value = textValue(metadata[key]);
+    if (value) return value;
+  }
+  return null;
+}
+
+function metadataNumber(metadata: Record<string, unknown>, ...keys: string[]): number | null {
+  for (const key of keys) {
+    const value = numberValue(metadata[key]);
+    if (value !== null) return value;
+  }
+  return null;
+}
+
+function metadataBoolean(metadata: Record<string, unknown>, ...keys: string[]): boolean | null {
+  for (const key of keys) {
+    const value = booleanValue(metadata[key]);
+    if (value !== null) return value;
+  }
+  return null;
+}
+
+function toolNameForTranscript(event: ExecutionTranscriptEvent): string {
+  return metadataText(event.metadata, "toolName", "name") ?? event.title ?? "tool";
+}
+
+function toolCallIdForTranscript(event: ExecutionTranscriptEvent): string {
+  return metadataText(event.metadata, "toolCallId", "toolUseId", "callId", "id") ??
+    `${event.provider}:${event.title ?? event.kind}:${event.sequence}`;
+}
+
+function buildProviderStreamPayload(event: ExecutionTranscriptEvent, persistedPayload: Record<string, unknown> | null) {
+  if (persistedPayload) {
+    return redactedTimelinePayload({
+      providerEventType: payloadText(persistedPayload, "providerEventType") ?? event.title ?? event.kind,
+      ...persistedPayload,
+    });
+  }
+
+  return redactedTimelinePayload({
+    providerEventType: event.title ?? event.kind,
+    event: {
+      kind: event.kind,
+      role: event.role,
+      title: event.title,
+      body: event.body,
+      metadata: event.metadata,
+    },
+  });
+}
+
+function buildTranscriptTimelinePayload(
+  event: ExecutionTranscriptEvent,
+  canonicalKind: MCLiveEventKind,
+): Record<string, unknown> | null {
+  const persistedPayload = metadataPayload(event);
+  if (event.metadata.schema === LIVE_RUNTIME_TRACE_METADATA_SCHEMA && persistedPayload) {
+    return redactedTimelinePayload(persistedPayload);
+  }
+
+  switch (canonicalKind) {
+    case "command_start":
+      return redactedTimelinePayload({
+        command: payloadText(persistedPayload, "command") ?? metadataText(event.metadata, "command") ?? event.body,
+        cwd: payloadText(persistedPayload, "cwd") ?? metadataText(event.metadata, "cwd", "workspaceRoot"),
+        argv: persistedPayload?.argv ?? event.metadata.args,
+        shell: payloadText(persistedPayload, "shell") ?? metadataText(event.metadata, "shell"),
+      });
+    case "command_exit":
+      return redactedTimelinePayload({
+        command: payloadText(persistedPayload, "command") ?? metadataText(event.metadata, "command"),
+        exitCode: persistedPayload?.exitCode ?? metadataNumber(event.metadata, "exitCode"),
+        signal: payloadText(persistedPayload, "signal") ?? metadataText(event.metadata, "signal"),
+        durationMs: persistedPayload?.durationMs ?? metadataNumber(event.metadata, "durationMs"),
+      });
+    case "stdout_chunk":
+    case "stderr_chunk":
+      return redactedTimelinePayload({
+        chunk: payloadText(persistedPayload, "chunk") ?? event.body,
+        byteLength: persistedPayload?.byteLength ?? metadataNumber(event.metadata, "byteLength", "rawLength"),
+      });
+    case "process_spawned":
+      return redactedTimelinePayload({
+        pid: persistedPayload?.pid ?? metadataNumber(event.metadata, "pid"),
+        command: payloadText(persistedPayload, "command") ?? metadataText(event.metadata, "command"),
+        cwd: payloadText(persistedPayload, "cwd") ?? metadataText(event.metadata, "cwd", "workspaceRoot"),
+      });
+    case "process_exit":
+      return redactedTimelinePayload({
+        pid: persistedPayload?.pid ?? metadataNumber(event.metadata, "pid"),
+        exitCode: persistedPayload?.exitCode ?? metadataNumber(event.metadata, "exitCode"),
+        signal: payloadText(persistedPayload, "signal") ?? metadataText(event.metadata, "signal"),
+        durationMs: persistedPayload?.durationMs ?? metadataNumber(event.metadata, "durationMs"),
+      });
+    case "runtime_progress":
+      return redactedTimelinePayload({
+        phase: payloadText(persistedPayload, "phase") ?? event.title ?? event.kind,
+        message: payloadText(persistedPayload, "message") ?? event.body,
+        progress: persistedPayload?.progress ?? metadataNumber(event.metadata, "progress"),
+      });
+    case "provider_stream_event":
+      return buildProviderStreamPayload(event, persistedPayload);
+    case "tool_call_start":
+      return redactedTimelinePayload({
+        toolCallId: toolCallIdForTranscript(event),
+        toolName: toolNameForTranscript(event),
+        input: persistedPayload?.input ?? event.metadata.input,
+      });
+    case "tool_call_end":
+      return redactedTimelinePayload({
+        toolCallId: toolCallIdForTranscript(event),
+        toolName: toolNameForTranscript(event),
+        durationMs: persistedPayload?.durationMs ?? metadataNumber(event.metadata, "durationMs"),
+        success: persistedPayload?.success ?? metadataBoolean(event.metadata, "success"),
+      });
+    case "tool_result":
+      return redactedTimelinePayload({
+        toolCallId: toolCallIdForTranscript(event),
+        toolName: toolNameForTranscript(event),
+        output: persistedPayload?.output ?? event.metadata.output ?? event.body,
+        isError: persistedPayload?.isError ?? metadataBoolean(event.metadata, "isError") ?? event.role === "error",
+        errorMessage: payloadText(persistedPayload, "errorMessage") ?? metadataText(event.metadata, "errorMessage"),
+      });
+    case "assistant_text_delta":
+      return redactedTimelinePayload({ delta: event.body, accumulatedText: event.body });
+    case "assistant_text_final":
+      return redactedTimelinePayload({ text: event.body });
+    case "thinking_delta":
+      return redactedTimelinePayload({ delta: event.body });
+    case "thinking_summary":
+      return redactedTimelinePayload({ summary: event.body });
+    default:
+      return persistedPayload ? redactedTimelinePayload(persistedPayload) : null;
+  }
+}
+
 /**
  * Maps engine event_type to canonical MCLiveEventKind.
  * Honest mapping: engine milestones are NOT assistant text events.
@@ -1138,6 +1311,14 @@ function toLiveEventKind(eventKind: string): MCLiveEventKind {
     case "run_end":
     case "run_error":
     case "run_progress":
+    case "command_start":
+    case "command_exit":
+    case "stdout_chunk":
+    case "stderr_chunk":
+    case "process_spawned":
+    case "process_exit":
+    case "runtime_progress":
+    case "provider_stream_event":
     case "assistant_text_delta":
     case "assistant_text_final":
     case "thinking_delta":
@@ -1152,8 +1333,10 @@ function toLiveEventKind(eventKind: string): MCLiveEventKind {
     case "error":
     case "heartbeat":
       return eventKind;
+    case "provider_event":
+      return "provider_stream_event";
     default:
-      return "run_progress";
+      return "provider_stream_event";
   }
 }
 
@@ -1323,6 +1506,12 @@ function computeDurationMs(startedAt: string | null, finishedAt: string | null) 
 
 function textValue(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
 }
 
 function numberValue(value: unknown) {

@@ -30,6 +30,7 @@ function runtimeEvent(input: {
   runId?: string;
   summary?: string;
   payload: MCLiveEvent["payload"];
+  providerMeta?: MCLiveEvent["providerMeta"];
   ts?: number;
   seq?: number;
 }): MCLiveEvent {
@@ -44,6 +45,7 @@ function runtimeEvent(input: {
     seq: input.seq,
     provider: "runtime-test",
     payload: input.payload,
+    providerMeta: input.providerMeta,
   };
 }
 
@@ -118,6 +120,144 @@ async function run() {
       seq: 999,
     }));
     assert.equal(seen.length, LIVE_RUNTIME_RING_BUFFER_SIZE + 4);
+  });
+
+  await test("publish durably persists bounded redacted runtime transparency events", async () => {
+    __resetLiveRuntimeEventsForTests();
+    const { resetSqliteDatabaseFiles } = await import("@/lib/__tests__/helpers/orchestration-workspace-isolation");
+    resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
+
+    const [
+      { createCompany },
+      { getOrchestrationDb },
+      { createProject, createProjectAgent, createTask },
+      { listExecutionTranscriptEvents },
+    ] = await Promise.all([
+      import("@/lib/orchestration/company-service"),
+      import("@/lib/orchestration/db"),
+      import("@/lib/orchestration/service"),
+      import("@/lib/orchestration/service/execution-transcript"),
+    ]);
+
+    const db = getOrchestrationDb();
+    const stamp = Date.now();
+    const company = createCompany({
+      name: `Runtime Persistence ${stamp}`,
+      description: "fixture",
+      status: "active",
+    }).company;
+    const project = createProject({
+      companyId: company.id,
+      name: `Runtime Persistence Project ${stamp}`,
+      description: "fixture",
+      color: "#0ea5e9",
+      emoji: "icon:folder",
+      status: "active",
+    }).project;
+    const agent = createProjectAgent({
+      projectId: project.id,
+      name: `Runtime Persistence Agent ${stamp}`,
+      emoji: "icon:bot",
+      role: "Analyst",
+      personality: "Precise fixture agent.",
+      model: "openai-codex/gpt-5.5",
+      skills: [],
+      status: "idle",
+    }).agent;
+    const task = createTask({
+      projectId: project.id,
+      title: "Runtime persistence fixture task",
+      description: "Fixture task.",
+      priority: "P2",
+      type: "research",
+      status: "review",
+      assignee: agent.id,
+      labels: [],
+      createdBy: "test",
+    }).task;
+    const runId = `runtime-persistence-${stamp}`;
+    const now = new Date("2026-06-08T12:00:00.000Z").toISOString();
+    db.prepare(
+      `INSERT INTO execution_runs
+         (id, task_id, agent_id, provider, status, started_at, metadata_json, created_at, updated_at)
+       VALUES (?, ?, ?, 'codex', 'running', ?, '{}', ?, ?)`,
+    ).run(runId, task.id, agent.id, now, now, now);
+
+    const secret = "sk-proj-1234567890abcdefghijklmnopqrstuv";
+    publishLiveRuntimeEvent(runtimeEvent({
+      kind: "command_start",
+      companyId: company.id,
+      agentId: agent.id,
+      runId,
+      summary: `Starting command with ${secret}`,
+      payload: {
+        command: `printf ${secret}`,
+        cwd: "/tmp/runtime-persistence",
+        argv: ["printf", secret],
+      },
+      ts: Date.parse(now),
+      seq: 1,
+    }));
+    publishLiveRuntimeEvent(runtimeEvent({
+      kind: "stdout_chunk",
+      companyId: company.id,
+      agentId: agent.id,
+      runId,
+      summary: "stdout chunk",
+      payload: {
+        chunk: `${secret} ${"x".repeat(4500)}`,
+        byteLength: 4500 + secret.length + 1,
+      },
+      ts: Date.parse(now) + 1,
+      seq: 2,
+    }));
+    publishLiveRuntimeEvent(runtimeEvent({
+      kind: "process_spawned",
+      companyId: company.id,
+      agentId: agent.id,
+      runId,
+      summary: "process spawned",
+      payload: { pid: 4242, command: "codex", cwd: "/tmp/runtime-persistence" },
+      providerMeta: { env: { OPENAI_API_KEY: secret } },
+      ts: Date.parse(now) + 2,
+      seq: 3,
+    }));
+    publishLiveRuntimeEvent(runtimeEvent({
+      kind: "tool_call_start",
+      companyId: company.id,
+      agentId: agent.id,
+      runId,
+      summary: "tool call remains final-transcript owned",
+      payload: { toolCallId: "tool-1", toolName: "shell" },
+      ts: Date.parse(now) + 3,
+      seq: 4,
+    }));
+
+    let events = listExecutionTranscriptEvents(db, runId);
+    for (let attempt = 0; attempt < 20 && events.length < 3; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      events = listExecutionTranscriptEvents(db, runId);
+    }
+    assert.deepEqual(events.map((event) => event.kind), ["command_start", "stdout_chunk", "process_spawned"]);
+
+    const serialized = JSON.stringify(events);
+    assert.doesNotMatch(serialized, /sk-proj-[A-Za-z0-9_-]+/);
+    assert.match(serialized, /\[REDACTED:api_key\]/);
+
+    const stdout = events.find((event) => event.kind === "stdout_chunk");
+    assert.ok(stdout);
+    assert.equal(stdout.role, "tool");
+    assert.ok(stdout.body.length < 4100, "stdout body should be bounded");
+    assert.equal(stdout.metadata.schema, "hiverunner.live_runtime_event.v1");
+    assert.equal((stdout.metadata.liveRuntimeEvent as { kind?: string } | undefined)?.kind, "stdout_chunk");
+    assert.ok(String((stdout.metadata.payload as { chunk?: string } | undefined)?.chunk ?? "").length < 4100);
+    assert.ok((stdout.metadata.redaction as { totalRedactions?: number } | undefined)?.totalRedactions ?? 0);
+
+    const processEvent = events.find((event) => event.kind === "process_spawned");
+    assert.equal((processEvent?.metadata.payload as { pid?: number } | undefined)?.pid, 4242);
+    const processProviderMeta = JSON.stringify(processEvent?.metadata.providerMeta);
+    assert.match(processProviderMeta, /\[REDACTED:/);
+    assert.doesNotMatch(processProviderMeta, /sk-proj-[A-Za-z0-9_-]+/);
   });
 
   await test("live-stream SSE replays and streams runtime events with company filtering", async () => {

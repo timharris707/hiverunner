@@ -60,6 +60,7 @@ export interface RunTraceTimelineEventInput {
   commentType?: string | null;
   authorName?: string | null;
   title?: string | null;
+  payload?: Record<string, unknown> | null;
   metadata?: Record<string, unknown> | null;
 }
 
@@ -896,6 +897,7 @@ function searchableEventText(event: RunTraceTimelineEventInput): string {
     event.source,
     event.summary,
     event.title,
+    JSON.stringify(event.payload ?? {}),
   ]
     .filter((value): value is string => typeof value === "string" && value.length > 0)
     .join(" ")

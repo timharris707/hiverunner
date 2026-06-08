@@ -219,6 +219,131 @@ async function run() {
     now,
   );
 
+  const traceFidelityRunId = `run-events-trace-fidelity-${stamp}`;
+  const traceFidelitySecret = "sk-proj-abcdef1234567890abcdef1234567890";
+  db.prepare(
+    `INSERT INTO execution_runs
+       (id, task_id, agent_id, provider, status, started_at, completed_at, token_usage_json, metadata_json, created_at, updated_at)
+     VALUES (?, ?, ?, 'codex', 'completed', ?, ?, ?, '{}', ?, ?)`,
+  ).run(
+    traceFidelityRunId,
+    task.id,
+    agent.id,
+    now,
+    now,
+    JSON.stringify({ structuredTelemetry: true, totalCostUsd: 0.03, inputTokens: 10, outputTokens: 5 }),
+    now,
+    now,
+  );
+  const traceFidelityEvents = [
+    {
+      id: `${traceFidelityRunId}-command`,
+      kind: "command_start",
+      role: "system",
+      title: "codex exec",
+      body: `codex exec ${traceFidelitySecret}`,
+      metadata: {
+        schema: "hiverunner.live_runtime_event.v1",
+        payload: { command: `codex exec ${traceFidelitySecret}`, cwd: "/tmp/run-trace", argv: ["codex", "exec"] },
+      },
+    },
+    {
+      id: `${traceFidelityRunId}-stdout`,
+      kind: "stdout_chunk",
+      role: "tool",
+      title: "stdout",
+      body: `hello ${traceFidelitySecret}`,
+      metadata: {
+        schema: "hiverunner.live_runtime_event.v1",
+        payload: { chunk: `hello ${traceFidelitySecret}`, byteLength: 12 },
+      },
+    },
+    {
+      id: `${traceFidelityRunId}-stderr`,
+      kind: "stderr_chunk",
+      role: "tool",
+      title: "stderr",
+      body: "warning line",
+      metadata: {
+        schema: "hiverunner.live_runtime_event.v1",
+        payload: { chunk: "warning line", byteLength: 12 },
+      },
+    },
+    {
+      id: `${traceFidelityRunId}-spawned`,
+      kind: "process_spawned",
+      role: "system",
+      title: "process spawned",
+      body: "pid 9898",
+      metadata: {
+        schema: "hiverunner.live_runtime_event.v1",
+        payload: { pid: 9898, command: "codex", cwd: "/tmp/run-trace" },
+      },
+    },
+    {
+      id: `${traceFidelityRunId}-exit`,
+      kind: "process_exit",
+      role: "system",
+      title: "process exited",
+      body: "exit 0",
+      metadata: {
+        schema: "hiverunner.live_runtime_event.v1",
+        payload: { pid: 9898, exitCode: 0, durationMs: 1200 },
+      },
+    },
+    {
+      id: `${traceFidelityRunId}-provider`,
+      kind: "provider_event",
+      role: "system",
+      title: "Codex process started",
+      body: "raw provider lifecycle",
+      metadata: { type: "process.started", raw: { ok: true } },
+    },
+    {
+      id: `${traceFidelityRunId}-unknown`,
+      kind: "custom_provider_delta",
+      role: "system",
+      title: "Custom provider delta",
+      body: "provider-specific delta",
+      metadata: { type: "custom.delta" },
+    },
+    {
+      id: `${traceFidelityRunId}-tool-start`,
+      kind: "tool_call_start",
+      role: "tool",
+      title: "shell",
+      body: "running npm test",
+      metadata: { toolCallId: "tool-1", toolName: "shell", input: { command: "npm test" } },
+    },
+    {
+      id: `${traceFidelityRunId}-tool-result`,
+      kind: "tool_result",
+      role: "tool",
+      title: "shell",
+      body: "tests passed",
+      metadata: { toolCallId: "tool-1", toolName: "shell", isError: false },
+    },
+  ];
+  const traceFidelityInsert = db.prepare(
+    `INSERT INTO execution_run_transcript_events
+       (id, execution_run_id, provider, event_kind, role, title, body, metadata_json, sequence, occurred_at, created_at)
+     VALUES (?, ?, 'codex', ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  traceFidelityEvents.forEach((event, index) => {
+    traceFidelityInsert.run(
+      event.id,
+      traceFidelityRunId,
+      event.kind,
+      event.role,
+      event.title,
+      event.body,
+      JSON.stringify(event.metadata),
+      index + 1,
+      new Date(Date.parse(now) + index).toISOString(),
+      now,
+    );
+  });
+
   const defaultRequest = {
     nextUrl: new URL(`http://localhost/api/orchestration/engine/runs/${runId}/events`),
   } as never;
@@ -230,6 +355,9 @@ async function run() {
   } as never;
   const secretRequest = {
     nextUrl: new URL(`http://localhost/api/orchestration/engine/runs/${secretRunId}/events`),
+  } as never;
+  const traceFidelityRequest = {
+    nextUrl: new URL(`http://localhost/api/orchestration/engine/runs/${traceFidelityRunId}/events`),
   } as never;
 
   let suggestionFixtureCounter = 0;
@@ -487,6 +615,56 @@ async function run() {
       gap.id === "missing_memory_evidence" &&
       gap.label === "not_captured"
     ));
+  });
+
+  await test("GET preserves canonical runtime transcript event fidelity in Run Trace timeline", async () => {
+    const res = await getEngineRunEventsRoute(traceFidelityRequest, {
+      params: Promise.resolve({ runId: traceFidelityRunId }),
+    });
+
+    assert.strictEqual(res.status, 200);
+    const payload = await res.json() as {
+      trace?: {
+        timeline?: Array<{
+          id: string;
+          kind: string;
+          rawKind?: string;
+          summary?: string;
+          providerEventType?: string;
+          payload?: Record<string, unknown> | null;
+          metadata?: Record<string, unknown> | null;
+        }>;
+      };
+    };
+
+    const timeline = payload.trace?.timeline ?? [];
+    const byId = new Map(timeline.map((event) => [event.id, event]));
+
+    assert.strictEqual(byId.get(`${traceFidelityRunId}-command`)?.kind, "command_start");
+    assert.strictEqual(byId.get(`${traceFidelityRunId}-stdout`)?.kind, "stdout_chunk");
+    assert.strictEqual(byId.get(`${traceFidelityRunId}-stderr`)?.kind, "stderr_chunk");
+    assert.strictEqual(byId.get(`${traceFidelityRunId}-spawned`)?.kind, "process_spawned");
+    assert.strictEqual(byId.get(`${traceFidelityRunId}-exit`)?.kind, "process_exit");
+    assert.strictEqual(byId.get(`${traceFidelityRunId}-provider`)?.kind, "provider_stream_event");
+    assert.strictEqual(byId.get(`${traceFidelityRunId}-unknown`)?.kind, "provider_stream_event");
+    assert.strictEqual(byId.get(`${traceFidelityRunId}-tool-start`)?.kind, "tool_call_start");
+    assert.strictEqual(byId.get(`${traceFidelityRunId}-tool-result`)?.kind, "tool_result");
+    assert.ok(!timeline.some((event) =>
+      event.id.startsWith(traceFidelityRunId) &&
+      event.kind === "run_progress"
+    ));
+
+    assert.strictEqual(byId.get(`${traceFidelityRunId}-command`)?.payload?.cwd, "/tmp/run-trace");
+    assert.strictEqual(byId.get(`${traceFidelityRunId}-stdout`)?.payload?.byteLength, 12);
+    assert.strictEqual(byId.get(`${traceFidelityRunId}-spawned`)?.payload?.pid, 9898);
+    assert.strictEqual(byId.get(`${traceFidelityRunId}-exit`)?.payload?.exitCode, 0);
+    assert.strictEqual(byId.get(`${traceFidelityRunId}-provider`)?.payload?.providerEventType, "Codex process started");
+    assert.deepStrictEqual(byId.get(`${traceFidelityRunId}-tool-start`)?.payload?.input, { command: "npm test" });
+    assert.strictEqual(byId.get(`${traceFidelityRunId}-tool-result`)?.payload?.isError, false);
+
+    const serializedTimeline = JSON.stringify(timeline.filter((event) => event.id.startsWith(traceFidelityRunId)));
+    assert.match(serializedTimeline, /\[REDACTED:api_key\]/);
+    assert.doesNotMatch(serializedTimeline, /sk-proj-[A-Za-z0-9_-]+/);
   });
 
   await test("GET redacted trace export removes secrets at route boundary", async () => {
