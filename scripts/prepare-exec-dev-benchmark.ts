@@ -13,6 +13,8 @@ type CliOptions = {
   requiredRepeats: number;
   taskKeys: string[];
   resetSelectedTasksTo: "none" | "to-do";
+  sourceWorkspaceRoot: string | null;
+  companyWorkspaceRoot: string | null;
 };
 
 function usage(): never {
@@ -20,6 +22,7 @@ function usage(): never {
     "Usage: node ./scripts/run-tsx.mjs scripts/prepare-exec-dev-benchmark.ts [--source-db data/orchestration.db] [--target-db data-exec-dev/orchestration.db] [--goal INS-G006]",
     "       [--fixture-id ins-g006-runtime-replay-v1] [--expected-tasks 10] [--required-repeats 3]",
     "       [--task-key INS-205] [--task-keys INS-205,INS-208,...] [--reset-selected-tasks-to to-do|none]",
+    "       [--source-workspace-root /path/to/source-worktree] [--company-workspace-root /path/to/company-workspace]",
   ].join("\n"));
   process.exit(1);
 }
@@ -36,6 +39,8 @@ function parseArgs(argv: string[]): CliOptions {
     requiredRepeats: 3,
     taskKeys: [],
     resetSelectedTasksTo: "none",
+    sourceWorkspaceRoot: null,
+    companyWorkspaceRoot: null,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -76,6 +81,12 @@ function parseArgs(argv: string[]): CliOptions {
     } else if (arg === "--reset-selected-tasks-to" && next) {
       if (next !== "none" && next !== "to-do") usage();
       options.resetSelectedTasksTo = next;
+      index += 1;
+    } else if (arg === "--source-workspace-root" && next) {
+      options.sourceWorkspaceRoot = path.resolve(next);
+      index += 1;
+    } else if (arg === "--company-workspace-root" && next) {
+      options.companyWorkspaceRoot = path.resolve(next);
       index += 1;
     } else if (arg === "--help" || arg === "-h") {
       usage();
@@ -186,6 +197,128 @@ function resetSelectedTasks(db: Database.Database, taskKeys: string[], status: "
     .run(status, now, ...taskKeys);
 }
 
+function tableExists(db: Database.Database, tableName: string): boolean {
+  return Boolean(
+    db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(tableName),
+  );
+}
+
+function columnExists(db: Database.Database, tableName: string, columnName: string): boolean {
+  if (!tableExists(db, tableName)) return false;
+  return (db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>).some(
+    (column) => column.name === columnName,
+  );
+}
+
+function replaceWorkspacePrefix(value: string | null, fromRoot: string | null, toRoot: string): string {
+  const fallback = toRoot;
+  if (!value) return fallback;
+  if (!fromRoot) return fallback;
+  const relative = path.relative(fromRoot, value);
+  if (relative === "") return toRoot;
+  if (relative.startsWith("..") || path.isAbsolute(relative)) return fallback;
+  return path.join(toRoot, relative);
+}
+
+function rewriteWorkspaceRoots(
+  db: Database.Database,
+  taskKeys: string[],
+  input: {
+    sourceWorkspaceRoot: string | null;
+    companyWorkspaceRoot: string | null;
+  },
+): {
+  sourceWorkspaceRoot: string | null;
+  companyWorkspaceRoot: string | null;
+  companyIds: string[];
+  projectIds: string[];
+  agentRuntimeRowsUpdated: number;
+} {
+  if (!input.sourceWorkspaceRoot && !input.companyWorkspaceRoot) {
+    return {
+      sourceWorkspaceRoot: null,
+      companyWorkspaceRoot: null,
+      companyIds: [],
+      projectIds: [],
+      agentRuntimeRowsUpdated: 0,
+    };
+  }
+  if (taskKeys.length === 0) {
+    throw new Error("Workspace rewrite requires a non-empty frozen task-key list.");
+  }
+
+  const projectRows = db
+    .prepare(
+      `SELECT DISTINCT p.id AS project_id, p.settings_json, p.company_id,
+              c.workspace_root AS company_workspace_root
+         FROM tasks t
+         INNER JOIN projects p ON p.id = t.project_id
+         INNER JOIN companies c ON c.id = p.company_id
+        WHERE t.task_key IN (${placeholders(taskKeys.length)})`,
+    )
+    .all(...taskKeys) as Array<{
+      project_id: string;
+      settings_json: string | null;
+      company_id: string;
+      company_workspace_root: string | null;
+    }>;
+
+  const projectIds = Array.from(new Set(projectRows.map((row) => row.project_id))).sort();
+  const companyIds = Array.from(new Set(projectRows.map((row) => row.company_id))).sort();
+  if (projectIds.length === 0 || companyIds.length === 0) {
+    throw new Error("Workspace rewrite could not resolve fixture projects or companies.");
+  }
+  if (companyIds.length !== 1 && input.companyWorkspaceRoot) {
+    throw new Error(`Workspace rewrite supports one fixture company at a time; found ${companyIds.length}.`);
+  }
+
+  const now = new Date().toISOString();
+  if (input.sourceWorkspaceRoot) {
+    for (const row of projectRows) {
+      let settings: Record<string, unknown>;
+      try {
+        settings = JSON.parse(row.settings_json ?? "{}") as Record<string, unknown>;
+      } catch {
+        settings = {};
+      }
+      const workspace = typeof settings.workspace === "object" && settings.workspace && !Array.isArray(settings.workspace)
+        ? { ...(settings.workspace as Record<string, unknown>) }
+        : {};
+      workspace.sourceRoot = input.sourceWorkspaceRoot;
+      settings.workspace = workspace;
+      db.prepare("UPDATE projects SET settings_json = ?, updated_at = ? WHERE id = ?")
+        .run(JSON.stringify(settings), now, row.project_id);
+    }
+  }
+
+  let agentRuntimeRowsUpdated = 0;
+  if (input.companyWorkspaceRoot) {
+    const companyId = companyIds[0];
+    const oldCompanyRoot = projectRows.find((row) => row.company_id === companyId)?.company_workspace_root?.trim() || null;
+    db.prepare("UPDATE companies SET workspace_root = ?, workspace_source = 'manual', updated_at = ? WHERE id = ?")
+      .run(input.companyWorkspaceRoot, now, companyId);
+
+    if (columnExists(db, "agent_runtimes", "workspace_root")) {
+      const runtimeRows = db
+        .prepare("SELECT id, workspace_root FROM agent_runtimes WHERE company_id = ? AND workspace_root IS NOT NULL")
+        .all(companyId) as Array<{ id: string; workspace_root: string | null }>;
+      const updateRuntime = db.prepare("UPDATE agent_runtimes SET workspace_root = ?, updated_at = ? WHERE id = ?");
+      for (const row of runtimeRows) {
+        const rewritten = replaceWorkspacePrefix(row.workspace_root, oldCompanyRoot, input.companyWorkspaceRoot);
+        agentRuntimeRowsUpdated += updateRuntime.run(rewritten, now, row.id).changes;
+      }
+    }
+  }
+
+  return {
+    sourceWorkspaceRoot: input.sourceWorkspaceRoot,
+    companyWorkspaceRoot: input.companyWorkspaceRoot,
+    companyIds,
+    projectIds,
+    agentRuntimeRowsUpdated,
+  };
+}
+
 function replaySummaryCommands(input: {
   dbPath: string;
   goalKey: string;
@@ -256,6 +389,19 @@ async function main() {
       }
     }
 
+    let workspaceRewrite: ReturnType<typeof rewriteWorkspaceRoots> | null = null;
+    if (options.sourceWorkspaceRoot || options.companyWorkspaceRoot) {
+      const writable = new Database(options.targetDbPath, { fileMustExist: true });
+      try {
+        workspaceRewrite = rewriteWorkspaceRoots(writable, taskKeys, {
+          sourceWorkspaceRoot: options.sourceWorkspaceRoot,
+          companyWorkspaceRoot: options.companyWorkspaceRoot,
+        });
+      } finally {
+        writable.close();
+      }
+    }
+
     const copied = new Database(options.targetDbPath, { readonly: true, fileMustExist: true });
     try {
       copied.pragma("query_only = ON");
@@ -286,6 +432,7 @@ async function main() {
         arms: ["baseline", "candidate"],
         requiredRepeats: options.requiredRepeats,
         resetSelectedTasksTo: options.resetSelectedTasksTo,
+        workspaceRewrite,
         report: "Run each arm against the same frozen fixture DB in an isolated execution-dev lane, then pass all repeat summary JSON files to scripts/runtime-promotion-gate.ts.",
         summaryCommands: replaySummaryCommands({
           dbPath: path.resolve(options.targetDbPath),

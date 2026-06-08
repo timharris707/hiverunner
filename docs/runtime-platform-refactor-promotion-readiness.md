@@ -41,8 +41,12 @@ node ./scripts/run-tsx.mjs scripts/prepare-exec-dev-benchmark.ts \
   --expected-tasks 10 \
   --required-repeats 3 \
   --task-keys INS-205,INS-208,INS-221,INS-250,INS-277,INS-278,INS-256,INS-232,INS-262,INS-274 \
-  --reset-selected-tasks-to to-do
+  --reset-selected-tasks-to to-do \
+  --source-workspace-root /path/to/isolated/source-worktree \
+  --company-workspace-root /path/to/isolated/company-workspace
 ```
+
+Both workspace flags are required for live replay. Without them, copied tasks can still point external runners at the real HiveRunner source checkout and stable company workspace.
 
 ## Current Observed Baseline
 
