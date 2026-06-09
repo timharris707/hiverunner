@@ -28,6 +28,7 @@ import { TIER_LABELS } from "../adapters/types";
 import { createApproval, getApproval } from "./approval";
 import { recordCompanyAuditEvent } from "./audit";
 import { listCompanyCostLedger, type CompanyCostLedger, type ProviderProfile } from "../cost-ledger";
+import { upsertCompanyRuntime } from "../runtime-registry";
 
 const PROVIDER_SWITCH_IN_FLIGHT_STALE_MS = 30 * 60 * 1000;
 
@@ -106,6 +107,12 @@ export interface SwitchStateChanges {
   preserved: string[];
   /** Human-readable list of reset fields */
   reset: string[];
+}
+
+interface RuntimeSwitchReconciliation {
+  disabledRuntimeIds: string[];
+  targetRuntimeId: string | null;
+  targetRuntimeCreated: boolean;
 }
 
 /* ══════════════════════════════════════════
@@ -687,6 +694,20 @@ export function switchAgentProvider(
     ).run(targetProvider, now, plan.agentId);
   }
 
+  const runtimeReconciliation = providerWillChange || plan.stateChanges?.modelUpdated === true
+    ? reconcileAgentRuntimesAfterProviderSwitch({
+        db,
+        agentId: plan.agentId,
+        companyId: plan.companyId,
+        agentName: plan.agentName,
+        previousProvider: plan.currentProvider,
+        targetProvider,
+        previousModel: plan.stateChanges?.previousModel ?? null,
+        targetModel: plan.stateChanges?.newModel ?? null,
+        now,
+      })
+    : null;
+
   recordCompanyAuditEvent({
     companyId: plan.companyId,
     agentId: plan.agentId,
@@ -699,6 +720,7 @@ export function switchAgentProvider(
       previousModel: plan.stateChanges?.previousModel ?? null,
       targetModel: plan.stateChanges?.newModel ?? null,
       runtimeStateReset: Boolean(runtimeStateExists),
+      runtimeReconciliation,
     },
   });
 
@@ -1074,4 +1096,123 @@ function isFreshInFlightRow(timestamp: string | null): boolean {
 function normalizeAdapterType(adapterType: string): string {
   if (adapterType === "openclaw-heartbeat") return "openclaw";
   return adapterType;
+}
+
+function reconcileAgentRuntimesAfterProviderSwitch(input: {
+  db: ReturnType<typeof getOrchestrationDb>;
+  agentId: string;
+  companyId: string;
+  agentName: string;
+  previousProvider: string;
+  targetProvider: string;
+  previousModel: string | null;
+  targetModel: string | null;
+  now: string;
+}): RuntimeSwitchReconciliation {
+  const targetProvider = normalizeAdapterType(input.targetProvider);
+  const disabledRuntimeIds = disableNonTargetAgentRuntimes({
+    db: input.db,
+    agentId: input.agentId,
+    targetProvider,
+    previousProvider: input.previousProvider,
+    targetModel: input.targetModel,
+    now: input.now,
+  });
+
+  const agent = input.db
+    .prepare(
+      `SELECT runtime_slug, slug
+       FROM agents
+       WHERE id = ? AND company_id = ? AND archived_at IS NULL
+       LIMIT 1`,
+    )
+    .get(input.agentId, input.companyId) as { runtime_slug: string | null; slug: string | null } | undefined;
+
+  const runtimeSlug = agent?.runtime_slug?.trim() || agent?.slug?.trim() || input.agentName;
+  const runtimeKind = targetProvider === "manual" ? "manual" : "cli";
+  const status = targetProvider === "manual" ? "disabled" : "unknown";
+  const result = upsertCompanyRuntime({
+    companyIdOrSlug: input.companyId,
+    agentId: input.agentId,
+    provider: targetProvider,
+    runtimeSlug,
+    displayName: `${input.agentName} runtime`,
+    runtimeKind,
+    scope: "agent",
+    command: targetProvider === "openclaw" ? "openclaw" : null,
+    status,
+    workspaceRoot: null,
+    metadata: {
+      source: "provider_switch",
+      previousProvider: normalizeAdapterType(input.previousProvider),
+      targetProvider,
+      previousModel: input.previousModel,
+      model: input.targetModel,
+      switchedAt: input.now,
+    },
+  });
+
+  return {
+    disabledRuntimeIds,
+    targetRuntimeId: result.runtime.id,
+    targetRuntimeCreated: result.created,
+  };
+}
+
+function disableNonTargetAgentRuntimes(input: {
+  db: ReturnType<typeof getOrchestrationDb>;
+  agentId: string;
+  targetProvider: string;
+  previousProvider: string;
+  targetModel: string | null;
+  now: string;
+}): string[] {
+  const rows = input.db
+    .prepare(
+      `SELECT id, provider, metadata_json
+       FROM agent_runtimes
+       WHERE agent_id = ?
+         AND provider != ?
+         AND status != 'disabled'`,
+    )
+    .all(input.agentId, input.targetProvider) as Array<{
+      id: string;
+      provider: string;
+      metadata_json: string | null;
+    }>;
+
+  for (const row of rows) {
+    const metadata = {
+      ...parseRuntimeMetadata(row.metadata_json),
+      disabledBy: "provider_switch",
+      disabledAt: input.now,
+      previousProvider: normalizeAdapterType(input.previousProvider),
+      disabledProvider: row.provider,
+      targetProvider: input.targetProvider,
+      targetModel: input.targetModel,
+    };
+    input.db
+      .prepare(
+        `UPDATE agent_runtimes
+         SET status = 'disabled',
+             metadata_json = ?,
+             updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(JSON.stringify(metadata), input.now, row.id);
+  }
+
+  return rows.map((row) => row.id);
+}
+
+function parseRuntimeMetadata(value: string | null): Record<string, unknown> {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
+  }
 }
