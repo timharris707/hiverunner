@@ -93,6 +93,22 @@ export type RuntimeLatencyMetrics = {
   detectUnhealthyMs: RuntimeLatencyPercentiles;
 };
 
+/**
+ * Counts of the runtime-platform safety signals observed within the summary's run
+ * window, derived from real DB rows (not asserted). Used to attest that the
+ * marquee safety features actually fired. detect-unhealthy lives on
+ * `latency.detectUnhealthyMs.sampleCount` and overseer turns on
+ * `overseerTurnCount`/`overseerUsage`; this struct carries the two that had no home.
+ */
+export type RuntimeSafetySignalCounts = {
+  /** runtime_preflight_results rows with classification='deterministic_preflight' (circuit opened). */
+  preflightCircuitOpenCount: number;
+  /** distinct runtime_fingerprint values among those circuit-open rows (>1 row/fingerprint = churn). */
+  preflightDistinctFingerprintCount: number;
+  /** execution_runs rows with fallback_used=1 (a provider fallback was taken). */
+  fallbackUsedCount: number;
+};
+
 export type RuntimeBenchmarkSummary = {
   scope: RuntimeBenchmarkScope;
   protocol: RuntimeBenchmarkProtocol;
@@ -115,6 +131,7 @@ export type RuntimeBenchmarkSummary = {
   actionLedger: RuntimeActionLedgerMetrics;
   browserProof: RuntimeBrowserProofMetrics;
   latency: RuntimeLatencyMetrics;
+  safetySignals: RuntimeSafetySignalCounts;
 };
 
 export type RuntimePromotionGateCheck = {
@@ -137,10 +154,25 @@ export type RuntimePromotionEvidenceCheck = {
   detail?: string;
 };
 
+/**
+ * Attestations that each runtime safety signal fired in a dedicated demonstration
+ * run. Built from a real demo summary via buildSafetySignalEvidenceFromSummary
+ * (the counts come from DB rows, not hand-assertion). The promotion gate requires
+ * all four. `count` is the observed row/sample count; `detail` records the source
+ * run window and, for overseerWatch, the token total vs the ceiling.
+ */
+export type RuntimePromotionSafetySignalEvidence = {
+  preflightCircuitOpen?: RuntimePromotionEvidenceCheck;
+  detectUnhealthy?: RuntimePromotionEvidenceCheck;
+  overseerWatch?: RuntimePromotionEvidenceCheck;
+  providerFallback?: RuntimePromotionEvidenceCheck;
+};
+
 export type RuntimePromotionEvidence = {
   schema?: string;
   uiConsistency?: RuntimePromotionEvidenceCheck;
   untrackedActions?: RuntimePromotionEvidenceCheck;
+  safetySignals?: RuntimePromotionSafetySignalEvidence;
 };
 
 export type RuntimePromotionGateOptions = {
@@ -152,7 +184,12 @@ export type RuntimePromotionGateOptions = {
   detectUnhealthyNoiseMs?: number;
   evidence?: RuntimePromotionEvidence | null;
   requireEvidenceProofs?: boolean;
+  /** Max combined overseer-turn tokens allowed for the "low-token watch mode" claim. Default 50000. */
+  overseerTokenCeiling?: number;
 };
+
+/** Default ceiling for the bounded overseer watch-turn safety check. */
+export const DEFAULT_OVERSEER_TOKEN_CEILING = 50_000;
 
 export type RuntimeBenchmarkSummaryOptions = {
   fixtureId?: string | null;
@@ -206,6 +243,12 @@ const EMPTY_LATENCY_METRICS: RuntimeLatencyMetrics = {
   detectUnhealthyMs: { sampleCount: 0, medianMs: null, p95Ms: null },
 };
 
+const EMPTY_SAFETY_SIGNALS: RuntimeSafetySignalCounts = {
+  preflightCircuitOpenCount: 0,
+  preflightDistinctFingerprintCount: 0,
+  fallbackUsedCount: 0,
+};
+
 const EMPTY_EXECUTION_USAGE_VALIDATION: RuntimeExecutionUsageValidation = {
   completedRunCount: 0,
   withUsageCount: 0,
@@ -251,6 +294,11 @@ type RunRow = {
   started_at: string | null;
   completed_at: string | null;
   updated_at: string | null;
+  fallback_used: number | null;
+};
+
+type PreflightCircuitRow = {
+  runtime_fingerprint: string | null;
 };
 
 type OverseerTurnRow = {
@@ -955,6 +1003,26 @@ export function buildRuntimeBenchmarkSummary(
     : [];
   browserProofRows.push(...executionLinkedBrowserProofRows);
   const latency = latencyMetricsForRuns(db, runRows, runIds);
+
+  // Safety signal #4 (provider fallback): execution_runs.fallback_used=1 in window.
+  const fallbackUsedCount = runRows.filter((run) => Number(run.fallback_used) === 1).length;
+  // Safety signal #1 (deterministic preflight circuit-break): runtime_preflight_results
+  // rows with classification='deterministic_preflight' in the run window. Scoped by the
+  // created_at window only (NOT task_id) — a fingerprint circuit row can have task_id=NULL,
+  // and the demo run window already isolates these rows.
+  let preflightCircuitOpenCount = 0;
+  let preflightDistinctFingerprintCount = 0;
+  if (hasTable(db, "runtime_preflight_results")) {
+    const preflightWhere = ["classification = 'deterministic_preflight'"];
+    const preflightParams: unknown[] = [];
+    appendCreatedAtWindow(db, "runtime_preflight_results", preflightWhere, preflightParams, runStartedAfter, runStartedBefore);
+    const preflightRows = db
+      .prepare(`SELECT runtime_fingerprint FROM runtime_preflight_results WHERE ${preflightWhere.join(" AND ")}`)
+      .all(...preflightParams) as PreflightCircuitRow[];
+    preflightCircuitOpenCount = preflightRows.length;
+    preflightDistinctFingerprintCount = unique(preflightRows.map((row) => row.runtime_fingerprint)).length;
+  }
+
   const expectedTaskCount = options.expectedTaskCount ?? 10;
   const frozenTaskKeys = options.frozenTaskKeys
     ?? (requestedTaskKeys.length > 0
@@ -1011,6 +1079,11 @@ export function buildRuntimeBenchmarkSummary(
     repeatedFailures: Array.from(repeatedFailureMap.values())
       .filter((entry) => entry.count > 1)
       .sort((a, b) => b.count - a.count || String(a.taskKey).localeCompare(String(b.taskKey))),
+    safetySignals: {
+      preflightCircuitOpenCount,
+      preflightDistinctFingerprintCount,
+      fallbackUsedCount,
+    },
     actionLedger: {
       total: actionLedgerRows.length,
       terminal: actionLedgerRows.filter((row) => actionLedgerExecutionStatus(row) !== "not_started").length,
@@ -1219,6 +1292,9 @@ export function evaluateRuntimeBenchmarkPromotionGate(
       threshold: "0",
       detail: actionProof?.detail ?? actionProof?.source,
     });
+    for (const check of safetySignalChecks(options.evidence, options)) {
+      checks.push(check);
+    }
   }
 
   if (baseline) {
@@ -1580,6 +1656,89 @@ function externalEvidenceChecks(evidence: RuntimePromotionEvidence | null | unde
   ];
 }
 
+/**
+ * Positive gate checks that each of the four runtime safety signals actually fired,
+ * read from the promotion evidence's safetySignals attestations (built honestly from
+ * a real demonstration summary via buildSafetySignalEvidenceFromSummary). The gate
+ * FAILS if any attestation is missing or did not fire. This is the fix for the prior
+ * gate's structural inability to prove the safety/observability features: it no longer
+ * auto-passes when no unhealthy runs exist — it positively requires a demonstrated sample.
+ */
+/** One safety-signal gate check: the attestation must exist, be ok, and report >=1 occurrence. */
+function safetySignalCheck(
+  name: string,
+  threshold: string,
+  attestation: RuntimePromotionEvidenceCheck | undefined,
+): RuntimePromotionGateCheck {
+  return {
+    name,
+    ok: Boolean(attestation?.ok) && (attestation?.count ?? 0) >= 1,
+    value: attestation?.count ?? "missing",
+    threshold,
+    detail: attestation?.detail ?? attestation?.source ?? `${name} attestation missing`,
+  };
+}
+
+function safetySignalChecks(
+  evidence: RuntimePromotionEvidence | null | undefined,
+  options: RuntimePromotionGateOptions,
+): RuntimePromotionGateCheck[] {
+  const ceiling = options.overseerTokenCeiling ?? DEFAULT_OVERSEER_TOKEN_CEILING;
+  const sig = evidence?.safetySignals;
+  return [
+    safetySignalCheck("safety: deterministic preflight circuit-break fired (>=1, no churn)", ">= 1 circuit-open row, no churn", sig?.preflightCircuitOpen),
+    safetySignalCheck("safety: detect-unhealthy sample observed (>=1)", ">= 1 detect-unhealthy sample", sig?.detectUnhealthy),
+    safetySignalCheck(`safety: bounded overseer watch turn (>=1, <= ${ceiling} tokens)`, `>= 1 overseer turn under ${ceiling} tokens`, sig?.overseerWatch),
+    safetySignalCheck("safety: provider fallback exercised (>=1)", ">= 1 fallback_used row", sig?.providerFallback),
+  ];
+}
+
+/**
+ * Build the four safety-signal attestations from a real demonstration-run summary.
+ * The counts come from DB-derived summary fields (safetySignals, latency, overseer
+ * usage) — not hand-assertion — so the resulting promotion-evidence.json is grounded.
+ * "No churn" = exactly one circuit-open row per distinct runtime fingerprint.
+ */
+export function buildSafetySignalEvidenceFromSummary(
+  summary: RuntimeBenchmarkSummary,
+  options: { overseerTokenCeiling?: number; source?: string } = {},
+): RuntimePromotionSafetySignalEvidence {
+  const ceiling = options.overseerTokenCeiling ?? DEFAULT_OVERSEER_TOKEN_CEILING;
+  const source = options.source
+    ?? `demo summary ${summary.protocol?.fixtureId ?? "unlabeled"} ${summary.scope.runStartedAt ?? "?"}..${summary.scope.runEndedAt ?? "?"}`;
+  const safety = summary.safetySignals ?? EMPTY_SAFETY_SIGNALS;
+  const detectCount = summary.latency?.detectUnhealthyMs.sampleCount ?? 0;
+  const overseerTokens = summary.overseerUsage?.totalTokens ?? 0;
+  const noChurn = safety.preflightCircuitOpenCount >= 1
+    && safety.preflightCircuitOpenCount === safety.preflightDistinctFingerprintCount;
+  return {
+    preflightCircuitOpen: {
+      ok: safety.preflightCircuitOpenCount >= 1 && noChurn,
+      source,
+      count: safety.preflightCircuitOpenCount,
+      detail: `${safety.preflightCircuitOpenCount} circuit-open row(s) across ${safety.preflightDistinctFingerprintCount} fingerprint(s)${noChurn ? "" : " — CHURN (>1 row/fingerprint)"}`,
+    },
+    detectUnhealthy: {
+      ok: detectCount >= 1,
+      source,
+      count: detectCount,
+      detail: `detect-unhealthy p50 ${summary.latency?.detectUnhealthyMs.medianMs ?? "n/a"}ms / p95 ${summary.latency?.detectUnhealthyMs.p95Ms ?? "n/a"}ms`,
+    },
+    overseerWatch: {
+      ok: summary.overseerTurnCount >= 1 && overseerTokens <= ceiling,
+      source,
+      count: summary.overseerTurnCount,
+      detail: `${summary.overseerTurnCount} overseer turn(s), ${overseerTokens} combined tokens (ceiling ${ceiling})`,
+    },
+    providerFallback: {
+      ok: safety.fallbackUsedCount >= 1,
+      source,
+      count: safety.fallbackUsedCount,
+      detail: `${safety.fallbackUsedCount} execution_runs row(s) with fallback_used=1`,
+    },
+  };
+}
+
 function metricRegressionChecks(input: {
   candidate: RuntimeBenchmarkArmStats;
   baseline: RuntimeBenchmarkArmStats;
@@ -1692,6 +1851,7 @@ export function buildRuntimeBenchmarkPromotionReport(
     repeatedUsageEvidenceCheck(candidateSummaries, "candidate"),
     repeatedUsageEvidenceCheck(baselineSummaries, "baseline"),
     ...externalEvidenceChecks(evidence),
+    ...safetySignalChecks(evidence, options),
     ...metricRegressionChecks({ candidate, baseline, candidateRuntimeQualityFailures }),
   ];
 
@@ -1709,6 +1869,7 @@ export function formatRuntimeBenchmarkMarkdown(summary: RuntimeBenchmarkSummary)
   const actionLedger = summary.actionLedger ?? EMPTY_ACTION_LEDGER_METRICS;
   const browserProof = summary.browserProof ?? EMPTY_BROWSER_PROOF_METRICS;
   const latency = summary.latency ?? EMPTY_LATENCY_METRICS;
+  const safety = summary.safetySignals ?? EMPTY_SAFETY_SIGNALS;
   const usageValidation = summary.executionUsageValidation ?? EMPTY_EXECUTION_USAGE_VALIDATION;
   const finalTaskStatus = summary.finalTaskStatus ?? EMPTY_FINAL_TASK_STATUS;
   const pct = (value: number, denominator: number) => denominator > 0 ? `${((value / denominator) * 100).toFixed(1)}%` : "0.0%";
@@ -1793,6 +1954,13 @@ export function formatRuntimeBenchmarkMarkdown(summary: RuntimeBenchmarkSummary)
     `- First evidence p50/p95: ${ms(latency.firstEvidenceMs.medianMs)} / ${ms(latency.firstEvidenceMs.p95Ms)}`,
     `- Detect unhealthy samples: ${latency.detectUnhealthyMs.sampleCount}`,
     `- Detect unhealthy p50/p95: ${ms(latency.detectUnhealthyMs.medianMs)} / ${ms(latency.detectUnhealthyMs.p95Ms)}`,
+    "",
+    "## Safety Signals",
+    "",
+    `- Preflight circuit-open rows: ${safety.preflightCircuitOpenCount} (across ${safety.preflightDistinctFingerprintCount} fingerprint(s))`,
+    `- Detect-unhealthy samples: ${latency.detectUnhealthyMs.sampleCount}`,
+    `- Overseer turns: ${summary.overseerTurnCount} (${tokens(summary.overseerUsage.totalTokens)} combined tokens)`,
+    `- Provider fallback_used rows: ${safety.fallbackUsedCount}`,
     "",
     "## Repeated Failures",
     "",

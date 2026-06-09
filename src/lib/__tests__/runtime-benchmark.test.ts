@@ -8,7 +8,9 @@ import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import {
   buildRuntimeBenchmarkPromotionReport,
   buildRuntimeBenchmarkSummary,
+  buildSafetySignalEvidenceFromSummary,
   classifyRunFailure,
+  DEFAULT_OVERSEER_TOKEN_CEILING,
   evaluateRuntimeBenchmarkPromotionGate,
   formatRuntimeBenchmarkMarkdown,
   type RuntimeBenchmarkSummary,
@@ -239,6 +241,11 @@ function promotionSummary(overrides: Partial<RuntimeBenchmarkSummary> = {}): Run
         medianMs: null,
         p95Ms: null,
       },
+    },
+    safetySignals: {
+      preflightCircuitOpenCount: 0,
+      preflightDistinctFingerprintCount: 0,
+      fallbackUsedCount: 0,
     },
     ...overrides,
   };
@@ -498,6 +505,12 @@ async function run() {
     const evidence = {
       uiConsistency: { ok: true, source: "ui-truth-smoke" },
       untrackedActions: { ok: true, count: 0, source: "action-ledger-query" },
+      safetySignals: {
+        preflightCircuitOpen: { ok: true, count: 1, source: "safety-demo" },
+        detectUnhealthy: { ok: true, count: 1, source: "safety-demo" },
+        overseerWatch: { ok: true, count: 1, source: "safety-demo" },
+        providerFallback: { ok: true, count: 1, source: "safety-demo" },
+      },
     };
     const baselineSummaries = [0, 1, 2].map((index) => promotionSummary({
       protocol: {
@@ -705,6 +718,129 @@ async function run() {
     assert.match(markdown, /Completed runs with usage: 0\/0/);
     assert.match(markdown, /Final tasks done: 0\/0/);
     assert.match(markdown, /Status counts: none/);
+  });
+
+  await test("benchmark summary counts fallback_used runs and deterministic preflight circuit-open rows", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "runtime-benchmark-safety-"));
+    const db = new Database(path.join(dir, "fixture.db"));
+    db.exec(`
+      CREATE TABLE sprints (id TEXT PRIMARY KEY, parent_id TEXT, goal_key TEXT);
+      CREATE TABLE tasks (id TEXT PRIMARY KEY, sprint_id TEXT, task_key TEXT, company_id TEXT, status TEXT NOT NULL DEFAULT 'done', blocked_reason TEXT);
+      CREATE TABLE execution_runs (
+        id TEXT PRIMARY KEY, task_id TEXT NOT NULL, status TEXT NOT NULL, failure_class TEXT, error_message TEXT,
+        token_usage_json TEXT NOT NULL DEFAULT '{}', duration_ms INTEGER, created_at TEXT, started_at TEXT, completed_at TEXT, updated_at TEXT,
+        fallback_used INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE overseer_turns (id TEXT PRIMARY KEY, company_id TEXT NOT NULL, usage_json TEXT NOT NULL DEFAULT '{}', created_at TEXT);
+      CREATE TABLE runtime_preflight_results (id TEXT PRIMARY KEY, classification TEXT, runtime_fingerprint TEXT, created_at TEXT);
+    `);
+    db.prepare("INSERT INTO sprints (id, parent_id, goal_key) VALUES ('goal', NULL, 'INS-G006')").run();
+    db.prepare("INSERT INTO sprints (id, parent_id, goal_key) VALUES ('sprint-1', 'goal', NULL)").run();
+    db.prepare("INSERT INTO tasks (id, sprint_id, task_key, company_id, status, blocked_reason) VALUES ('task-1', 'sprint-1', 'INS-1', 'company-1', 'done', NULL)").run();
+    db.prepare(`INSERT INTO execution_runs (id, task_id, status, token_usage_json, duration_ms, created_at, started_at, completed_at, updated_at, fallback_used) VALUES
+      ('r1','task-1','completed','{}',10,'2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z','2026-01-01T00:00:01.000Z','2026-01-01T00:00:01.000Z',1),
+      ('r2','task-1','completed','{}',10,'2026-01-01T00:00:02.000Z','2026-01-01T00:00:02.000Z','2026-01-01T00:00:03.000Z','2026-01-01T00:00:03.000Z',0)
+    `).run();
+    db.prepare(`INSERT INTO runtime_preflight_results (id, classification, runtime_fingerprint, created_at) VALUES
+      ('p1','deterministic_preflight','fingerprint-A','2026-01-01T00:00:00.500Z'),
+      ('p2','quarantined_provider_model_fingerprint','fingerprint-B','2026-01-01T00:00:00.500Z')
+    `).run();
+
+    const summary = buildRuntimeBenchmarkSummary(db, "INS-G006");
+    assert.equal(summary.safetySignals.fallbackUsedCount, 1);
+    // Only classification='deterministic_preflight' rows count as circuit-opens (the quarantined row is excluded).
+    assert.equal(summary.safetySignals.preflightCircuitOpenCount, 1);
+    assert.equal(summary.safetySignals.preflightDistinctFingerprintCount, 1);
+    db.close();
+  });
+
+  await test("promotion report fails when any safety-signal attestation is missing or did not fire", () => {
+    const frozenKeys = Array.from({ length: 10 }, (_, i) => `INS-${i + 1}`);
+    const baselineSummaries = [0, 1, 2].map((index) => promotionSummary({
+      protocol: { fixtureId: "ins-g006-runtime-replay-v1", arm: "baseline", repeatIndex: index + 1, requiredRepeats: 3, expectedTaskCount: 10, frozenTaskKeys: frozenKeys },
+      averageRunsPerTask: 2 + index * 0.1,
+      executionRunCount: 20 + index,
+      combinedUsage: { inputTokens: 100_000, cacheReadInputTokens: 0, freshInputTokens: 100_000 + index * 1_000, outputTokens: 10_000, totalTokens: 110_000, estimatedCostUsd: null },
+      latency: { firstEvidenceMs: { sampleCount: 20 + index, medianMs: [10_000, 11_000, 9_000][index], p95Ms: [30_000, 31_000, 29_000][index] }, detectUnhealthyMs: { sampleCount: 1, medianMs: [60_000, 62_000, 58_000][index], p95Ms: [60_000, 62_000, 58_000][index] } },
+    }));
+    const candidateSummaries = [0, 1, 2].map((index) => promotionSummary({
+      protocol: { fixtureId: "ins-g006-runtime-replay-v1", arm: "candidate", repeatIndex: index + 1, requiredRepeats: 3, expectedTaskCount: 10, frozenTaskKeys: frozenKeys },
+      latency: { firstEvidenceMs: { sampleCount: 10, medianMs: [2_000, 2_200, 2_100][index], p95Ms: [5_000, 5_200, 5_100][index] }, detectUnhealthyMs: { sampleCount: 0, medianMs: null, p95Ms: null } },
+    }));
+    const allPass = {
+      preflightCircuitOpen: { ok: true, count: 1, source: "demo" },
+      detectUnhealthy: { ok: true, count: 1, source: "demo" },
+      overseerWatch: { ok: true, count: 1, source: "demo" },
+      providerFallback: { ok: true, count: 1, source: "demo" },
+    };
+    const baseEvidence = { uiConsistency: { ok: true, source: "ui" }, untrackedActions: { ok: true, count: 0, source: "ledger" } };
+    const buildReport = (safetySignals?: unknown) => buildRuntimeBenchmarkPromotionReport(candidateSummaries, baselineSummaries, {
+      requiredTaskCount: 10,
+      requiredRepeats: 3,
+      evidence: safetySignals === undefined ? baseEvidence : { ...baseEvidence, safetySignals },
+    } as Parameters<typeof buildRuntimeBenchmarkPromotionReport>[2]);
+
+    // Sanity: with all four safety signals attested, this exact input passes — so any
+    // failure below is attributable to the safety dimension, not a replication error.
+    assert.equal(buildReport(allPass).gate.ok, true);
+
+    // No safetySignals block at all -> all four safety checks fail -> gate fails.
+    const noSafety = buildReport(undefined);
+    const safetyChecks = noSafety.gate.checks.filter((check) => check.name.startsWith("safety:"));
+    assert.equal(safetyChecks.length, 4);
+    assert.equal(safetyChecks.every((check) => !check.ok), true);
+    assert.equal(noSafety.gate.ok, false);
+
+    // Each individual signal missing/not-fired fails the gate on exactly that check.
+    for (const key of ["preflightCircuitOpen", "detectUnhealthy", "overseerWatch", "providerFallback"] as const) {
+      const report = buildReport({ ...allPass, [key]: { ok: false, count: 0, source: "demo" } });
+      assert.equal(report.gate.ok, false, `expected gate to fail when ${key} did not fire`);
+    }
+  });
+
+  await test("buildSafetySignalEvidenceFromSummary derives attestations from real demo summary counts", () => {
+    const okLatency = { firstEvidenceMs: { sampleCount: 10, medianMs: 2_000, p95Ms: 5_000 }, detectUnhealthyMs: { sampleCount: 1, medianMs: 91_000, p95Ms: 91_000 } };
+
+    const demo = promotionSummary({
+      safetySignals: { preflightCircuitOpenCount: 1, preflightDistinctFingerprintCount: 1, fallbackUsedCount: 2 },
+      overseerTurnCount: 1,
+      overseerUsage: { inputTokens: 3_000, cacheReadInputTokens: 0, freshInputTokens: 3_000, outputTokens: 500, totalTokens: 3_500, estimatedCostUsd: null },
+      latency: okLatency,
+    });
+    const ev = buildSafetySignalEvidenceFromSummary(demo);
+    assert.equal(ev.preflightCircuitOpen?.ok, true);
+    assert.equal(ev.preflightCircuitOpen?.count, 1);
+    assert.equal(ev.detectUnhealthy?.ok, true);
+    assert.equal(ev.detectUnhealthy?.count, 1);
+    assert.equal(ev.overseerWatch?.ok, true);
+    assert.equal(ev.providerFallback?.ok, true);
+    assert.equal(ev.providerFallback?.count, 2);
+
+    // Churn: 2 circuit-open rows across 1 fingerprint -> not ok.
+    assert.equal(buildSafetySignalEvidenceFromSummary(promotionSummary({
+      safetySignals: { preflightCircuitOpenCount: 2, preflightDistinctFingerprintCount: 1, fallbackUsedCount: 1 },
+      overseerTurnCount: 1, latency: okLatency,
+    })).preflightCircuitOpen?.ok, false);
+
+    // Overseer over the token ceiling -> not ok.
+    assert.equal(buildSafetySignalEvidenceFromSummary(promotionSummary({
+      safetySignals: { preflightCircuitOpenCount: 1, preflightDistinctFingerprintCount: 1, fallbackUsedCount: 1 },
+      overseerTurnCount: 1,
+      overseerUsage: { inputTokens: 0, cacheReadInputTokens: 0, freshInputTokens: 0, outputTokens: 0, totalTokens: DEFAULT_OVERSEER_TOKEN_CEILING + 1, estimatedCostUsd: null },
+      latency: okLatency,
+    })).overseerWatch?.ok, false);
+
+    // No overseer turn -> not ok.
+    assert.equal(buildSafetySignalEvidenceFromSummary(promotionSummary({
+      safetySignals: { preflightCircuitOpenCount: 1, preflightDistinctFingerprintCount: 1, fallbackUsedCount: 1 },
+      overseerTurnCount: 0, latency: okLatency,
+    })).overseerWatch?.ok, false);
+
+    // No detect-unhealthy sample (default latency) -> not ok; no fallback -> not ok.
+    const noSignals = buildSafetySignalEvidenceFromSummary(promotionSummary({ overseerTurnCount: 1 }));
+    assert.equal(noSignals.detectUnhealthy?.ok, false);
+    assert.equal(noSignals.providerFallback?.ok, false);
+    assert.equal(noSignals.preflightCircuitOpen?.ok, false);
   });
 
   finish();
