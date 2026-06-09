@@ -1190,6 +1190,7 @@ function disableNonTargetAgentRuntimes(input: {
       disabledProvider: row.provider,
       targetProvider: input.targetProvider,
       targetModel: input.targetModel,
+      health: disabledRuntimeHealth(input.now),
     };
     input.db
       .prepare(
@@ -1215,4 +1216,14 @@ function parseRuntimeMetadata(value: string | null): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+function disabledRuntimeHealth(now: string): Record<string, unknown> {
+  return {
+    status: "disabled",
+    label: "Disabled",
+    checkedAt: now,
+    details: ["Disabled by provider switch."],
+    error: null,
+  };
 }

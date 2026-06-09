@@ -134,6 +134,7 @@ async function run() {
       assert.equal(openClawMetadata.previousProvider, "openclaw");
       assert.equal(openClawMetadata.targetProvider, "codex");
       assert.equal(openClawMetadata.targetModel, "gpt-5.5");
+      assert.equal((openClawMetadata.health as Record<string, unknown>).status, "disabled");
     });
   } finally {
     closeOrchestrationDb?.();
