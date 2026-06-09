@@ -1,11 +1,35 @@
 # Runtime Platform Refactor — Re-Validation & Clean Re-Promote (INS-G006)
 
-> Status: handoff for a fresh session (Claude Ultra or operator-driven)
+> Status: closed as of 2026-06-09; the remaining document is historical handoff/provenance context
 > Created: 2026-06-08, after independent QA of the "goal complete" promotion claim
 > This goal does **not** re-implement the runtime refactor. The implementation is largely done and is
 > already deployed to stable (3001). This goal **re-validates it honestly and re-promotes it cleanly**,
 > because the promotion gate passed against a confounded baseline and the new safety features were never
 > exercised or asserted.
+
+---
+
+## Final Closeout (2026-06-09)
+
+INS-G006 is closed. The final cited gate is
+`/Users/timharris/.mission-control/runtime-benchmarks/ins-g006/runtime-promotion-gate-OLDBUILD-control.md`,
+run against three candidate summaries, three old-build baseline summaries, and
+`/Users/timharris/.mission-control/runtime-benchmarks/ins-g006/promotion-evidence.json`.
+
+- Completed-task efficiency passed: candidate 46,696 fresh input per completed task vs old-build control 116,991,
+  about a 60% reduction. The report also preserves the non-gated transparency denominators:
+  fresh/completed-run 51,885 vs 53,996 and fresh/all-fixture-task 46,696 vs 70,194.
+- Reliability passed: candidate repeats finished 10/10 tasks with 0 non-completed tasks and 0.9 average runs/task;
+  old-build control repeats finished 6/10, 6/10, and 9/10, with median 1.5 runs/task.
+- Safety attestations passed: deterministic preflight circuit-open without churn, detect-unhealthy sample, bounded
+  Overseer watch turn at 43,871 fresh input <= 50,000, and provider fallback with one `fallback_used` row.
+- Clean promote passed: stable/3001 was re-promoted at 2026-06-09T04:35Z to release commit `3c5905fd3`, tag
+  `stable/20260609T043357Z-3c5905fd3`, with `repo_dirty="0"`, health OK, and rollback dry-run resolving to
+  checkpoint `58e6e19a8`.
+
+The out-of-repo progress artifact
+`/Users/timharris/.mission-control/runtime-benchmarks/ins-g006/REVALIDATION-PROGRESS.md` now records this final
+state. Memory-relevance hygiene and turn-growth analysis are separate optional follow-ups, not INS-G006 blockers.
 
 ---
 

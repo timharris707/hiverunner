@@ -21,7 +21,41 @@ usage() {
   echo "Use --reconcile-live to record bookkeeping for the currently running stable lane without rebuilding it."
   echo "Use --tracked-build to build from a temporary git-archive export of committed files only."
   echo "By default the repo must be clean so stable maps to a committed checkpoint."
+  echo ""
+  echo "Runtime gate env:"
+  echo "  HIVERUNNER_RUNTIME_PROMOTION_GATE=1"
+  echo "  HIVERUNNER_RUNTIME_PROMOTION_CANDIDATE_SUMMARIES=<json paths, comma or newline separated>"
+  echo "  HIVERUNNER_RUNTIME_PROMOTION_BASELINE_SUMMARIES=<json paths, comma or newline separated>"
+  echo "  HIVERUNNER_RUNTIME_PROMOTION_EVIDENCE=<promotion-evidence.json>"
+  echo "  HIVERUNNER_RUNTIME_PROMOTION_REQUIRED_REPEATS=3"
+  echo "  HIVERUNNER_RUNTIME_PROMOTION_EXPECTED_TASKS=10"
+  echo "  HIVERUNNER_RUNTIME_PROMOTION_GATE_ONLY=1 validates the gate and exits before build/deploy."
   exit "$EXIT_CODE"
+}
+
+shell_quote() {
+  SHELL_QUOTE_VALUE="$(printf "%s" "$1" | sed "s/'/'\\\\''/g")"
+  printf "'%s'" "$SHELL_QUOTE_VALUE"
+}
+
+append_gate_arg() {
+  GATE_CMD="$GATE_CMD $(shell_quote "$1") $(shell_quote "$2")"
+}
+
+append_gate_path_list() {
+  GATE_LIST_FLAG="$1"
+  GATE_LIST_VALUES="$2"
+  [ -n "$GATE_LIST_VALUES" ] || return 0
+
+  GATE_LIST_NORMALIZED="$(printf "%s\n" "$GATE_LIST_VALUES" | tr ',' '\n')"
+  while IFS= read -r GATE_LIST_VALUE; do
+    GATE_LIST_VALUE="$(printf "%s" "$GATE_LIST_VALUE" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    [ -n "$GATE_LIST_VALUE" ] || continue
+    append_gate_arg "$GATE_LIST_FLAG" "$GATE_LIST_VALUE"
+    GATE_PATH_COUNT=$((GATE_PATH_COUNT + 1))
+  done <<EOF
+$GATE_LIST_NORMALIZED
+EOF
 }
 
 while [ "$#" -gt 0 ]; do
@@ -73,33 +107,72 @@ if [ "$RECONCILE_LIVE" = "1" ]; then
   exit 0
 fi
 
-require_expected_git_state "$ALLOW_DIRTY"
+if [ "${HIVERUNNER_RUNTIME_PROMOTION_GATE:-0}" = "1" ] && [ "${HIVERUNNER_RUNTIME_PROMOTION_GATE_ONLY:-0}" = "1" ]; then
+  require_git_repo
+else
+  require_expected_git_state "$ALLOW_DIRTY"
+fi
 
 if [ "${HIVERUNNER_RUNTIME_PROMOTION_GATE:-0}" = "1" ]; then
   RUNTIME_PROMOTION_DB="${HIVERUNNER_RUNTIME_PROMOTION_DB:-${ORCHESTRATION_DB_PATH:-$APP_DIR/data/orchestration.db}}"
   RUNTIME_PROMOTION_BASELINE_DB="${HIVERUNNER_RUNTIME_PROMOTION_BASELINE_DB:-}"
+  RUNTIME_PROMOTION_CANDIDATE_SUMMARY="${HIVERUNNER_RUNTIME_PROMOTION_CANDIDATE_SUMMARY:-}"
+  RUNTIME_PROMOTION_CANDIDATE_SUMMARIES="${HIVERUNNER_RUNTIME_PROMOTION_CANDIDATE_SUMMARIES:-}"
   RUNTIME_PROMOTION_BASELINE_SUMMARY="${HIVERUNNER_RUNTIME_PROMOTION_BASELINE_SUMMARY:-}"
+  RUNTIME_PROMOTION_BASELINE_SUMMARIES="${HIVERUNNER_RUNTIME_PROMOTION_BASELINE_SUMMARIES:-}"
+  RUNTIME_PROMOTION_EVIDENCE="${HIVERUNNER_RUNTIME_PROMOTION_EVIDENCE:-}"
   RUNTIME_PROMOTION_GOAL="${HIVERUNNER_RUNTIME_PROMOTION_GOAL:-INS-G006}"
   RUNTIME_PROMOTION_OUT="${HIVERUNNER_RUNTIME_PROMOTION_OUT:-$APP_DIR/output/runtime-promotion-gate.md}"
+  RUNTIME_PROMOTION_REQUIRED_REPEATS="${HIVERUNNER_RUNTIME_PROMOTION_REQUIRED_REPEATS:-3}"
+  RUNTIME_PROMOTION_EXPECTED_TASKS="${HIVERUNNER_RUNTIME_PROMOTION_EXPECTED_TASKS:-10}"
+  RUNTIME_PROMOTION_FORMAT="${HIVERUNNER_RUNTIME_PROMOTION_FORMAT:-markdown}"
+  RUNTIME_PROMOTION_GATE_ONLY="${HIVERUNNER_RUNTIME_PROMOTION_GATE_ONLY:-0}"
 
   echo "[promote] Runtime promotion gate enabled."
-  if [ -n "$RUNTIME_PROMOTION_BASELINE_SUMMARY" ]; then
-    node ./scripts/run-tsx.mjs scripts/runtime-promotion-gate.ts \
-      --db "$RUNTIME_PROMOTION_DB" \
-      --baseline-summary "$RUNTIME_PROMOTION_BASELINE_SUMMARY" \
-      --goal "$RUNTIME_PROMOTION_GOAL" \
-      --out "$RUNTIME_PROMOTION_OUT"
-  elif [ -n "$RUNTIME_PROMOTION_BASELINE_DB" ]; then
-    node ./scripts/run-tsx.mjs scripts/runtime-promotion-gate.ts \
-      --db "$RUNTIME_PROMOTION_DB" \
-      --baseline-db "$RUNTIME_PROMOTION_BASELINE_DB" \
-      --goal "$RUNTIME_PROMOTION_GOAL" \
-      --out "$RUNTIME_PROMOTION_OUT"
+
+  GATE_CMD="node ./scripts/run-tsx.mjs scripts/runtime-promotion-gate.ts"
+
+  GATE_PATH_COUNT=0
+  append_gate_path_list "--candidate-summary" "$RUNTIME_PROMOTION_CANDIDATE_SUMMARY"
+  append_gate_path_list "--candidate-summary" "$RUNTIME_PROMOTION_CANDIDATE_SUMMARIES"
+  RUNTIME_PROMOTION_CANDIDATE_SUMMARY_COUNT="$GATE_PATH_COUNT"
+  if [ "$RUNTIME_PROMOTION_CANDIDATE_SUMMARY_COUNT" -eq 0 ]; then
+    append_gate_arg "--db" "$RUNTIME_PROMOTION_DB"
+  fi
+
+  GATE_PATH_COUNT=0
+  append_gate_path_list "--baseline-summary" "$RUNTIME_PROMOTION_BASELINE_SUMMARY"
+  append_gate_path_list "--baseline-summary" "$RUNTIME_PROMOTION_BASELINE_SUMMARIES"
+  RUNTIME_PROMOTION_BASELINE_SUMMARY_COUNT="$GATE_PATH_COUNT"
+  if [ "$RUNTIME_PROMOTION_BASELINE_SUMMARY_COUNT" -eq 0 ]; then
+    if [ -n "$RUNTIME_PROMOTION_BASELINE_DB" ]; then
+      append_gate_arg "--baseline-db" "$RUNTIME_PROMOTION_BASELINE_DB"
+    else
+      echo "[promote] ERROR: HIVERUNNER_RUNTIME_PROMOTION_GATE=1 requires HIVERUNNER_RUNTIME_PROMOTION_BASELINE_DB, HIVERUNNER_RUNTIME_PROMOTION_BASELINE_SUMMARY, or HIVERUNNER_RUNTIME_PROMOTION_BASELINE_SUMMARIES." >&2
+      exit 1
+    fi
+  fi
+
+  if [ -n "$RUNTIME_PROMOTION_EVIDENCE" ]; then
+    append_gate_arg "--evidence" "$RUNTIME_PROMOTION_EVIDENCE"
   else
-    echo "[promote] ERROR: HIVERUNNER_RUNTIME_PROMOTION_GATE=1 requires HIVERUNNER_RUNTIME_PROMOTION_BASELINE_DB or HIVERUNNER_RUNTIME_PROMOTION_BASELINE_SUMMARY." >&2
+    echo "[promote] ERROR: HIVERUNNER_RUNTIME_PROMOTION_GATE=1 requires HIVERUNNER_RUNTIME_PROMOTION_EVIDENCE." >&2
     exit 1
   fi
+
+  append_gate_arg "--goal" "$RUNTIME_PROMOTION_GOAL"
+  append_gate_arg "--required-repeats" "$RUNTIME_PROMOTION_REQUIRED_REPEATS"
+  append_gate_arg "--expected-tasks" "$RUNTIME_PROMOTION_EXPECTED_TASKS"
+  append_gate_arg "--format" "$RUNTIME_PROMOTION_FORMAT"
+  append_gate_arg "--out" "$RUNTIME_PROMOTION_OUT"
+
+  echo "[promote] Runtime promotion gate inputs: candidate_summaries=$RUNTIME_PROMOTION_CANDIDATE_SUMMARY_COUNT baseline_summaries=$RUNTIME_PROMOTION_BASELINE_SUMMARY_COUNT evidence=$RUNTIME_PROMOTION_EVIDENCE"
+  eval "$GATE_CMD"
   echo "[promote] Runtime promotion gate passed: $RUNTIME_PROMOTION_OUT"
+  if [ "$RUNTIME_PROMOTION_GATE_ONLY" = "1" ]; then
+    echo "[promote] Runtime promotion gate-only mode complete; skipping build/deploy."
+    exit 0
+  fi
 fi
 
 RELEASE_COMMIT="$(current_git_commit)"

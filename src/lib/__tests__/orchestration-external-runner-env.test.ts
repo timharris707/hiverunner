@@ -23,6 +23,11 @@ async function run() {
         MC_ENGINE_TICK: "on",
         MC_WORKSPACE_ROOT: "/tmp/workspace",
         PORT: "3021",
+        HIVERUNNER_RUNTIME_PROMOTION_GATE: "1",
+        HIVERUNNER_RUNTIME_PROMOTION_CANDIDATE_SUMMARIES: "/tmp/candidate-1.json,/tmp/candidate-2.json",
+        HIVERUNNER_RUNTIME_PROMOTION_BASELINE_SUMMARIES: "/tmp/baseline-1.json,/tmp/baseline-2.json",
+        HIVERUNNER_RUNTIME_PROMOTION_EVIDENCE: "/tmp/evidence.json",
+        HIVERUNNER_RUNTIME_PROMOTION_GATE_ONLY: "1",
       },
       {
         PATH: "/custom/bin:/bin",
@@ -42,6 +47,11 @@ async function run() {
     assert.strictEqual(env.MC_ENGINE_TICK, undefined);
     assert.strictEqual(env.MC_WORKSPACE_ROOT, undefined);
     assert.strictEqual(env.PORT, undefined);
+    assert.strictEqual(env.HIVERUNNER_RUNTIME_PROMOTION_GATE, undefined);
+    assert.strictEqual(env.HIVERUNNER_RUNTIME_PROMOTION_CANDIDATE_SUMMARIES, undefined);
+    assert.strictEqual(env.HIVERUNNER_RUNTIME_PROMOTION_BASELINE_SUMMARIES, undefined);
+    assert.strictEqual(env.HIVERUNNER_RUNTIME_PROMOTION_EVIDENCE, undefined);
+    assert.strictEqual(env.HIVERUNNER_RUNTIME_PROMOTION_GATE_ONLY, undefined);
   });
 
   await test("wrapper script env strips provider API keys after overrides", async () => {
@@ -59,11 +69,19 @@ async function run() {
             PATH: "/custom/bin",
             OPENAI_API_KEY: "override-openai-key",
             CLAUDE_API_KEY: "override-claude-key",
+            HIVERUNNER_RUNTIME_PROMOTION_GATE: "1",
+            HIVERUNNER_RUNTIME_PROMOTION_CANDIDATE_SUMMARIES: "/tmp/candidate.json",
+            HIVERUNNER_RUNTIME_PROMOTION_BASELINE_SUMMARIES: "/tmp/baseline.json",
+            HIVERUNNER_RUNTIME_PROMOTION_EVIDENCE: "/tmp/evidence.json",
           });
           if (env.PATH !== "/custom/bin") throw new Error("PATH override was not preserved");
           if (env.OPENAI_API_KEY !== undefined) throw new Error("OPENAI_API_KEY was not stripped");
           if (env.ANTHROPIC_API_KEY !== undefined) throw new Error("ANTHROPIC_API_KEY was not stripped");
           if (env.CLAUDE_API_KEY !== undefined) throw new Error("CLAUDE_API_KEY was not stripped");
+          if (env.HIVERUNNER_RUNTIME_PROMOTION_GATE !== undefined) throw new Error("promotion gate flag was not stripped");
+          if (env.HIVERUNNER_RUNTIME_PROMOTION_CANDIDATE_SUMMARIES !== undefined) throw new Error("promotion candidate summaries were not stripped");
+          if (env.HIVERUNNER_RUNTIME_PROMOTION_BASELINE_SUMMARIES !== undefined) throw new Error("promotion baseline summaries were not stripped");
+          if (env.HIVERUNNER_RUNTIME_PROMOTION_EVIDENCE !== undefined) throw new Error("promotion evidence path was not stripped");
         `,
       ],
       { encoding: "utf8" },

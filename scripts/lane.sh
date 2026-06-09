@@ -16,7 +16,7 @@ LOG_DIR="$(resolve_mc_log_dir "$APP_DIR")"
 usage() {
   echo "Usage: $0 <dev|exec-dev|stable> <start|stop|restart|status|logs|rollback>"
   echo "       $0 <dev|exec-dev|stable> logs watchdog"
-  echo "       $0 promote   (build + deploy to stable lane)"
+  echo "       $0 promote   (build + deploy to stable lane; honors HIVERUNNER_RUNTIME_PROMOTION_* env)"
   echo "       $0 rollback  (restore stable to previous promoted checkpoint)"
   echo "       $0 doctor    (diagnose both lanes, PIDs, health)"
   echo ""
