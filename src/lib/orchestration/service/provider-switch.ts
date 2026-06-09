@@ -1172,8 +1172,7 @@ function disableNonTargetAgentRuntimes(input: {
       `SELECT id, provider, metadata_json
        FROM agent_runtimes
        WHERE agent_id = ?
-         AND provider != ?
-         AND status != 'disabled'`,
+         AND provider != ?`,
     )
     .all(input.agentId, input.targetProvider) as Array<{
       id: string;
