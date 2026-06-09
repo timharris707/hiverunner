@@ -435,8 +435,94 @@ async function run() {
 
     assert.ok(context?.includes("Concurrency-first planning rule"));
     assert.ok(context?.includes("Default every task to `dependsOn: []`"));
+    assert.ok(context?.includes("Small/self-contained goal rule"));
     assert.ok(context?.includes("at least half of non-QA/non-release tasks should be able to start immediately"));
     assert.ok(context?.includes("Use dependencies only for hard prerequisites"));
+  });
+
+  await test("small self-contained benchmark plans reject excessive task fanout", async () => {
+    const db = getOrchestrationDb();
+    const smallGoal = createCompanyGoal({
+      companyIdOrSlug: company.id,
+      projectId: project.id,
+      name: "Benchmark: Decision Log Summarizer",
+      goal: "Benchmark goal: implement a small, self-contained Decision Log Summarizer utility in this repository. Create one focused sprint with a few simple tasks. Do not create follow-up sprints unless something is genuinely blocked. Use scratch/harness-comparison/decision-log-summarizer if needed.",
+      goalKind: "company",
+      status: "active",
+      leadAgentId: agent.id,
+      defaultExecutionEngine: "hiverunner",
+    }).goal;
+    const planningTask = createSprintPlanningTask({
+      companyIdOrSlug: company.id,
+      companyGoalId: smallGoal.sprint.id,
+      leadAgentId: agent.id,
+    });
+    const runId = randomUUID();
+
+    const overSplit = await executeMcAction({
+      action: "propose_sprint_plan",
+      companyGoalId: smallGoal.sprint.id,
+      sprints: [{
+        sequenceNumber: 1,
+        name: "Build decision log summarizer",
+        objective: "Implement the small scratch utility.",
+        defaultExecutionEngine: "hiverunner",
+        tasks: [
+          { id: "parser", title: "Implement parser utility", description: "Parser code for the utility.", priority: "P1", type: "feature", assignee: agent.id },
+          { id: "fixtures", title: "Add markdown fixtures", description: "Fixture files for complete, missing, and malformed metadata.", priority: "P2", type: "feature", assignee: agent.id },
+          { id: "tests", title: "Add parser tests", description: "Focused tests for parser and summary output.", priority: "P2", type: "feature", assignee: agent.id },
+          { id: "readme", title: "Write README usage note", description: "README docs for the utility.", priority: "P3", type: "docs", assignee: agent.id },
+          { id: "integrate", title: "Integrate and validate", description: "Integrate local changes and run validation.", priority: "P2", type: "feature", assignee: agent.id, dependsOn: ["parser", "fixtures", "tests", "readme"] },
+          { id: "qa", title: "QA handoff evidence", description: "QA validation and handoff summary.", priority: "P2", type: "qa", assignee: agent.id, dependsOn: ["integrate"] },
+        ],
+      }],
+    }, {
+      agentId: agent.id,
+      agentName: agent.name,
+      companyId: company.id,
+      taskKey: planningTask.taskKey,
+      runId,
+    }, db);
+
+    assert.deepStrictEqual(overSplit, {
+      kind: "failed",
+      reason: "small_goal_plan_over_split:tightly_coupled_tasks",
+    });
+    assert.strictEqual(getPendingSprintPlanDraft({ companyIdOrSlug: company.id, companyGoalId: smallGoal.sprint.id }).draft, null);
+    const rejectionComment = db.prepare(
+      `SELECT body
+       FROM comments
+       WHERE task_id = ?
+         AND type = 'status_update'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+    ).get(planningTask.taskId) as { body: string } | undefined;
+    assert.ok(rejectionComment?.body.includes("Sprint plan draft rejected"));
+    assert.ok(rejectionComment?.body.includes("one implementation task"));
+
+    const compact = await executeMcAction({
+      action: "propose_sprint_plan",
+      companyGoalId: smallGoal.sprint.id,
+      sprints: [{
+        sequenceNumber: 1,
+        name: "Build decision log summarizer",
+        objective: "Implement and validate the small scratch utility.",
+        defaultExecutionEngine: "hiverunner",
+        tasks: [
+          { id: "implement", title: "Implement decision log summarizer utility", description: "Create code, fixtures, tests, and README for the small utility.", priority: "P1", type: "feature", assignee: agent.id },
+          { id: "qa", title: "Validate utility and handoff evidence", description: "Run focused validation and summarize files changed, checks, and available runtime metrics.", priority: "P2", type: "qa", assignee: agent.id, dependsOn: ["implement"] },
+        ],
+      }],
+    }, {
+      agentId: agent.id,
+      agentName: agent.name,
+      companyId: company.id,
+      taskKey: planningTask.taskKey,
+      runId: randomUUID(),
+    }, db);
+
+    assert.strictEqual(compact.kind, "proposed_sprint_plan");
+    assert.ok(getPendingSprintPlanDraft({ companyIdOrSlug: company.id, companyGoalId: smallGoal.sprint.id }).draft);
   });
 
   await test("plan revision task closes with summary after proposing revised draft", async () => {

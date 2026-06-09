@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -32,6 +32,7 @@ if [ "$FAKE_CODEX_EMPTY_OUTPUT" = "1" ]; then
   printf 'Reading additional input from stdin...\\n' >&2
   exit 0
 fi
+printf '%s\\n' '2026-06-09T00:00:00Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back' >&2
 json=0
 out=""
 prev=""
@@ -235,7 +236,10 @@ async function run() {
       realpathSync(company.workspace.root),
     );
     const args = readFileSync(argsFile, "utf8");
-    assert.ok(args.startsWith("exec --json --full-auto "), `unexpected args: ${args}`);
+    assert.ok(args.startsWith("exec --json --sandbox workspace-write --skip-git-repo-check --ephemeral --ignore-user-config "), `unexpected args: ${args}`);
+    assert.ok(!args.includes("--full-auto"), `deprecated full-auto flag must not be used: ${args}`);
+    assert.ok(args.includes("--ephemeral"), `Codex runs should not persist subprocess sessions: ${args}`);
+    assert.ok(args.includes("--ignore-user-config"), `HiveRunner should not inherit operator Codex plugin/config state: ${args}`);
     assert.ok(args.includes(`--add-dir ${realpathSync(runtime.workspaceRoot ?? company.workspace.root)}`), `agent runtime workspace must stay writable: ${args}`);
     assert.ok(!args.includes(`--add-dir ${realpathSync(process.cwd())}`), `non-core source workspace should not be writable: ${args}`);
     assert.ok(args.includes('-c model_reasoning_effort="high"'), `high reasoning metadata should pass through: ${args}`);
@@ -271,6 +275,8 @@ async function run() {
     assert.strictEqual(metadata.provider, "codex");
     assert.strictEqual(metadata.runnerProvider, "codex");
     assert.strictEqual(metadata.runnerModel, "gpt-5.3-codex-spark");
+    assert.strictEqual(metadata.ephemeral, true);
+    assert.strictEqual(metadata.ignoreUserConfig, true);
     assert.strictEqual(metadata.integrationPath, "cli-json-events");
     assert.strictEqual(metadata.model, "gpt-5.3-codex-spark");
     assert.strictEqual(metadata.taskModelLane, "fast");
@@ -292,6 +298,7 @@ async function run() {
     assert.ok(Array.isArray(metadata.toolCallNames));
     assert.ok((metadata.toolCallNames as string[]).includes("shell"));
     assert.ok(Array.isArray(metadata.additionalWritableDirs));
+    assert.strictEqual(metadata.sourceWorkspaceRoot, null);
     assert.ok(String(metadata.stdoutTail ?? "").includes("fake codex completed"));
     assert.ok(Number(metadata.transcriptEventCount ?? 0) >= 9);
     const diagnostics = metadata.diagnostics as Record<string, unknown> | undefined;
@@ -299,7 +306,9 @@ async function run() {
     assert.ok(Number(diagnostics!.promptChars ?? 0) > 0, "diagnostics should include prompt size");
     assert.strictEqual(diagnostics!.timeoutMs, 15000);
     assert.strictEqual(diagnostics!.timedOut, false);
+    assert.strictEqual(diagnostics!.stderrFilteredLineCount, 1);
     assert.ok(Number(diagnostics!.stdoutBytes ?? 0) > 0, "diagnostics should include stdout bytes");
+    assert.equal(String(metadata.stderrTail ?? "").includes("state db discrepancy"), false);
 
     const transcriptEvents = db
       .prepare(
@@ -969,6 +978,150 @@ async function run() {
     const args = readFileSync(argsFile, "utf8");
     assert.ok(args.includes(agentWorkspace), "agent runtime workspace should remain writable");
     assert.ok(!args.includes(process.cwd()), "app repo must not be passed as a writable add-dir for non-core companies");
+  });
+
+  await test("project source workspace becomes Codex cwd when explicitly configured", async () => {
+    const sourceRoot = path.join(tempRoot, "explicit-project-source");
+    mkdirSync(sourceRoot, { recursive: true });
+    const sourceProject = createProject({
+      companyId: company.id,
+      name: "Codex Source Project",
+      description: "fixture with explicit source root",
+      color: "#22c55e",
+      emoji: "S",
+      status: "active",
+      sourceWorkspaceRoot: sourceRoot,
+    }).project;
+    const sourceTask = createTask({
+      projectId: sourceProject.id,
+      title: "Implement repository fixture",
+      description: "Implement this utility in this repository.",
+      priority: "P2",
+      type: "feature",
+      status: "in-progress",
+      assignee: agent.id,
+      labels: [],
+      createdBy: "test",
+    }).task;
+
+    const wake = enqueueWakeup({
+      agentId: agent.id,
+      companyId: company.id,
+      source: "explicit",
+      reason: "explicit project source workspace test",
+      invocationSource: "on_demand",
+      contextSnapshot: {
+        wakeSource: "test",
+        wakeReason: "explicit_project_source_workspace",
+        taskId: sourceTask.id,
+      },
+    }, db);
+
+    const result = await executeHeartbeatRun(wake.heartbeatRunId, db);
+    assert.strictEqual(result.status, "succeeded", result.error ?? "source-root codex run should execute");
+    assert.strictEqual(realpathSync(readFileSync(cwdFile, "utf8").trim()), realpathSync(sourceRoot));
+    const args = readFileSync(argsFile, "utf8");
+    assert.ok(args.includes(`--add-dir ${realpathSync(company.workspace.root)}`), `company workspace should remain writable: ${args}`);
+    assert.ok(!args.includes("--full-auto"), `deprecated full-auto flag must not be used: ${args}`);
+
+    const executionRun = db
+      .prepare(
+        `SELECT token_usage_json
+         FROM execution_runs
+         WHERE task_id = ?
+         ORDER BY created_at DESC
+         LIMIT 1`,
+      )
+      .get(sourceTask.id) as { token_usage_json: string | null } | undefined;
+    assert.ok(executionRun, "execution run should be recorded");
+    const metadata = JSON.parse(executionRun!.token_usage_json ?? "{}") as Record<string, unknown>;
+    assert.strictEqual(realpathSync(String(metadata.sourceWorkspaceRoot)), realpathSync(sourceRoot));
+    assert.strictEqual(realpathSync(String(metadata.workspaceRoot)), realpathSync(sourceRoot));
+  });
+
+  await test("repo-scoped Codex task without source root fails before launching CLI", async () => {
+    rmSync(cwdFile, { force: true });
+    rmSync(argsFile, { force: true });
+    rmSync(stdinFile, { force: true });
+    const repoScopedTask = createTask({
+      projectId: project.id,
+      title: "Implement repository-only utility",
+      description: "Implement this in this repository and use the repo's existing test tooling.",
+      priority: "P2",
+      type: "feature",
+      status: "in-progress",
+      assignee: agent.id,
+      labels: [],
+      createdBy: "test",
+    }).task;
+    const agentRow = db.prepare(
+      `SELECT id, name, role, personality, company_id, openclaw_agent_id,
+              adapter_type, adapter_config_json, runtime_config_json,
+              capabilities
+       FROM agents
+       WHERE id = ?`,
+    ).get(agent.id) as typeof agent & {
+      company_id: string;
+      openclaw_agent_id: string | null;
+      adapter_type: string;
+      adapter_config_json: string;
+      runtime_config_json: string;
+      capabilities: string;
+      runtime_workspace_root: string | null;
+    };
+    agentRow.runtime_workspace_root = null;
+
+    const directResult = await codexExecutionAdapter.execute({
+      agent: agentRow,
+      prompt: "Task: implement this in this repository and use the repo's existing test tooling.",
+      session: {
+        id: "codex-source-guard-session",
+        agentId: agentRow.id,
+        companyId: agentRow.company_id,
+        adapterType: "codex",
+        taskKey: repoScopedTask.id,
+        sessionParams: {},
+        sessionDisplayId: null,
+        lastRunId: null,
+        lastError: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      runtimeState: {
+        agentId: agentRow.id,
+        companyId: agentRow.company_id,
+        adapterType: "codex",
+        sessionId: null,
+        state: {},
+        lastRunId: null,
+        lastRunStatus: null,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalCostCents: 0,
+        lastError: null,
+      },
+      taskModelRouting: {
+        lane: "default",
+        label: "Default",
+        reasoningEffort: "high",
+        speedPreference: "fast_1_5x",
+      },
+    });
+
+    assert.match(String(directResult.error), /source workspace root/i);
+    assert.strictEqual(existsSync(cwdFile), false, "Codex CLI should not launch when source root is missing");
+    assert.strictEqual(existsSync(argsFile), false, "Codex CLI args should not be written when launch is blocked");
+    const comment = db
+      .prepare(
+        `SELECT body
+         FROM comments
+         WHERE task_id = ?
+           AND author_agent_id = ?
+           AND body LIKE '%SOURCE_WORKSPACE_REQUIRED%'
+         LIMIT 1`,
+      )
+      .get(repoScopedTask.id, agent.id) as { body: string } | undefined;
+    assert.ok(comment, "source guard should leave task-visible evidence");
   });
 
   await test("company setting can disable protected runtime approvals", async () => {

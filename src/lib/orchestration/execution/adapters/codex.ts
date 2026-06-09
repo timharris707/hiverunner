@@ -107,6 +107,7 @@ type CodexRunDiagnostics = {
 type WorkspaceResolution = {
   cwd: string;
   companyWorkspaceRoot: string;
+  sourceWorkspaceRoot: string | null;
   additionalWritableDirs: string[];
 };
 
@@ -382,6 +383,26 @@ function extractCodexUsage(value: unknown, depth = 0): CodexUsageSnapshot {
 function trimForStorage(value: string, maxChars = 4000): string {
   if (value.length <= maxChars) return value;
   return value.slice(-maxChars);
+}
+
+const BENIGN_CODEX_STDERR_PATTERNS = [
+  /WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir/,
+  /WARN codex_core_plugins::manifest: ignoring interface\.defaultPrompt\[/,
+  /WARN codex_core_skills::loader: ignoring interface\.icon_(small|large):/,
+];
+
+function filterCodexStderr(stderr: string): { stderr: string; filteredLineCount: number } {
+  let filteredLineCount = 0;
+  const kept = stderr.split(/\r?\n/).filter((line) => {
+    if (!line.trim()) return true;
+    if (!BENIGN_CODEX_STDERR_PATTERNS.some((pattern) => pattern.test(line))) return true;
+    filteredLineCount += 1;
+    return false;
+  });
+  return {
+    stderr: kept.join("\n").trim(),
+    filteredLineCount,
+  };
 }
 
 function realDirectoryPath(candidate: string | null | undefined): string | null {
@@ -865,9 +886,9 @@ function resolveWorkspaceRoot(db: Database.Database, input: ExecutionInput, runt
     return {
       cwd: resolved,
       companyWorkspaceRoot,
+      sourceWorkspaceRoot: resolved,
       additionalWritableDirs: uniqueWritableDirs(resolved, [
         companyWorkspaceRoot,
-        resolved,
       ]),
     };
   }
@@ -880,6 +901,7 @@ function resolveWorkspaceRoot(db: Database.Database, input: ExecutionInput, runt
     return {
       cwd: companyWorkspaceRoot,
       companyWorkspaceRoot,
+      sourceWorkspaceRoot: exposeSourceWorkspace ? agentSource.targetPath : null,
       additionalWritableDirs: uniqueWritableDirs(companyWorkspaceRoot, [
         resolved,
         companyWorkspaceRoot,
@@ -891,10 +913,30 @@ function resolveWorkspaceRoot(db: Database.Database, input: ExecutionInput, runt
   return {
     cwd: companyWorkspaceRoot,
     companyWorkspaceRoot,
+    sourceWorkspaceRoot: exposeSourceWorkspace ? companySource.targetPath : null,
     additionalWritableDirs: uniqueWritableDirs(companyWorkspaceRoot, [
       ...(exposeSourceWorkspace ? [companySource.linkPath, companySource.targetPath] : []),
     ]),
   };
+}
+
+function requiresConfiguredSourceWorkspace(prompt: string): boolean {
+  const normalized = prompt.replace(/\s+/g, " ").trim().toLowerCase();
+  return (
+    /\b(this|current|same)\s+repo(sitory)?\b/.test(normalized) ||
+    /\bin\s+the\s+repo(sitory)?\b/.test(normalized) ||
+    /\bexisting\s+repo(sitory)?\s+(home|test|tests|tooling|patterns|conventions)\b/.test(normalized) ||
+    /\brepo(sitory)?'s\s+existing\b/.test(normalized)
+  );
+}
+
+function sourceWorkspaceMissingMessage(workspace: WorkspaceResolution): string {
+  return [
+    "Repo-scoped Codex work requires an explicit project source workspace root.",
+    `Configured workspace: ${workspace.cwd}`,
+    `Company workspace: ${workspace.companyWorkspaceRoot}`,
+    "Set project settings workspace.sourceRoot/sourceWorkspaceRoot before running repository-scoped implementation or validation tasks.",
+  ].join(" ");
 }
 
 function resolveCommand(runtime: CodexRuntimeRow | null): string {
@@ -1012,7 +1054,15 @@ function runCodex(
     ? `hiverunner-${options.runId}-${randomUUID()}.txt`
     : `hiverunner-codex-${randomUUID()}.txt`;
   const outputFile = path.join(os.tmpdir(), outputFileName);
-  const args = ["exec", "--json", "--full-auto", "--skip-git-repo-check"];
+  const args = [
+    "exec",
+    "--json",
+    "--sandbox",
+    "workspace-write",
+    "--skip-git-repo-check",
+    "--ephemeral",
+    "--ignore-user-config",
+  ];
   const jsonCollector = createCodexJsonCollector(options.onTranscriptEvent);
   for (const writableDir of additionalWritableDirs) {
     args.push("--add-dir", writableDir);
@@ -1378,7 +1428,7 @@ function buildCommentBody(input: {
   const parts = [
     `Codex execution ${status}.`,
     "",
-    `Command: ${path.basename(input.command)} exec --json --full-auto --skip-git-repo-check${input.reasoningEffort ? ` -c model_reasoning_effort="${input.reasoningEffort}"` : ""}${input.serviceTier === "fast" ? ` -c service_tier="fast"` : ""}${input.model ? ` --model ${input.model}` : ""}`,
+    `Command: ${path.basename(input.command)} exec --json --sandbox workspace-write --skip-git-repo-check --ephemeral --ignore-user-config${input.reasoningEffort ? ` -c model_reasoning_effort="${input.reasoningEffort}"` : ""}${input.serviceTier === "fast" ? ` -c service_tier="fast"` : ""}${input.model ? ` --model ${input.model}` : ""}`,
     `Workspace: ${input.workspaceRoot}`,
     `Duration: ${formatDuration(input.durationMs)}`,
   ];
@@ -1409,7 +1459,12 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
   const workspace = resolveWorkspaceRoot(db, input, runtime);
   const runtimeSkills = listRuntimeAgentSkills(input.agent.company_id, input.agent.id).skills;
   const workspaceRoot = workspace.cwd;
-  const trackedRoots = [workspaceRoot, workspace.companyWorkspaceRoot, ...workspace.additionalWritableDirs];
+  const trackedRoots = [
+    workspaceRoot,
+    workspace.companyWorkspaceRoot,
+    ...(workspace.sourceWorkspaceRoot ? [workspace.sourceWorkspaceRoot] : []),
+    ...workspace.additionalWritableDirs,
+  ];
   const workspaceBefore = captureWorkspaceGitSnapshots(trackedRoots);
   const readOnlyIntent = detectReadOnlyIntent(input.prompt);
   const startedAt = new Date().toISOString();
@@ -1424,6 +1479,60 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
     input.emitLiveEvent?.(liveEventForTranscript(event));
   };
   const { executionRunId } = input;
+  if (requiresConfiguredSourceWorkspace(input.prompt) && !workspace.sourceWorkspaceRoot) {
+    const error = sourceWorkspaceMissingMessage(workspace);
+    try {
+      insertTaskComment({
+        db,
+        taskId: input.session.taskKey,
+        agentId: input.agent.id,
+        body: `[SOURCE_WORKSPACE_REQUIRED] ${error}`,
+        externalRef: `codex:${input.agent.id}:${input.session.taskKey}:${startedAt}`,
+      });
+    } catch (commentError) {
+      console.warn(
+        `[codex-adapter] failed to persist source-workspace guard comment for ${input.agent.id}/${input.session.taskKey}:`,
+        commentError,
+      );
+    }
+    return {
+      runnerProvider: "codex",
+      runnerModel: model || null,
+      error,
+      usage: {
+        provider: "codex",
+        runnerProvider: "codex",
+        runnerModel: model || null,
+        source: "codex-cli",
+        integrationPath: "source-workspace-guard",
+        command: path.basename(command),
+        ephemeral: true,
+        ignoreUserConfig: true,
+        model: model || null,
+        reasoningEffort: reasoningEffort || null,
+        taskModelLane: input.taskModelRouting?.lane ?? "default",
+        taskModelRoutingLabel: input.taskModelRouting?.label ?? "Default",
+        speedPreference: controls.speedPreference,
+        fastMode: controls.fastMode,
+        serviceTier: controls.serviceTier,
+        serviceTierApplied: controls.serviceTierApplied,
+        runtimeSlug: runtime?.runtime_slug ?? null,
+        runtimeScope: runtime?.scope ?? null,
+        runtimeDisplayName: runtime?.display_name ?? null,
+        workspaceRoot,
+        companyWorkspaceRoot: workspace.companyWorkspaceRoot,
+        sourceWorkspaceRoot: workspace.sourceWorkspaceRoot,
+        additionalWritableDirs: workspace.additionalWritableDirs,
+        sourceWorkspaceRequired: true,
+        sourceWorkspaceGuard: "missing_project_source_root",
+        startedAt,
+        completedAt: new Date().toISOString(),
+        diagnostics: {
+          promptChars: input.prompt.length,
+        },
+      },
+    };
+  }
   const result = await runCodex(command, input.prompt, workspaceRoot, model, reasoningEffort, appliedServiceTier, workspace.additionalWritableDirs, {
     onTranscriptEvent: recordTranscriptEvent,
     onLifecycleEvent: recordLifecycleEvent,
@@ -1447,11 +1556,13 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
   });
   const completedAt = new Date().toISOString();
   const codexTelemetry = result.jsonTelemetry;
+  const filteredStderr = filterCodexStderr(result.stderr);
+  const evidenceStderr = filteredStderr.stderr;
   const timedOutLikely =
     result.durationMs >= numberFromEnv("MC_CODEX_EXEC_TIMEOUT_MS", DEFAULT_CODEX_TIMEOUT_MS) - 1000;
   const emptySuccessfulOutput = result.ok && result.stdout.trim().length === 0;
   const codexReportedError = codexTelemetry.resultErrors.find((entry) => entry.trim())?.trim() ?? "";
-  const firstStderrLine = result.stderr
+  const firstStderrLine = evidenceStderr
     .split(/\r?\n/)
     .map((line) => line.trim())
     .find(Boolean) ?? "";
@@ -1469,7 +1580,7 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
     event.kind === "assistant_text_delta" || event.kind === "assistant_text_final",
   );
   const stdoutTranscript = transcriptText(codexTelemetry.resultText || result.stdout);
-  const stderrTranscript = transcriptText(result.stderr, 6000);
+  const stderrTranscript = transcriptText(evidenceStderr, 6000);
 
   const externalRef = `codex:${input.agent.id}:${input.session.taskKey}:${startedAt}`;
   const commentBodyBase = buildCommentBody({
@@ -1482,7 +1593,7 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
     additionalWritableDirs: workspace.additionalWritableDirs,
     durationMs: result.durationMs,
     stdout: result.stdout,
-    stderr: result.stderr,
+    stderr: evidenceStderr,
     errorMessage: effectiveErrorMessage,
   });
   const commentBody = !effectiveOk && firstStderrLine
@@ -1534,6 +1645,8 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
     totalCostUsd: codexTelemetry.totalCostUsd,
     totalCostCents: codexTelemetry.totalCostCents,
     command: path.basename(command),
+    ephemeral: true,
+    ignoreUserConfig: true,
     model: model || null,
     reasoningEffort: reasoningEffort || null,
     taskModelLane: input.taskModelRouting?.lane ?? "default",
@@ -1561,27 +1674,33 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
     runtimeDisplayName: runtime?.display_name ?? null,
     workspaceRoot,
     companyWorkspaceRoot: workspace.companyWorkspaceRoot,
+    sourceWorkspaceRoot: workspace.sourceWorkspaceRoot,
     additionalWritableDirs: workspace.additionalWritableDirs,
     workspaceRunVisibility,
     taskEvidenceCommentCreated,
     startedAt,
     completedAt,
     durationMs: result.durationMs,
-    diagnostics: result.diagnostics,
+    diagnostics: {
+      ...result.diagnostics,
+      stderrFilteredLineCount: filteredStderr.filteredLineCount,
+    },
     exitCode: result.exitCode,
     signal: result.signal,
     stdoutTail: trimForStorage(result.stdout, 4000),
-    stderrTail: trimForStorage(result.stderr, 2000),
+    stderrTail: trimForStorage(evidenceStderr, 2000),
     resultText: result.stdout,
     transcriptEvents: [
       {
         kind: "run_start",
         role: "system",
         title: "Codex CLI command",
-        body: `${path.basename(command)} exec --json --full-auto --skip-git-repo-check${reasoningEffort ? ` -c model_reasoning_effort="${reasoningEffort}"` : ""}${appliedServiceTier === "fast" ? ` -c service_tier="fast"` : ""}${model ? ` --model ${model}` : ""}`,
+        body: `${path.basename(command)} exec --json --sandbox workspace-write --skip-git-repo-check --ephemeral --ignore-user-config${reasoningEffort ? ` -c model_reasoning_effort="${reasoningEffort}"` : ""}${appliedServiceTier === "fast" ? ` -c service_tier="fast"` : ""}${model ? ` --model ${model}` : ""}`,
         occurredAt: startedAt,
         metadata: {
           command,
+          ephemeral: true,
+          ignoreUserConfig: true,
           model: model || null,
           reasoningEffort: reasoningEffort || null,
           speedPreference: controls.speedPreference,
@@ -1591,6 +1710,7 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
           taskModelLane: input.taskModelRouting?.lane ?? "default",
           taskModelRoutingLabel: input.taskModelRouting?.label ?? "Default",
           workspaceRoot,
+          sourceWorkspaceRoot: workspace.sourceWorkspaceRoot,
           additionalWritableDirs: workspace.additionalWritableDirs,
           runtimeSlug: runtime?.runtime_slug ?? null,
           runtimeScope: runtime?.scope ?? null,
@@ -1628,7 +1748,8 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
             metadata: {
               stream: "stderr",
               truncated: stderrTranscript.truncated,
-              rawLength: result.stderr.length,
+              rawLength: evidenceStderr.length,
+              filteredLineCount: filteredStderr.filteredLineCount,
             },
           }]
         : []),
@@ -1642,7 +1763,10 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
             metadata: {
               durationMs: result.durationMs,
               timedOutLikely,
-              diagnostics: result.diagnostics,
+              diagnostics: {
+                ...result.diagnostics,
+                stderrFilteredLineCount: filteredStderr.filteredLineCount,
+              },
             },
           }]
         : []),
@@ -1670,7 +1794,10 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
           exitCode: result.exitCode,
           signal: result.signal,
           durationMs: result.durationMs,
-          diagnostics: result.diagnostics,
+          diagnostics: {
+            ...result.diagnostics,
+            stderrFilteredLineCount: filteredStderr.filteredLineCount,
+          },
         },
       },
     ],

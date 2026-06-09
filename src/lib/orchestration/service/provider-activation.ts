@@ -154,7 +154,7 @@ export function checkProviderEnvConfigured(
   }
 
   if (providerId === "codex") {
-    // Codex is CLI-based: `codex exec --full-auto <prompt>`.
+    // Codex is CLI-based: `codex exec --sandbox workspace-write <prompt>`.
     // No env vars are required — the CLI reads its own config.
     // CLI availability is checked at execution time by the build-queue
     // (isCliAvailable), not at provider activation time.

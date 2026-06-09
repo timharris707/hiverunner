@@ -18,7 +18,7 @@
  *   - Exact token/cost telemetry unless present in JSON event payloads
  *
  * Architecture note:
- *   Codex execution is CLI-based: `codex exec --json --full-auto <prompt>`
+ *   Codex execution is CLI-based: `codex exec --json --sandbox workspace-write <prompt>`
  *   run by the heartbeat execution adapter. The provider adapter declares
  *   identity, tier, and capabilities; actual run events flow through
  *   execution_runs/heartbeat_run_events and execution_run_transcript_events.

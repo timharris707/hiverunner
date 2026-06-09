@@ -287,6 +287,92 @@ export type ExecuteMcActionInput = {
   deferDependentAutoStart?: boolean;
 };
 
+type ProposedSprintPlan = Array<{
+  name: string;
+  objective: string;
+  tasks: Array<{
+    title: string;
+    description?: string;
+    type?: string;
+    dependsOn?: string[];
+  }>;
+}>;
+
+const SMALL_SELF_CONTAINED_GOAL_PATTERN =
+  /\b(?:small|self-contained|one focused sprint|few simple tasks?|prompt-based benchmark|single local artifact)\b|scratch\/harness-comparison/;
+const ONE_SPRINT_REQUIRED_PATTERN =
+  /\bone focused sprint\b|\bdo not create follow-up sprints\b/;
+const TIGHT_UTILITY_TASK_PATTERN =
+  /\b(?:parser|fixtures?|tests?|readme|usage note|docs?|summary|utility|scratch|integrat(?:e|ion)|validation)\b/;
+const QA_REVIEW_RELEASE_TASK_PATTERN = /^(?:qa|review|release)$/i;
+
+function normalizedPlanText(parts: Array<string | null | undefined>): string {
+  return parts
+    .filter((part): part is string => Boolean(part?.trim()))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function smallSelfContainedPlanRejectionReason(
+  db: Database.Database,
+  companyGoalId: string,
+  sprints: ProposedSprintPlan,
+): string | null {
+  const goal = db
+    .prepare(
+      `SELECT name, goal, stop_condition
+       FROM sprints
+       WHERE id = ? OR goal_key = ?
+       LIMIT 1`,
+    )
+    .get(companyGoalId, companyGoalId) as { name: string; goal: string; stop_condition: string } | undefined;
+
+  const goalText = normalizedPlanText([
+    goal?.name,
+    goal?.goal,
+    goal?.stop_condition,
+    ...sprints.flatMap((sprint) => [sprint.name, sprint.objective]),
+  ]);
+  if (!SMALL_SELF_CONTAINED_GOAL_PATTERN.test(goalText)) return null;
+  return smallSelfContainedFanoutRejectionReason(goalText, sprints);
+}
+
+function smallSelfContainedFanoutRejectionReason(
+  goalText: string,
+  sprints: ProposedSprintPlan,
+): string | null {
+  if (sprints.length > 1 && ONE_SPRINT_REQUIRED_PATTERN.test(goalText)) {
+    return "small_goal_plan_over_split:multiple_sprints";
+  }
+
+  if (sprints.length !== 1) return null;
+  return sprintTaskFanoutRejectionReason(sprints[0]?.tasks ?? []);
+}
+
+function sprintTaskFanoutRejectionReason(tasks: ProposedSprintPlan[number]["tasks"]): string | null {
+  if (tasks.length <= 3) return null;
+
+  const tightTaskSignals = countTightUtilityTasks(tasks);
+  const nonQaTasks = tasks.filter((task) => !QA_REVIEW_RELEASE_TASK_PATTERN.test(String(task.type ?? ""))).length;
+  const immediatelyRunnable = tasks.filter((task) => !task.dependsOn?.length).length;
+  if (tasks.length >= 5 && tightTaskSignals >= 4) {
+    return "small_goal_plan_over_split:tightly_coupled_tasks";
+  }
+  if (nonQaTasks > 3 && immediatelyRunnable >= Math.ceil(tasks.length / 2) && tightTaskSignals >= 3) {
+    return "small_goal_plan_over_split:parallel_fanout";
+  }
+  return null;
+}
+
+function countTightUtilityTasks(tasks: ProposedSprintPlan[number]["tasks"]): number {
+  return tasks.filter((task) => {
+    const taskText = normalizedPlanText([task.title, task.description]);
+    return TIGHT_UTILITY_TASK_PATTERN.test(taskText);
+  }).length;
+}
+
 function getFocusedTaskKey(
   db: Database.Database,
   focusedTaskId: string,
@@ -560,6 +646,22 @@ export async function executeMcAction(
             ? [{ sequenceNumber: 1, ...action.sprint, tasks: action.tasks }]
             : [];
         if (sprints.length === 0) return { kind: "failed", reason: "empty_sprint_plan" };
+        const smallPlanRejection = smallSelfContainedPlanRejectionReason(db, action.companyGoalId, sprints);
+        if (smallPlanRejection) {
+          importCommentOnTask(
+            input.taskKey,
+            input.agentId,
+            [
+              `Sprint plan draft rejected: ${smallPlanRejection}.`,
+              "This goal is explicitly small/self-contained, so propose one implementation task that owns the code, fixtures, tests, and docs plus one QA/validation task when useful. Do not split tightly coupled utility work across parallel agents unless each task produces an independently useful artifact.",
+            ].join("\n\n"),
+            "status_update",
+            input.runId,
+            db,
+            input.source,
+          );
+          return { kind: "failed", reason: smallPlanRejection };
+        }
         const result = createSprintPlanDrafts({
           companyIdOrSlug: input.companyId,
           companyGoalId: action.companyGoalId,

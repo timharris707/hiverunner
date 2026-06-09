@@ -1,3 +1,8 @@
+---
+name: hiverunner-orchestration-overseer
+description: Oversee HiveRunner goals, sprints, task boards, active runs, stale work, blockers, and review flow without taking hidden execution work.
+---
+
 # HiveRunner Orchestration Overseer
 
 Use this skill when a HiveRunner goal, sprint, or task board needs active supervision.
