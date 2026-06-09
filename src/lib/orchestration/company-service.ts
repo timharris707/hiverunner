@@ -292,6 +292,32 @@ function sprintNameWithSequence(name: string, sequenceNumber: number): string {
   return `Sprint ${Math.max(1, sequenceNumber)} — ${trimmed}`;
 }
 
+function uniqueSprintNameForProject(
+  db: ReturnType<typeof getOrchestrationDb>,
+  projectId: string,
+  desiredName: string,
+  excludeSprintId?: string | null,
+): string {
+  const trimmed = desiredName.trim() || "Untitled sprint";
+  const conflicts = (name: string) => Boolean(db
+    .prepare(
+      `SELECT 1
+       FROM sprints
+       WHERE project_id = ?
+         AND lower(name) = lower(?)
+         AND (? IS NULL OR id <> ?)
+       LIMIT 1`
+    )
+    .get(projectId, name, excludeSprintId ?? null, excludeSprintId ?? null));
+  if (!conflicts(trimmed)) return trimmed;
+
+  for (let index = 2; index < 1000; index += 1) {
+    const candidate = `${trimmed} (${index})`;
+    if (!conflicts(candidate)) return candidate;
+  }
+  return `${trimmed} (${randomUUID().slice(0, 8)})`;
+}
+
 type GoalContractItemRow = {
   id: string;
   sprint_id: string;
@@ -2392,22 +2418,36 @@ function stripAgentRoleSuffix(value: string): string {
   return value.replace(/-(lead|research|researcher|qa|quality|planner|planning|orchestrator|engineer|specialist|runner|agent)$/i, "");
 }
 
+type DraftAssigneeAgent = {
+  id: string;
+  slug: string;
+  name: string;
+  status: string | null;
+  adapter_type: string | null;
+};
+
+function isRunnableDraftAssignee(agent: DraftAssigneeAgent | undefined): agent is DraftAssigneeAgent {
+  if (!agent) return false;
+  const status = agent.status?.trim().toLowerCase();
+  return isExecutableAgentRuntime(agent.adapter_type) && status !== "offline" && status !== "paused" && status !== "error";
+}
+
 function resolveDraftAssigneeAgentForCompany(
   db: ReturnType<typeof getOrchestrationDb>,
   companyId: string,
   assignee?: string | null
-): { id: string; name: string } | undefined {
+): DraftAssigneeAgent | undefined {
   const raw = assignee?.trim();
   if (!raw) return undefined;
   const normalized = normalizeDraftAssigneeLookup(raw);
   const rows = db
     .prepare(
-      `SELECT id, slug, name
+      `SELECT id, slug, name, status, adapter_type
        FROM agents
        WHERE company_id = ?
          AND archived_at IS NULL`
     )
-    .all(companyId) as Array<{ id: string; slug: string; name: string }>;
+    .all(companyId) as DraftAssigneeAgent[];
 
   return rows.find((agent) => agent.id === raw)
     ?? rows.find((agent) => agent.name.toLowerCase() === raw.toLowerCase())
@@ -2430,13 +2470,38 @@ function resolveDraftEligibleAssigneesForCompany(
   const failures: string[] = [];
   for (const value of values) {
     const agent = resolveDraftAssigneeAgentForCompany(db, companyId, value);
-    if (!agent) {
+    if (!isRunnableDraftAssignee(agent)) {
       if (!failures.includes(value)) failures.push(value);
       continue;
     }
     if (!resolved.includes(agent.id)) resolved.push(agent.id);
   }
   return { eligibleAssignees: resolved, failures };
+}
+
+function normalizeDraftTaskAssignmentForCompany(
+  db: ReturnType<typeof getOrchestrationDb>,
+  companyId: string,
+  task: OrchestrationSprintPlanDraftTask,
+  options?: { materialize?: boolean },
+): { task: OrchestrationSprintPlanDraftTask; failures: string[] } {
+  const resolvedEligibility = resolveDraftEligibleAssigneesForCompany(db, companyId, task);
+  const requestedAssignee = task.assignee?.trim()
+    ? resolveDraftAssigneeAgentForCompany(db, companyId, task.assignee)
+    : undefined;
+  const runnableRequestedAssignee = isRunnableDraftAssignee(requestedAssignee) ? requestedAssignee : undefined;
+  const fallbackAssignee = task.assignee?.trim() && !runnableRequestedAssignee
+    ? resolvedEligibility.eligibleAssignees[0] ?? null
+    : null;
+
+  return {
+    task: {
+      ...task,
+      assignee: runnableRequestedAssignee?.id ?? fallbackAssignee ?? (options?.materialize ? null : task.assignee ?? null),
+      eligibleAssignees: resolvedEligibility.eligibleAssignees,
+    },
+    failures: resolvedEligibility.failures,
+  };
 }
 
 const CANONICAL_EXECUTION_TASK_TYPES = new Set<TaskType>([
@@ -5394,7 +5459,7 @@ export function createSprintPlanningTask(input: {
       goal.goal ? `Objective: ${goal.goal}` : "",
       goal.stop_condition ? `Stop condition: ${goal.stop_condition}` : "",
       "Emit a propose_sprint_plan mc-action with the proposed sprint contract and every execution task. Do not create execution tasks directly.",
-      "Planning quality determines code quality. Produce parallel-ready implementation slices, minimal necessary dependency gates, review/QA coverage, visual proof, migration/data safety, rollback/idempotence checks, and operator-verifiable validation. Use dependencies only for hard prerequisites; otherwise let capable agents work concurrently with clear ownership boundaries. Use cheap/fast models for bounded mechanical work and deeper models for architecture, novel design, and high-risk review.",
+      "Planning quality determines code quality. Produce parallel-ready implementation slices, minimal necessary dependency gates, review/QA coverage, visual proof, migration/data safety, rollback/idempotence checks, and operator-verifiable validation. Honor this goal's execution engine and model-lane defaults unless the operator explicitly asks for an override; do not switch lanes solely because work looks small. Use dependencies only for hard prerequisites; otherwise let capable agents work concurrently with clear ownership boundaries.",
     ].filter(Boolean).join("\n\n"),
     priority: "P0",
     type: "research",
@@ -5683,6 +5748,7 @@ export function createSprintPlanDrafts(input: {
   const now = new Date().toISOString();
   const proposalGroupId = input.proposalGroupId ?? randomUUID();
   const operatorSelectedExecutionEngine = goal.default_execution_engine ?? null;
+  const operatorSelectedModelLane = goal.default_model_lane ?? null;
   const rootTemplateSource = resolveTemplateDraftSource({
     companyId: companyRow.id,
     sourceTemplateVersionId: input.sourceTemplateVersionId,
@@ -5691,6 +5757,7 @@ export function createSprintPlanDrafts(input: {
   const rootGenerationProvenance = jsonObject(input.generationProvenance);
   const normalizedDrafts = input.drafts.map((draft, index) => {
     const sprintDefaultExecutionEngine = operatorSelectedExecutionEngine ?? draft.sprint.defaultExecutionEngine ?? null;
+    const sprintDefaultModelLane = operatorSelectedModelLane ?? draft.sprint.defaultModelLane ?? null;
     const sprintTemplateSource = resolveTemplateDraftSource({
       companyId: companyRow.id,
       sourceTemplateVersionId: draft.sprint.sourceTemplateVersionId ?? rootTemplateSource.sourceTemplateVersionId,
@@ -5706,6 +5773,7 @@ export function createSprintPlanDrafts(input: {
       sprint: {
         ...draft.sprint,
         defaultExecutionEngine: sprintDefaultExecutionEngine,
+        defaultModelLane: sprintDefaultModelLane,
         sourceTemplateVersionId: sprintTemplateSource.sourceTemplateVersionId,
         templateIntakeAnswerId: sprintTemplateSource.intakeAnswerId,
         templateGenerationProvenance: sprintGenerationProvenance,
@@ -5716,9 +5784,14 @@ export function createSprintPlanDrafts(input: {
           sourceTemplateVersionId: task.sourceTemplateVersionId ?? sprintTemplateSource.sourceTemplateVersionId,
           intakeAnswerId: task.templateIntakeAnswerId ?? sprintTemplateSource.intakeAnswerId,
         });
+        const assignment = normalizeDraftTaskAssignmentForCompany(db, companyRow.id, task);
         return {
+          ...assignment.task,
           ...task,
           executionEngine: sprintDefaultExecutionEngine ?? task.executionEngine ?? null,
+          modelLane: operatorSelectedModelLane ?? task.modelLane ?? null,
+          assignee: assignment.task.assignee,
+          eligibleAssignees: assignment.task.eligibleAssignees,
           sourceTemplateVersionId: taskTemplateSource.sourceTemplateVersionId,
           templateIntakeAnswerId: taskTemplateSource.intakeAnswerId,
           templateGenerationProvenance: {
@@ -6036,8 +6109,13 @@ export function approveSprintPlanDraft(input: {
   }
 
   const taskBackedSprintStatus: SprintStatusInput = taskDrafts.length > 0 ? "active" : "planned";
-  const materializedSprintName = sprintNameWithSequence(sprintDraft.name, Number(row.sequence_number ?? 1));
   const precreatedSprint = findEmptyPrecreatedSprintForDraft(db, companyRow.id, parent.id, sprintDraft.name);
+  const materializedSprintName = uniqueSprintNameForProject(
+    db,
+    parent.project_id,
+    sprintNameWithSequence(sprintDraft.name, Number(row.sequence_number ?? 1)),
+    precreatedSprint?.id ?? null,
+  );
   let created: OrchestrationCompanyGoal;
   if (precreatedSprint) {
     db.prepare(
@@ -6129,31 +6207,12 @@ export function approveSprintPlanDraft(input: {
   const draftTaskIdToMaterializedTaskId = new Map<string, string>();
   const assigneeResolutionFailures: Array<{ taskId: string; title: string; assignee: string }> = [];
   const materializedTaskDrafts = taskDrafts.map((task) => {
-    const resolvedEligibility = resolveDraftEligibleAssigneesForCompany(db, companyRow.id, task);
-    for (const failure of resolvedEligibility.failures) {
+    const assignment = normalizeDraftTaskAssignmentForCompany(db, companyRow.id, task, { materialize: true });
+    for (const failure of assignment.failures) {
       assigneeResolutionFailures.push({ taskId: task.id, title: task.title, assignee: failure });
     }
-    if (!task.assignee?.trim()) {
-      return {
-        ...task,
-        assignee: null,
-        eligibleAssignees: resolvedEligibility.eligibleAssignees,
-        type: coerceDraftTaskTypeForMaterialization(task),
-      };
-    }
-    const assignee = resolveDraftAssigneeAgentForCompany(db, companyRow.id, task.assignee);
-    if (!assignee) {
-      return {
-        ...task,
-        assignee: null,
-        eligibleAssignees: resolvedEligibility.eligibleAssignees,
-        type: coerceDraftTaskTypeForMaterialization(task),
-      };
-    }
     return {
-      ...task,
-      assignee: assignee.id,
-      eligibleAssignees: resolvedEligibility.eligibleAssignees,
+      ...assignment.task,
       type: coerceDraftTaskTypeForMaterialization(task),
     };
   });

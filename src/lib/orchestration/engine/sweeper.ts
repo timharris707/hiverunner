@@ -11,6 +11,7 @@ import { isExecutableAgentRuntime } from "@/lib/orchestration/runtime-readiness"
 import { backfillApprovalRoutes, cascadeResolvedApprovalsToLinkedTasks } from "@/lib/orchestration/service/approval";
 import { resolveQueuedHeartbeatClaimCompanyId } from "@/lib/orchestration/service/dev-execution-test-mode";
 import { parseProjectSettings, resolveTaskExecutionEngine } from "@/lib/orchestration/service/shared";
+import { maybeAutoCompleteCompanyGoalForSprintDone } from "@/lib/orchestration/service/task";
 import { normalizeTaskModelLane } from "@/lib/orchestration/task-model-routing";
 import type { TaskExecutionEngine, TaskModelLane } from "@/lib/orchestration/types";
 
@@ -1290,6 +1291,13 @@ function sweepAutoCompleteFinishedSprints(
       JSON.stringify({ sprintId: row.id, taskCount: row.task_count, source: "sweeper_all_tasks_done" }),
       now,
     );
+    maybeAutoCompleteCompanyGoalForSprintDone(db, {
+      sprintId: row.id,
+      projectId: row.project_id,
+      taskId: row.event_task_id,
+      actorUserId: "system:sprint-sweeper",
+      now,
+    });
     completed += 1;
   }
   return completed;

@@ -1120,6 +1120,122 @@ function maybeCreateSprintCompletedNextPlanTask(
   });
 }
 
+export function maybeAutoCompleteCompanyGoalForSprintDone(
+  db: ReturnType<typeof getOrchestrationDb>,
+  input: {
+    sprintId: string | null;
+    projectId: string | null;
+    taskId: string;
+    actorUserId?: string;
+    now: string;
+  }
+): boolean {
+  if (!input.sprintId || !input.projectId) return false;
+
+  const context = db
+    .prepare(
+      `SELECT
+         child.id AS sprint_id,
+         parent.id AS goal_id,
+         parent.status AS goal_status,
+         COALESCE(parent.goal_kind, CASE WHEN parent.parent_id IS NULL THEN 'company' ELSE 'sprint' END) AS goal_kind,
+         COALESCE(parent.auto_progression, 0) AS auto_progression
+       FROM sprints child
+       INNER JOIN sprints parent ON parent.id = child.parent_id
+       WHERE child.id = ?
+         AND child.status = 'completed'
+       LIMIT 1`
+    )
+    .get(input.sprintId) as {
+      sprint_id: string;
+      goal_id: string;
+      goal_status: string;
+      goal_kind: string;
+      auto_progression: number;
+    } | undefined;
+  if (!context || context.goal_kind !== "company" || context.goal_status !== "active") return false;
+  if (Number(context.auto_progression ?? 0) === 1) return false;
+
+  const directOpenTasks = db
+    .prepare(
+      `SELECT COUNT(*) AS count
+       FROM tasks
+       WHERE sprint_id = ?
+         AND archived_at IS NULL
+         AND status <> 'done'`
+    )
+    .get(context.goal_id) as { count: number } | undefined;
+  if (Number(directOpenTasks?.count ?? 0) > 0) return false;
+
+  const openChildSprints = db
+    .prepare(
+      `SELECT COUNT(*) AS count
+       FROM sprints
+       WHERE parent_id = ?
+         AND status <> 'completed'`
+    )
+    .get(context.goal_id) as { count: number } | undefined;
+  if (Number(openChildSprints?.count ?? 0) > 0) return false;
+
+  const pendingDrafts = db
+    .prepare(
+      `SELECT COUNT(*) AS count
+       FROM goal_sprint_plan_drafts
+       WHERE company_goal_id = ?
+         AND status = 'pending'`
+    )
+    .get(context.goal_id) as { count: number } | undefined;
+  if (Number(pendingDrafts?.count ?? 0) > 0) return false;
+
+  const unpassedSuccessCriteria = db
+    .prepare(
+      `SELECT COUNT(*) AS count
+       FROM goal_contract_items i
+       LEFT JOIN goal_contract_evidence e
+        ON e.id = (
+          SELECT latest.id
+          FROM goal_contract_evidence latest
+          WHERE latest.item_id = i.id
+          ORDER BY latest.created_at DESC, latest.rowid DESC
+          LIMIT 1
+        )
+       WHERE i.sprint_id = ?
+         AND i.kind = 'success_criterion'
+         AND i.archived_at IS NULL
+         AND COALESCE(e.status, '') <> 'passed'`
+    )
+    .get(context.goal_id) as { count: number } | undefined;
+  if (Number(unpassedSuccessCriteria?.count ?? 0) > 0) return false;
+
+  const result = db
+    .prepare(
+      `UPDATE sprints
+       SET status = 'completed',
+           completed_at = COALESCE(completed_at, ?),
+           updated_at = ?
+       WHERE id = ?
+         AND status = 'active'`
+    )
+    .run(input.now, input.now, context.goal_id);
+  if (result.changes === 0) return false;
+
+  db.prepare(
+    `INSERT INTO task_events
+      (id, project_id, task_id, agent_id, user_id, event_type, from_status, to_status, metadata_json, created_at)
+     VALUES
+      (?, ?, ?, NULL, ?, 'company_goal.auto_completed', 'active', 'completed', ?, ?)`
+  ).run(
+    randomUUID(),
+    input.projectId,
+    input.taskId,
+    input.actorUserId ?? "api",
+    JSON.stringify({ companyGoalId: context.goal_id, completedSprintId: input.sprintId }),
+    input.now
+  );
+
+  return true;
+}
+
 function maybeAutoCompleteSprintAfterTaskDone(
   db: ReturnType<typeof getOrchestrationDb>,
   input: {
@@ -1165,16 +1281,19 @@ function maybeAutoCompleteSprintAfterTaskDone(
 
   if (result.changes === 0) return;
 
-  maybeCreateGoalLeadRevisionTask(db, {
-    sprintId: input.sprintId,
-    projectId: input.projectId,
-    now: input.now,
-  });
-  maybeCreateSprintCompletedNextPlanTask(db, {
-    sprintId: input.sprintId,
-    projectId: input.projectId,
-    now: input.now,
-  });
+  const companyGoalAutoCompleted = maybeAutoCompleteCompanyGoalForSprintDone(db, input);
+  if (!companyGoalAutoCompleted) {
+    maybeCreateGoalLeadRevisionTask(db, {
+      sprintId: input.sprintId,
+      projectId: input.projectId,
+      now: input.now,
+    });
+    maybeCreateSprintCompletedNextPlanTask(db, {
+      sprintId: input.sprintId,
+      projectId: input.projectId,
+      now: input.now,
+    });
+  }
 
   db.prepare(
     `INSERT INTO task_events

@@ -343,6 +343,160 @@ async function run() {
     assert.equal(thirdGoal.sprint.sprintKey, null);
   });
 
+  await test("draft plans honor parent model lane and replace unavailable assignee with runnable fallback", () => {
+    const offlineQa = createProjectAgent({
+      projectId: project.id,
+      name: `Offline QA ${suffix}`,
+      emoji: "icon:shield",
+      role: "QA",
+      personality: "Unavailable fixture",
+      skills: [],
+      status: "offline",
+      adapterType: "codex",
+      model: "openai-codex/gpt-5.5",
+    }).agent;
+    const runnableFallback = createProjectAgent({
+      projectId: project.id,
+      name: `Runnable QA ${suffix}`,
+      emoji: "icon:check",
+      role: "QA",
+      personality: "Runnable fixture",
+      skills: [],
+      status: "idle",
+      adapterType: "codex",
+      model: "openai-codex/gpt-5.5",
+    }).agent;
+    const laneGoal = createCompanyGoal({
+      companyIdOrSlug: company.id,
+      projectId: project.id,
+      goalKind: "company",
+      name: `Lane preservation goal ${suffix}`,
+      goal: "Do not let planner output downgrade the operator-selected model lane.",
+      status: "active",
+      leadAgentId: lead.id,
+      defaultExecutionEngine: "hiverunner",
+      defaultModelLane: "default",
+    }).goal;
+    const planning = createSprintPlanningTask({
+      companyIdOrSlug: company.id,
+      companyGoalId: laneGoal.sprint.id,
+      leadAgentId: lead.id,
+      actorUserId: "bundle-4-test",
+    });
+    const draft = createSprintPlanDraft({
+      companyIdOrSlug: company.id,
+      companyGoalId: laneGoal.sprint.id,
+      planningTaskId: planning.taskId,
+      proposedByAgentId: lead.id,
+      sequenceNumber: 1,
+      sprint: {
+        name: `Lane override attempt ${suffix}`,
+        objective: "Planner attempted to use fast lane.",
+        successCriteria: [],
+        validationChecks: [],
+        outOfScope: [],
+        defaultExecutionEngine: "hiverunner",
+        defaultModelLane: "fast",
+      },
+      tasks: [{
+        id: "lane-task-1",
+        title: "Validate lane preservation",
+        description: "Should stay on the parent goal default lane and use the runnable fallback.",
+        assignee: offlineQa.name,
+        eligibleAssignees: [offlineQa.name, runnableFallback.id],
+        priority: "P0",
+        type: "qa",
+        executionEngine: "hiverunner",
+        modelLane: "fast",
+        dependsOn: [],
+        validation: "Task keeps model lane default.",
+      }],
+    }).draft;
+
+    assert.equal(draft.sprint.defaultModelLane, "default");
+    assert.equal(draft.tasks[0]?.modelLane, "default");
+    assert.equal(draft.tasks[0]?.assignee, runnableFallback.id);
+    assert.deepEqual(draft.tasks[0]?.eligibleAssignees, [runnableFallback.id]);
+
+    const approved = approveSprintPlanDraft({
+      companyIdOrSlug: company.id,
+      companyGoalId: laneGoal.sprint.id,
+      draftId: draft.id,
+      actorUserId: "bundle-4-test",
+    });
+    const taskRow = db.prepare(
+      "SELECT assignee_agent_id, model_lane FROM tasks WHERE id = ? LIMIT 1",
+    ).get(approved.taskIds[0]) as { assignee_agent_id: string | null; model_lane: string | null };
+    assert.equal(taskRow.assignee_agent_id, runnableFallback.id);
+    assert.equal(taskRow.model_lane, "default");
+  });
+
+  await test("draft approval uniquifies sprint names instead of failing on project conflict", () => {
+    const conflictingParent = createCompanyGoal({
+      companyIdOrSlug: company.id,
+      projectId: project.id,
+      goalKind: "company",
+      name: `Conflicting parent ${suffix}`,
+      goal: "Owns the existing sprint name.",
+      status: "planned",
+    }).goal;
+    createCompanyGoal({
+      companyIdOrSlug: company.id,
+      projectId: project.id,
+      goalKind: "sprint",
+      parentId: conflictingParent.sprint.id,
+      name: `Sprint 1 — Duplicate approval name ${suffix}`,
+      goal: "Existing sprint with the desired materialized name.",
+      status: "planned",
+    });
+    const targetGoal = createCompanyGoal({
+      companyIdOrSlug: company.id,
+      projectId: project.id,
+      goalKind: "company",
+      name: `Unique approval target ${suffix}`,
+      goal: "Approving this draft should not require operator renaming.",
+      status: "active",
+      leadAgentId: lead.id,
+    }).goal;
+    const planning = createSprintPlanningTask({
+      companyIdOrSlug: company.id,
+      companyGoalId: targetGoal.sprint.id,
+      leadAgentId: lead.id,
+      actorUserId: "bundle-4-test",
+    });
+    const draft = createSprintPlanDraft({
+      companyIdOrSlug: company.id,
+      companyGoalId: targetGoal.sprint.id,
+      planningTaskId: planning.taskId,
+      proposedByAgentId: lead.id,
+      sequenceNumber: 1,
+      sprint: {
+        name: `Duplicate approval name ${suffix}`,
+        objective: "Materialize with a unique project-level sprint name.",
+        successCriteria: [],
+        validationChecks: [],
+        outOfScope: [],
+      },
+      tasks: [{
+        id: "duplicate-name-task",
+        title: "Do duplicate-name work",
+        description: "Small fixture task.",
+        priority: "P2",
+        type: "docs",
+        dependsOn: [],
+        validation: "Created",
+      }],
+    }).draft;
+
+    const approved = approveSprintPlanDraft({
+      companyIdOrSlug: company.id,
+      companyGoalId: targetGoal.sprint.id,
+      draftId: draft.id,
+      actorUserId: "bundle-4-test",
+    });
+    assert.equal(approved.sprint.sprint.name, `Sprint 1 — Duplicate approval name ${suffix} (2)`);
+  });
+
   await test("sweeper auto-completes planning or active sprints whose tasks are all done", () => {
     db.prepare("UPDATE tasks SET status = 'done', updated_at = ? WHERE id IN (" + materializedTaskIds.map(() => "?").join(",") + ")")
       .run(new Date().toISOString(), ...materializedTaskIds);
@@ -352,6 +506,9 @@ async function run() {
     const sprint = db.prepare("SELECT status, completed_at FROM sprints WHERE id = ?").get(precreatedSprintId) as { status: string; completed_at: string | null };
     assert.equal(sprint.status, "completed");
     assert.ok(sprint.completed_at);
+    const parent = db.prepare("SELECT status, completed_at FROM sprints WHERE id = ?").get(companyGoalId) as { status: string; completed_at: string | null };
+    assert.equal(parent.status, "completed");
+    assert.ok(parent.completed_at);
   });
 
   await test("model display derives Gemini from model even when provider says Anthropic", () => {
