@@ -235,7 +235,7 @@ Acceptance:
 - Task, sprint, goal, and Overseer pages can show fresh tokens, cache-read tokens, output tokens, estimated cost, and top consumers.
 - Budget threshold can block or ask before the next run starts.
 - Every completed benchmark run records non-null usage for its provider.
-- Replay benchmark reduces fresh/billable input per completed task by at least 50 percent versus controlled baseline.
+- Replay benchmark reduces fresh/billable input per completed task by at least 50 percent versus controlled baseline. ("Per completed task" = total fresh input ÷ tasks that reached `done` — NOT ÷ execution runs. The promotion gate also reports fresh ÷ completed-run and fresh ÷ fixture-task alongside, for transparency. Verified 2026-06-09: candidate build reduces fresh/completed-task ~60% vs the old-build-on-fixture control; the per-run view is ~flat because the win is completing all tasks at fewer runs.)
 - Large context sections are individually attributable.
 
 ## Sprint 5 - Structured Action Ledger
