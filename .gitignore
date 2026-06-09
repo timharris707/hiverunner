@@ -99,3 +99,13 @@ next-env.d.ts
 # Dev lane isolated data directory (databases only)
 /data-dev/
 /data-exec-dev/
+
+# benchmark / exec lane data and ephemera (do not commit)
+/data-exec-dev-3011/
+data-exec-dev-*/
+/mc-action.json
+scratch/**/*.png
+scratch/**/*.csv
+scratch/**/*.log
+# per-task scratch dirs (QA/debug exports, stray logs) — keeps tracked scratch/runtime-* docs
+scratch/ins-*/
