@@ -5,6 +5,7 @@ import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { resolveExecutionRoute } from "@/lib/orchestration/execution-route-resolver";
 import { formatLaneFingerprint } from "@/lib/orchestration/execution-hives";
 import { listExecutionTranscriptEvents } from "@/lib/orchestration/service/execution-transcript";
+import { ensureCompanyExecutionHives } from "@/lib/orchestration/service/execution-hives";
 import { resolveTaskModelRouting } from "@/lib/orchestration/task-model-routing";
 import type {
   OrchestrationTask,
@@ -478,6 +479,7 @@ function plannedExecutionContext(input: {
   const activeHiveRoute = engine !== "manual" && row.company_id
     ? (() => {
         try {
+          ensureCompanyExecutionHives({ companyIdOrSlug: row.company_id! }, input.db);
           return resolveExecutionRoute({ companyId: row.company_id!, modelLane }, input.db);
         } catch {
           return null;

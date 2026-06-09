@@ -14,6 +14,7 @@
 import type Database from "better-sqlite3";
 
 import { resolveExecutionRoute } from "@/lib/orchestration/execution-route-resolver";
+import { ensureCompanyExecutionHives } from "@/lib/orchestration/service/execution-hives";
 import { normalizeTaskModelLane } from "@/lib/orchestration/task-model-routing";
 import type { TaskExecutionEngine, TaskModelLane } from "@/lib/orchestration/types";
 import { stringFromRecord } from "@/lib/orchestration/engine/persistence";
@@ -199,6 +200,7 @@ export function taskExecutionPolicyForWakeup(input: {
     };
   }
 
+  ensureCompanyExecutionHives({ companyIdOrSlug: row.company_id }, input.db);
   const route = resolveExecutionRoute({
     companyId: row.company_id,
     task: {

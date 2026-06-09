@@ -8,6 +8,7 @@ import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { executeHeartbeatRun } from "@/lib/orchestration/engine/engine";
 import { canAutonomouslyExecuteCompany } from "@/lib/orchestration/service/dev-execution-test-mode";
 import { getTask, moveTask } from "@/lib/orchestration/service";
+import type { TaskStatusInput } from "@/lib/orchestration/contracts";
 
 export const dynamic = "force-dynamic";
 
@@ -101,6 +102,32 @@ function prepareTaskForExecution(input: {
   return moveTaskToInProgress(input);
 }
 
+type PreparedTaskForExecution = ReturnType<typeof prepareTaskForExecution>;
+
+function rollbackTaskPreparation(input: {
+  prepared: PreparedTaskForExecution | null;
+  actorUserId?: string;
+}) {
+  const prepared = input.prepared;
+  if (
+    !prepared?.transition.statusChanged ||
+    prepared.transition.to !== "in-progress" ||
+    prepared.transition.from === "cancelled"
+  ) {
+    return;
+  }
+
+  try {
+    moveTask({
+      taskId: prepared.task.id,
+      status: prepared.transition.from as TaskStatusInput,
+      actorUserId: input.actorUserId ?? "ui-run-now-rollback",
+    });
+  } catch (rollbackError) {
+    console.warn("[task-execution:post] failed to roll back task preparation:", rollbackError);
+  }
+}
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -124,21 +151,30 @@ export async function POST(
   try {
     const { id } = paramsSchema.parse(await params);
     const parsed = runTaskExecutionSchema.parse(await req.json().catch(() => ({})));
-    const moved = prepareTaskForExecution({
-      taskId: id,
-      actorUserId: parsed.actorUserId ?? "ui-run-now",
-    });
-    const execution = await triggerTaskExecution({
-      taskId: moved.task.id,
-      forceFreshSession: parsed.forceFreshSession,
-      reason: parsed.reason ?? "ui_run_now",
-      resumeOfExecutionRunId: parsed.resumeOfExecutionRunId,
-      idempotencyKey: parsed.forceFreshSession
-        ? undefined
-        : `mc-task-run-now:${moved.task.id}:${moved.task.updated}`,
-    });
-    triggerImmediateRunIfAllowed(moved.task.id, execution.runId);
-    return NextResponse.json({ task: moved.task, transition: moved.transition, execution });
+    let moved: PreparedTaskForExecution | null = null;
+    try {
+      moved = prepareTaskForExecution({
+        taskId: id,
+        actorUserId: parsed.actorUserId ?? "ui-run-now",
+      });
+      const execution = await triggerTaskExecution({
+        taskId: moved.task.id,
+        forceFreshSession: parsed.forceFreshSession,
+        reason: parsed.reason ?? "ui_run_now",
+        resumeOfExecutionRunId: parsed.resumeOfExecutionRunId,
+        idempotencyKey: parsed.forceFreshSession
+          ? undefined
+          : `mc-task-run-now:${moved.task.id}:${moved.task.updated}`,
+      });
+      triggerImmediateRunIfAllowed(moved.task.id, execution.runId);
+      return NextResponse.json({ task: moved.task, transition: moved.transition, execution });
+    } catch (error) {
+      rollbackTaskPreparation({
+        prepared: moved,
+        actorUserId: parsed.actorUserId ?? "ui-run-now",
+      });
+      throw error;
+    }
   } catch (error) {
     if (error instanceof z.ZodError) {
       return errorResponse(400, "validation_error", "Invalid task execution run payload", error.flatten());

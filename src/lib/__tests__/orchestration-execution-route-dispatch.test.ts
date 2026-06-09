@@ -280,6 +280,107 @@ async function run() {
     assert.equal(route.result.status, "succeeded", route.result.error ?? undefined);
   }
 
+  await test("triggerTaskExecution bootstraps active hives for legacy companies before dispatch", async () => {
+    const legacyCompany = createCompany({
+      name: `Legacy Hive Bootstrap ${Date.now()}`,
+      description: "Legacy company without pre-seeded hives",
+      status: "active",
+    }).company;
+    const legacyProject = createProject({
+      companyId: legacyCompany.id,
+      name: "Legacy Bootstrap Project",
+      description: "fixture",
+      color: "#22c55e",
+      emoji: "L",
+      status: "active",
+    }).project;
+    const legacyAgent = createProjectAgent({
+      projectId: legacyProject.id,
+      name: "Legacy Bootstrap Runner",
+      emoji: "L",
+      role: "Engineer",
+      personality: "Routes legacy company work.",
+      status: "idle",
+      skills: [],
+    }).agent;
+    db.prepare("UPDATE agents SET adapter_type = 'codex', updated_at = ? WHERE id = ?")
+      .run(new Date().toISOString(), legacyAgent.id);
+    updateDevExecutionTestMode({
+      companyIdOrSlug: company.id,
+      enabled: false,
+      actor: "test",
+      note: "Temporarily yield test-mode lease to legacy bootstrap fixture",
+    }, db);
+
+    try {
+      updateDevExecutionTestMode({
+        companyIdOrSlug: legacyCompany.id,
+        enabled: true,
+        durationMinutes: 10,
+        actor: "test",
+        note: "Legacy hive bootstrap dispatch test",
+      }, db);
+
+      const before = db
+        .prepare("SELECT COUNT(*) AS n FROM company_execution_hives WHERE company_id = ? AND archived_at IS NULL")
+        .get(legacyCompany.id) as { n: number };
+      assert.equal(before.n, 0);
+
+      const task = createTask({
+        projectId: legacyProject.id,
+        title: "Legacy hive bootstrap task",
+        description: "Dispatch should seed hives before route resolution.",
+        priority: "P2",
+        type: "feature",
+        status: "in-progress",
+        assignee: legacyAgent.id,
+        labels: ["route"],
+        modelLane: "mini",
+        createdBy: "test",
+      }).task;
+
+      const queued = await triggerTaskExecution({ taskId: task.id, reason: "legacy_hive_bootstrap_dispatch" });
+      assert.equal(queued.status, "queued");
+      assert.equal(queued.queued, true);
+      assert.equal(queued.mode, "codex");
+      assert.ok(queued.runId, "expected queued heartbeat run id");
+
+      const after = db
+        .prepare(
+          `SELECT
+             COUNT(*) AS hive_count,
+             SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) AS active_count
+           FROM company_execution_hives
+           WHERE company_id = ? AND archived_at IS NULL`,
+        )
+        .get(legacyCompany.id) as { hive_count: number; active_count: number | null };
+      assert.ok(after.hive_count >= 4);
+      assert.equal(after.active_count, 1);
+      expectRunRow(latestRun(task.id), {
+        provider: "codex",
+        execution_engine: "hiverunner",
+        runner_provider: "codex",
+        runner_model: null,
+        model_lane: "mini",
+        status: "pending",
+      });
+    } finally {
+      updateDevExecutionTestMode({
+        companyIdOrSlug: legacyCompany.id,
+        enabled: false,
+        actor: "test",
+        note: "Release legacy bootstrap fixture lease",
+      }, db);
+      updateDevExecutionTestMode({
+        companyIdOrSlug: company.id,
+        enabled: true,
+        durationMinutes: 10,
+        actor: "test",
+        note: "Route dispatch test",
+      }, db);
+    }
+  });
+
   await test("triggerTaskExecution does not create a duplicate attempt while a run is active", async () => {
     const task = createTask({
       projectId: project.id,

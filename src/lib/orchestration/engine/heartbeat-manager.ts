@@ -21,6 +21,7 @@ import { recordCompanyAuditEvent } from "@/lib/orchestration/service/audit";
 import { checkProtectedRuntimeExecution } from "@/lib/orchestration/service/runtime-governance";
 import { persistExecutionTranscriptEvents } from "@/lib/orchestration/service/execution-transcript";
 import { resolveQueuedHeartbeatClaimCompanyId } from "@/lib/orchestration/service/dev-execution-test-mode";
+import { ensureCompanyExecutionHives } from "@/lib/orchestration/service/execution-hives";
 import { resolveExecutionRoute, executionRouteAttempts, type ResolvedExecutionRoute, type ResolvedExecutionRouteAttempt } from "@/lib/orchestration/execution-route-resolver";
 import {
   recordCostEvent,
@@ -1331,6 +1332,9 @@ export async function executeHeartbeatRun(
   // resolved from the current task row instead of legacy wake payload fields.
   const taskKey = resolveTaskKey(contextSnapshot, agent.id, db);
   const taskRouteInput = taskRouteInputForRun({ db, taskKey, contextSnapshot });
+  if (taskKey !== "__heartbeat__") {
+    ensureCompanyExecutionHives({ companyIdOrSlug: agent.company_id }, db);
+  }
   const executionRoute: ResolvedExecutionRoute | null = taskKey !== "__heartbeat__"
     ? resolveExecutionRoute({
         companyId: agent.company_id,

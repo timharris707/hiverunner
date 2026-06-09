@@ -8,6 +8,7 @@ import { z, ZodError } from "zod";
 import { errorResponse, handleRouteError, OrchestrationApiError } from "@/lib/orchestration/api";
 import { resolveCompanyIdBySlug } from "@/lib/orchestration/company-service";
 import { resolveExecutionRoute, runtimeProviderLabel } from "@/lib/orchestration/execution-route-resolver";
+import { ensureCompanyExecutionHives } from "@/lib/orchestration/service/execution-hives";
 import { handleHiveRunnerSymphonyTrackerRequest } from "@/lib/orchestration/symphony/tracker-shim";
 import { resolveHiveRunnerLane } from "@/lib/workspaces/root";
 
@@ -70,6 +71,9 @@ function boolFromEnv(value: LaunchdValue | undefined, fallback: boolean): boolea
 
 function currentView(companyIdOrSlug: string, restartQueued = false) {
   const company = resolveCompanyIdBySlug(companyIdOrSlug, undefined, { includeArchived: false });
+  if (company) {
+    ensureCompanyExecutionHives({ companyIdOrSlug: company.id });
+  }
   const defaultRoute = company
     ? resolveExecutionRoute({ companyId: company.id, modelLane: "default" })
     : null;

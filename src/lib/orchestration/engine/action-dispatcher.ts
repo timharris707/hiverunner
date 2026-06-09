@@ -16,6 +16,7 @@ import { submitCompanyReviewDecision } from "@/lib/orchestration/review-decision
 import { createGoalCompletionProposal, createSprintPlanDrafts, recordGoalContractEvidence } from "@/lib/orchestration/company-service";
 import { captureBrowserProof, type CaptureBrowserProofAction } from "@/lib/orchestration/browser-proof";
 import { maybeAutoCompleteSprintForTaskDone } from "@/lib/orchestration/service/task";
+import { ensureCompanyExecutionHives } from "@/lib/orchestration/service/execution-hives";
 import { recordExplicitSkillUse } from "@/lib/orchestration/skill-effectiveness";
 import { linkTemplateGeneratedExecutionRun } from "@/lib/orchestration/template-persistence";
 import { normalizeTaskModelLane } from "@/lib/orchestration/task-model-routing";
@@ -2138,6 +2139,7 @@ function executionProviderForTaskAutoStart(input: {
 
   if (!row?.company_id) return null;
 
+  ensureCompanyExecutionHives({ companyIdOrSlug: row.company_id }, input.db);
   const route = resolveExecutionRoute({
     companyId: row.company_id,
     task: {

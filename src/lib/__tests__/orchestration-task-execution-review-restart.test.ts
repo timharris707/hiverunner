@@ -190,6 +190,60 @@ async function run() {
       assert.equal(contextSnapshot.assigneeAgentId, reviewer.id);
     });
 
+    await test("POST run-now rolls task preparation back when dispatch route resolution fails", async () => {
+      const task = createTask({
+        projectId: project.id,
+        title: "Rollback route failure candidate",
+        description: "The endpoint should not strand the card in progress when dispatch fails.",
+        priority: "P1",
+        type: "feature",
+        status: "to-do",
+        assignee: reviewer.id,
+        labels: ["rollback"],
+        createdBy: "test",
+        executionEngine: "symphony",
+      }).task;
+      const activeHive = db
+        .prepare(
+          `SELECT id, lanes_json
+           FROM company_execution_hives
+           WHERE company_id = ? AND is_active = 1 AND archived_at IS NULL
+           LIMIT 1`,
+        )
+        .get(company.id) as { id: string; lanes_json: string } | undefined;
+      assert.ok(activeHive, "expected active hive fixture");
+
+      db.prepare("UPDATE company_execution_hives SET lanes_json = '[]', updated_at = ? WHERE id = ?")
+        .run(new Date().toISOString(), activeHive.id);
+
+      try {
+        const response = await POST(
+          new Request(`http://localhost/api/orchestration/tasks/${task.id}/execution`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              actorUserId: "test-operator",
+              reason: "rollback_route_failure_test",
+            }),
+          }) as unknown as NextRequest,
+          { params: Promise.resolve({ id: task.id }) },
+        );
+        const payload = await response.json() as { error?: { code?: string; message?: string } };
+
+        assert.equal(response.status, 409);
+        assert.equal(payload.error?.code, "execution_hive_default_lane_missing");
+        assert.equal(getTask(task.id).task.status, "to-do");
+
+        const executionRunCount = db
+          .prepare("SELECT COUNT(*) AS n FROM execution_runs WHERE task_id = ?")
+          .get(task.id) as { n: number };
+        assert.equal(executionRunCount.n, 0);
+      } finally {
+        db.prepare("UPDATE company_execution_hives SET lanes_json = ?, updated_at = ? WHERE id = ?")
+          .run(activeHive.lanes_json, new Date().toISOString(), activeHive.id);
+      }
+    });
+
     closeOrchestrationDb();
   } finally {
     if (previousEnv.ORCHESTRATION_DB_PATH === undefined) {

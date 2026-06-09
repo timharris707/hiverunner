@@ -34,6 +34,7 @@ import type { CancelAdapterResult } from "@/lib/orchestration/execution/adapters
 import { buildTaskGoalContextSection } from "@/lib/orchestration/goal-context";
 import { createTaskComment, getTask, moveTask } from "@/lib/orchestration/service";
 import { canAutonomouslyExecuteCompany } from "@/lib/orchestration/service/dev-execution-test-mode";
+import { ensureCompanyExecutionHives } from "@/lib/orchestration/service/execution-hives";
 import type { TaskStatusInput } from "@/lib/orchestration/contracts";
 import type { TaskStatus } from "@/lib/orchestration/types";
 
@@ -263,8 +264,13 @@ type ExecutionRunRecord = {
   childSignal?: string | null;
 };
 
+function resolveTaskExecutionRoute(task: BridgeTaskRecord, db = getOrchestrationDb()) {
+  ensureCompanyExecutionHives({ companyIdOrSlug: task.companyId }, db);
+  return resolveExecutionRoute({ companyId: task.companyId, task }, db);
+}
+
 function executionProviderForTask(task: BridgeTaskRecord, db = getOrchestrationDb()): BridgeRuntimeProvider {
-  const route = resolveExecutionRoute({ companyId: task.companyId, task }, db);
+  const route = resolveTaskExecutionRoute(task, db);
   if (route.executionEngine === "manual") return "manual";
   // The route resolver owns the orchestration engine and lane metadata, then
   // derives the concrete runner provider/model from the assigned agent profile.
@@ -2330,7 +2336,7 @@ export async function triggerTaskNudge(
 ): Promise<TriggerTaskNudgeResult> {
   const db = getOrchestrationDb();
   const task = getTaskBridgeRecord(input.taskId, db);
-  const route = resolveExecutionRoute({ companyId: task.companyId, task }, db);
+  const route = resolveTaskExecutionRoute(task, db);
   const executionProvider = executionProviderForTask(task, db);
   const mode = executionProvider;
 
@@ -2452,7 +2458,7 @@ export async function triggerTaskExecution(
 ): Promise<TriggerTaskExecutionResult> {
   const db = getOrchestrationDb();
   let task = getTaskBridgeRecord(input.taskId, db);
-  let route = resolveExecutionRoute({ companyId: task.companyId, task }, db);
+  let route = resolveTaskExecutionRoute(task, db);
   let executionProvider = executionProviderForTask(task, db);
   const mode = executionProvider;
   const normalizedIdempotencyKey = input.idempotencyKey?.trim() || undefined;
@@ -2470,7 +2476,7 @@ export async function triggerTaskExecution(
   if (executionProvider === "openclaw") {
     reconcileTerminalOpenClawTaskState(task.id, db);
     task = getTaskBridgeRecord(input.taskId, db);
-    route = resolveExecutionRoute({ companyId: task.companyId, task }, db);
+    route = resolveTaskExecutionRoute(task, db);
     executionProvider = executionProviderForTask(task, db);
   }
 
