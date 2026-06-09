@@ -184,11 +184,11 @@ export type RuntimePromotionGateOptions = {
   detectUnhealthyNoiseMs?: number;
   evidence?: RuntimePromotionEvidence | null;
   requireEvidenceProofs?: boolean;
-  /** Max combined overseer-turn tokens allowed for the "low-token watch mode" claim. Default 50000. */
+  /** Max FRESH-input overseer-turn tokens allowed for the "low-token watch mode" claim (cache-read excluded). Default 50000. */
   overseerTokenCeiling?: number;
 };
 
-/** Default ceiling for the bounded overseer watch-turn safety check. */
+/** Default ceiling (fresh input tokens, cache-read excluded) for the bounded overseer watch-turn safety check. */
 export const DEFAULT_OVERSEER_TOKEN_CEILING = 50_000;
 
 export type RuntimeBenchmarkSummaryOptions = {
@@ -1710,7 +1710,7 @@ function safetySignalChecks(
   return [
     safetySignalCheck("safety: deterministic preflight circuit-break fired (>=1, no churn)", ">= 1 circuit-open row, no churn", sig?.preflightCircuitOpen),
     safetySignalCheck("safety: detect-unhealthy sample observed (>=1)", ">= 1 detect-unhealthy sample", sig?.detectUnhealthy),
-    safetySignalCheck(`safety: bounded overseer watch turn (>=1, <= ${ceiling} tokens)`, `>= 1 overseer turn under ${ceiling} tokens`, sig?.overseerWatch),
+    safetySignalCheck(`safety: bounded overseer watch turn (>=1, <= ${ceiling} fresh tokens)`, `>= 1 overseer turn under ${ceiling} fresh tokens`, sig?.overseerWatch),
     safetySignalCheck("safety: provider fallback exercised (>=1)", ">= 1 fallback_used row", sig?.providerFallback),
   ];
 }
@@ -1730,7 +1730,10 @@ export function buildSafetySignalEvidenceFromSummary(
     ?? `demo summary ${summary.protocol?.fixtureId ?? "unlabeled"} ${summary.scope.runStartedAt ?? "?"}..${summary.scope.runEndedAt ?? "?"}`;
   const safety = summary.safetySignals ?? EMPTY_SAFETY_SIGNALS;
   const detectCount = summary.latency?.detectUnhealthyMs.sampleCount ?? 0;
-  const overseerTokens = summary.overseerUsage?.totalTokens ?? 0;
+  // Ceiling is measured on FRESH input (billable), not total — cache-read is cheap and the goal's
+  // product rule is explicit: do not treat total input tokens as cost.
+  const overseerFresh = summary.overseerUsage?.freshInputTokens ?? 0;
+  const overseerTotal = summary.overseerUsage?.totalTokens ?? 0;
   const noChurn = safety.preflightCircuitOpenCount >= 1
     && safety.preflightCircuitOpenCount === safety.preflightDistinctFingerprintCount;
   return {
@@ -1747,10 +1750,10 @@ export function buildSafetySignalEvidenceFromSummary(
       detail: `detect-unhealthy p50 ${summary.latency?.detectUnhealthyMs.medianMs ?? "n/a"}ms / p95 ${summary.latency?.detectUnhealthyMs.p95Ms ?? "n/a"}ms`,
     },
     overseerWatch: {
-      ok: summary.overseerTurnCount >= 1 && overseerTokens <= ceiling,
+      ok: summary.overseerTurnCount >= 1 && overseerFresh <= ceiling,
       source,
       count: summary.overseerTurnCount,
-      detail: `${summary.overseerTurnCount} overseer turn(s), ${overseerTokens} combined tokens (ceiling ${ceiling})`,
+      detail: `${summary.overseerTurnCount} overseer turn(s), ${overseerFresh} fresh-input tokens (ceiling ${ceiling}; total ${overseerTotal} incl. cache-read)`,
     },
     providerFallback: {
       ok: safety.fallbackUsedCount >= 1,

@@ -841,13 +841,22 @@ async function run() {
       overseerTurnCount: 1, latency: okLatency,
     })).preflightCircuitOpen?.ok, false);
 
-    // Overseer over the token ceiling -> not ok.
+    // Overseer over the FRESH-input ceiling -> not ok.
     assert.equal(buildSafetySignalEvidenceFromSummary(promotionSummary({
       safetySignals: { preflightCircuitOpenCount: 1, preflightDistinctFingerprintCount: 1, fallbackUsedCount: 1 },
       overseerTurnCount: 1,
-      overseerUsage: { inputTokens: 0, cacheReadInputTokens: 0, freshInputTokens: 0, outputTokens: 0, totalTokens: DEFAULT_OVERSEER_TOKEN_CEILING + 1, estimatedCostUsd: null },
+      overseerUsage: { inputTokens: DEFAULT_OVERSEER_TOKEN_CEILING + 1, cacheReadInputTokens: 0, freshInputTokens: DEFAULT_OVERSEER_TOKEN_CEILING + 1, outputTokens: 0, totalTokens: DEFAULT_OVERSEER_TOKEN_CEILING + 1, estimatedCostUsd: null },
       latency: okLatency,
     })).overseerWatch?.ok, false);
+
+    // High TOTAL but low FRESH (cache-heavy, like a real overseer turn: 119k total / 43.9k fresh) -> ok.
+    // The ceiling is on fresh input (cache-read is cheap), so a real bounded turn passes.
+    assert.equal(buildSafetySignalEvidenceFromSummary(promotionSummary({
+      safetySignals: { preflightCircuitOpenCount: 1, preflightDistinctFingerprintCount: 1, fallbackUsedCount: 1 },
+      overseerTurnCount: 1,
+      overseerUsage: { inputTokens: 117_471, cacheReadInputTokens: 73_600, freshInputTokens: 43_871, outputTokens: 1_561, totalTokens: 119_032, estimatedCostUsd: null },
+      latency: okLatency,
+    })).overseerWatch?.ok, true);
 
     // No overseer turn -> not ok.
     assert.equal(buildSafetySignalEvidenceFromSummary(promotionSummary({
