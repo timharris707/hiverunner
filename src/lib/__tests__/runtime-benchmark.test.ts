@@ -798,6 +798,25 @@ async function run() {
     }
   });
 
+  await test("fresh-input metric divides by COMPLETED (done) tasks per goal spec #238, reporting per-run and per-task separately", () => {
+    // A summary where done (6), completed runs (12), and fixture tasks (10) are all different,
+    // so the three denominators yield distinct numbers and we can prove which one the gate metric uses.
+    const summary = promotionSummary({
+      taskCount: 10,
+      completedRunCount: 12,
+      combinedUsage: { inputTokens: 600_000, cacheReadInputTokens: 0, freshInputTokens: 600_000, outputTokens: 0, totalTokens: 600_000, estimatedCostUsd: null },
+      finalTaskStatus: {
+        total: 10, done: 6, nonDone: 4, missingStatusCount: 0, blockedWithoutReason: 0,
+        byStatus: { done: 6, review: 4 }, nonDoneTaskKeys: ["INS-7", "INS-8", "INS-9", "INS-10"], blockedWithoutReasonTaskKeys: [],
+      },
+    });
+    const report = buildRuntimeBenchmarkPromotionReport([promotionSummary()], [summary], {});
+    // spec metric: 600000 / 6 done = 100000 (NOT 50000 per-run, NOT 60000 per-task)
+    assert.equal(report.baseline.metrics.freshInputPerCompletedTask.median, 100_000);
+    assert.equal(report.baseline.metrics.freshInputPerCompletedRun.median, 50_000);
+    assert.equal(report.baseline.metrics.freshInputPerFixtureTask.median, 60_000);
+  });
+
   await test("buildSafetySignalEvidenceFromSummary derives attestations from real demo summary counts", () => {
     const okLatency = { firstEvidenceMs: { sampleCount: 10, medianMs: 2_000, p95Ms: 5_000 }, detectUnhealthyMs: { sampleCount: 1, medianMs: 91_000, p95Ms: 91_000 } };
 

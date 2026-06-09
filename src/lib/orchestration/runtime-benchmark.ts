@@ -1103,8 +1103,28 @@ export function buildRuntimeBenchmarkSummary(
   };
 }
 
+/**
+ * Fresh (billable) input tokens per COMPLETED task — the goal-spec metric (Sprint 4
+ * acceptance #238: "fresh/billable input per completed task"). Divides fresh input by
+ * the number of tasks that reached `done`, so a build that burns tokens without
+ * finishing tasks (or re-runs them) is correctly charged for that waste. Returns
+ * Infinity when nothing completed. NOTE: this intentionally divides by completed
+ * tasks, not by execution runs — dividing by runs measures cost-per-invocation and
+ * washes out the runs-per-task win; see freshInputPerCompletedRun for that view.
+ */
 function freshInputPerCompletedTask(summary: RuntimeBenchmarkSummary): number {
+  const completedTasks = summary.finalTaskStatus?.done ?? 0;
+  return completedTasks > 0 ? summary.combinedUsage.freshInputTokens / completedTasks : Number.POSITIVE_INFINITY;
+}
+
+/** Fresh input per completed execution run (cost per agent invocation). Reported for transparency; not gated. */
+function freshInputPerCompletedRun(summary: RuntimeBenchmarkSummary): number {
   return summary.completedRunCount > 0 ? summary.combinedUsage.freshInputTokens / summary.completedRunCount : Number.POSITIVE_INFINITY;
+}
+
+/** Fresh input per fixture task (every task counts, completed or not). Reported for transparency; not gated. */
+function freshInputPerFixtureTask(summary: RuntimeBenchmarkSummary): number {
+  return summary.taskCount > 0 ? summary.combinedUsage.freshInputTokens / summary.taskCount : Number.POSITIVE_INFINITY;
 }
 
 function executionUsageValidationForSummary(summary: RuntimeBenchmarkSummary): RuntimeExecutionUsageValidation | null {
@@ -1416,6 +1436,8 @@ function armStats(summaries: RuntimeBenchmarkSummary[]): RuntimeBenchmarkArmStat
       averageRunsPerTask: metricStats(summaries.map((summary) => summary.averageRunsPerTask)),
       runtimeQualityRate: metricStats(summaries.map(runtimeQualityRate)),
       freshInputPerCompletedTask: metricStats(summaries.map(freshInputPerCompletedTask)),
+      freshInputPerCompletedRun: metricStats(summaries.map(freshInputPerCompletedRun)),
+      freshInputPerFixtureTask: metricStats(summaries.map(freshInputPerFixtureTask)),
       firstEvidenceP50Ms: metricStats(summaries.map((summary) => summary.latency?.firstEvidenceMs.medianMs)),
       firstEvidenceP95Ms: metricStats(summaries.map((summary) => summary.latency?.firstEvidenceMs.p95Ms)),
       detectUnhealthyP50Ms: metricStats(summaries.map((summary) => summary.latency?.detectUnhealthyMs.medianMs)),
@@ -1755,14 +1777,17 @@ function metricRegressionChecks(input: {
   const baselineDetectP50 = input.baseline.metrics.detectUnhealthyP50Ms;
   const baselineDetectP95 = input.baseline.metrics.detectUnhealthyP95Ms;
 
+  const medOf = (s: RuntimeMetricStats) => s.median === null ? "n/a" : Math.round(s.median);
   return [
-    metricCheck({
+    {
       name: "fresh input per completed task reduced by at least 50%",
-      candidate: candidateFresh,
-      baseline: baselineFresh,
-      threshold: baselineFresh.median === null ? "baseline missing" : `<= ${(baselineFresh.median * 0.5).toFixed(0)}`,
       ok: candidateFresh.median !== null && baselineFresh.median !== null && candidateFresh.median <= baselineFresh.median * 0.5,
-    }),
+      value: candidateFresh.median === null ? "missing" : Math.round(candidateFresh.median),
+      threshold: baselineFresh.median === null ? "baseline missing" : `<= ${(baselineFresh.median * 0.5).toFixed(0)}`,
+      detail: `metric = fresh ÷ completed(done) tasks per goal spec #238; candidate ${medOf(candidateFresh)} vs baseline ${medOf(baselineFresh)}. `
+        + `Transparency — fresh ÷ completed-run: cand ${medOf(input.candidate.metrics.freshInputPerCompletedRun)} vs base ${medOf(input.baseline.metrics.freshInputPerCompletedRun)}; `
+        + `fresh ÷ all-fixture-tasks: cand ${medOf(input.candidate.metrics.freshInputPerFixtureTask)} vs base ${medOf(input.baseline.metrics.freshInputPerFixtureTask)}.`,
+    },
     metricCheck({
       name: "average runs per task not worse than baseline median plus replay noise",
       candidate: input.candidate.metrics.averageRunsPerTask,
