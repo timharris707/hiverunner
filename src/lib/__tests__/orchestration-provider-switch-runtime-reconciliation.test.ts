@@ -117,7 +117,7 @@ async function run() {
       const codexRuntime = runtimes.find((row) => row.provider === "codex");
       assert.ok(codexRuntime);
       assert.equal(codexRuntime.status, "unknown");
-      assert.equal(codexRuntime.command, null);
+      assert.equal(codexRuntime.command, "codex");
       assert.equal(codexRuntime.runtime_slug, "scout");
       const codexMetadata = JSON.parse(codexRuntime.metadata_json) as Record<string, unknown>;
       assert.equal(codexMetadata.source, "provider_switch");

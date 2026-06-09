@@ -1139,7 +1139,7 @@ function reconcileAgentRuntimesAfterProviderSwitch(input: {
     displayName: `${input.agentName} runtime`,
     runtimeKind,
     scope: "agent",
-    command: targetProvider === "openclaw" ? "openclaw" : null,
+    command: defaultRuntimeCommandForProvider(targetProvider),
     status,
     workspaceRoot: null,
     metadata: {
@@ -1225,4 +1225,21 @@ function disabledRuntimeHealth(now: string): Record<string, unknown> {
     details: ["Disabled by provider switch."],
     error: null,
   };
+}
+
+function defaultRuntimeCommandForProvider(provider: string): string | null {
+  switch (normalizeAdapterType(provider)) {
+    case "codex":
+      return "codex";
+    case "anthropic":
+      return "claude";
+    case "gemini":
+      return "gemini";
+    case "hermes":
+      return "hermes";
+    case "openclaw":
+      return "openclaw";
+    default:
+      return null;
+  }
 }
