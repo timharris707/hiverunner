@@ -11,26 +11,31 @@ import {
  * Run performance trigger ("slow_expensive_run").
  *
  * Watches completed execution runs and raises an Improve recommendation when a
- * run is a duration or token outlier versus the efficiency baseline proven by
- * INS-G006 (46.7K fresh input tokens/task after the 60% reduction; 117K was the
- * pre-fix average). Fresh input = inputTokens minus cacheReadInputTokens, so
- * prompt-cache hits are not punished.
+ * run is a duration or token outlier versus the configured efficiency baseline.
+ * Fresh input = inputTokens minus cacheReadInputTokens, so prompt-cache hits
+ * are not punished. The shipped defaults come from a measured efficient
+ * workload (~46.7K fresh input tokens per task; unoptimized runs averaged
+ * ~117K); every value is per-company tunable via the trigger-controls
+ * threshold config.
  */
 
 export const RUN_PERFORMANCE_TRIGGER_KEY = "slow_expensive_run" as const;
 
-export const INS_G006_BASELINE_FRESH_INPUT_TOKENS = 46_700;
+export const DEFAULT_EFFICIENT_RUN_FRESH_INPUT_TOKENS = 46_700;
 
 export type RunPerformanceThresholds = {
-  /** Completed-run wall clock above this is "slow". Default ≈ 1.5x the p95 (13.2 min) of the first 525 instrumented runs. */
+  /** Completed-run wall clock above this is "slow". */
   maxDurationMs: number;
-  /** Fresh (non-cache-read) input tokens above this is "expensive". Default = pre-INS-G006 average, 2.5x the proven baseline. */
+  /** Fresh (non-cache-read) input tokens above this is "expensive". Default = 2.5x the efficiency baseline. */
   maxFreshInputTokens: number;
+  /** What an efficient run's fresh input should cost; used for the "N.Nx the baseline" framing in recommendations. */
+  freshInputBaselineTokens: number;
 };
 
 export const DEFAULT_RUN_PERFORMANCE_THRESHOLDS: RunPerformanceThresholds = {
   maxDurationMs: 1_200_000,
   maxFreshInputTokens: 117_000,
+  freshInputBaselineTokens: DEFAULT_EFFICIENT_RUN_FRESH_INPUT_TOKENS,
 };
 
 /** Either metric at or beyond this multiple of its threshold escalates severity to high. */
@@ -127,6 +132,10 @@ export function resolveRunPerformanceThresholds(
       stored.maxFreshInputTokens,
       DEFAULT_RUN_PERFORMANCE_THRESHOLDS.maxFreshInputTokens,
     ),
+    freshInputBaselineTokens: thresholdOverride(
+      stored.freshInputBaselineTokens,
+      DEFAULT_RUN_PERFORMANCE_THRESHOLDS.freshInputBaselineTokens,
+    ),
   };
 }
 
@@ -152,7 +161,7 @@ export function evaluateRunPerformance(
     severity: worstMultiple >= HIGH_SEVERITY_MULTIPLE ? "high" : "medium",
     baselineMultiple: metrics.freshInputTokens === null
       ? null
-      : metrics.freshInputTokens / INS_G006_BASELINE_FRESH_INPUT_TOKENS,
+      : metrics.freshInputTokens / thresholds.freshInputBaselineTokens,
   };
 }
 
@@ -232,7 +241,7 @@ function breachSummaryParts(
   }
   if (evaluation.reasons.includes("expensive") && metrics.freshInputTokens !== null) {
     parts.push(
-      `used ${tokens(metrics.freshInputTokens)} fresh input tokens (threshold ${tokens(thresholds.maxFreshInputTokens)}, INS-G006 baseline ${tokens(INS_G006_BASELINE_FRESH_INPUT_TOKENS)})`,
+      `used ${tokens(metrics.freshInputTokens)} fresh input tokens (threshold ${tokens(thresholds.maxFreshInputTokens)}, efficiency baseline ${tokens(thresholds.freshInputBaselineTokens)})`,
     );
   }
   return parts;
@@ -289,7 +298,7 @@ function outlierSuggestionInput(input: {
     scope,
     title: `Investigate slow/expensive runs by ${subjectLabel}`,
     rationale: `A completed run breached the run-performance thresholds: ${reasonParts.join("; ")}.${baselineNote} Repeated breaches in ${monthBucket} fold into this recommendation; each breach is logged as a trigger firing.`,
-    proposedChange: `Review prompt/context assembly and memory loadout for ${subjectLabel} (lane ${run.model_lane ?? "unknown"}, runner ${run.runner_provider ?? "unknown"}). Compare fresh-input spend against the INS-G006 baseline (${tokens(INS_G006_BASELINE_FRESH_INPUT_TOKENS)}/task) and consider trimming injected context, tightening memory relevance, or rerouting the lane.`,
+    proposedChange: `Review prompt/context assembly and memory loadout for ${subjectLabel} (lane ${run.model_lane ?? "unknown"}, runner ${run.runner_provider ?? "unknown"}). Compare fresh-input spend against the configured efficiency baseline (${tokens(thresholds.freshInputBaselineTokens)}/task) and consider trimming injected context, tightening memory relevance, or rerouting the lane.`,
     severity: evaluation.severity,
     confidence: "medium",
     evidence: outlierEvidence(run, metrics, evaluation, reasonParts, completedAt),

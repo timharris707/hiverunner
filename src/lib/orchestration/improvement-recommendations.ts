@@ -1814,8 +1814,8 @@ const TRIGGER_DEFINITIONS: Array<{
   {
     triggerKey: "slow_expensive_run",
     label: "Slow or expensive run",
-    description: "Creates recommendations when a completed run is a duration or fresh-input-token outlier versus the INS-G006 efficiency baseline.",
-    threshold: { maxDurationMs: 1_200_000, maxFreshInputTokens: 117_000 },
+    description: "Creates recommendations when a completed run is a duration or fresh-input-token outlier versus the configured efficiency baseline.",
+    threshold: { maxDurationMs: 1_200_000, maxFreshInputTokens: 117_000, freshInputBaselineTokens: 46_700 },
   },
 ];
 

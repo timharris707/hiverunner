@@ -33,8 +33,8 @@ async function run() {
   try {
     const { getOrchestrationDb } = await import("@/lib/orchestration/db");
     const {
+      DEFAULT_EFFICIENT_RUN_FRESH_INPUT_TOKENS,
       DEFAULT_RUN_PERFORMANCE_THRESHOLDS,
-      INS_G006_BASELINE_FRESH_INPUT_TOKENS,
       RUN_PERFORMANCE_TRIGGER_KEY,
       evaluateRunPerformance,
       extractRunPerformanceMetrics,
@@ -184,7 +184,7 @@ async function run() {
       });
       assert.deepEqual(veryExpensive.reasons, ["expensive"]);
       assert.equal(veryExpensive.severity, "high");
-      assert.ok((veryExpensive.baselineMultiple ?? 0) > 240_000 / INS_G006_BASELINE_FRESH_INPUT_TOKENS - 0.01);
+      assert.ok((veryExpensive.baselineMultiple ?? 0) > 240_000 / DEFAULT_EFFICIENT_RUN_FRESH_INPUT_TOKENS - 0.01);
     });
 
     await test("creates an agent-scoped recommendation and firing for an expensive run", () => {
@@ -278,10 +278,11 @@ async function run() {
         companyId,
         triggerKey: RUN_PERFORMANCE_TRIGGER_KEY,
         enabled: true,
-        threshold: { maxDurationMs: 60_000, maxFreshInputTokens: 117_000 },
+        threshold: { maxDurationMs: 60_000, maxFreshInputTokens: 117_000, freshInputBaselineTokens: 30_000 },
       }, db);
       const resolved = resolveRunPerformanceThresholds(db, companyId);
       assert.equal(resolved.maxDurationMs, 60_000);
+      assert.equal(resolved.freshInputBaselineTokens, 30_000);
 
       const slowRun = insertRun({ durationMs: 90_000, usage: { inputTokens: 1_000, outputTokens: 100 } });
       const result = runPerformanceTriggerForExecutionRun(slowRun, db);
