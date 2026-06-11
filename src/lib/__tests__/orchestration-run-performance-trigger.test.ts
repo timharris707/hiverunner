@@ -157,6 +157,20 @@ async function run() {
       });
       assert.equal(codex.freshInputTokens, 429_139 - 379_136);
 
+      // Gemini CLI stats are codex-style cumulative: input/prompt counts
+      // include cached tokens (probe-verified on CLI 0.38.2).
+      const gemini = extractRunPerformanceMetrics({
+        duration_ms: 120_000,
+        token_usage_json: JSON.stringify({ runnerProvider: "gemini", inputTokens: 14_200, outputTokens: 900, cacheReadInputTokens: 13_000 }),
+      });
+      assert.equal(gemini.freshInputTokens, 14_200 - 13_000);
+
+      const geminiClamped = extractRunPerformanceMetrics({
+        duration_ms: 120_000,
+        token_usage_json: JSON.stringify({ runnerProvider: "gemini", inputTokens: 8_000, outputTokens: 200, cacheReadInputTokens: 9_500 }),
+      });
+      assert.equal(geminiClamped.freshInputTokens, 0);
+
       // Unknown provider: cache larger than input proves net-of-cache semantics.
       const unknownNet = extractRunPerformanceMetrics({
         duration_ms: 120_000,

@@ -89,10 +89,12 @@ function parseUsage(raw: string | null | undefined): Record<string, unknown> {
  * same way the cost ledger reads it.
  *
  * Fresh-input semantics differ by provider: the codex CLI reports inputTokens
- * cumulative (cache reads included), while Anthropic-style usage reports
- * inputTokens net of cache (cache reads are a separate counter, often larger
- * than inputTokens itself). Subtracting cache reads from an already-net number
- * would zero out exactly the runs this trigger exists to catch.
+ * cumulative (cache reads included), and the Gemini CLI stats block does the
+ * same (its input/prompt counts include cached tokens; probe-verified on CLI
+ * 0.38.2), while Anthropic-style usage reports inputTokens net of cache
+ * (cache reads are a separate counter, often larger than inputTokens itself).
+ * Subtracting cache reads from an already-net number would zero out exactly
+ * the runs this trigger exists to catch.
  */
 function freshInputFor(
   usage: Record<string, unknown>,
@@ -102,7 +104,9 @@ function freshInputFor(
   if (inputTokens === null) return null;
   const provider = (typeof usage.runnerProvider === "string" ? usage.runnerProvider : null)
     ?? (typeof usage.provider === "string" ? usage.provider : null);
-  if (provider === "codex") return Math.max(0, inputTokens - cacheReadTokens);
+  if (provider === "codex" || provider === "gemini") {
+    return Math.max(0, inputTokens - cacheReadTokens);
+  }
   if (provider) return inputTokens;
   // Unknown provider: subtract only while it stays non-negative; a cache count
   // larger than input proves net-of-cache semantics.

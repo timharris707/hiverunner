@@ -244,6 +244,9 @@ function geminiProviderEvent(type, metadata) {
 }
 
 function geminiTranscriptEventFromRecord(record) {
+  // stream-json echoes the operator prompt back as a role:"user" message;
+  // forwarding it would duplicate the full task prompt into the transcript.
+  if (stringFrom(record.role) === "user") return null;
   const type = geminiEventType(record);
   const nestedType = geminiNestedType(record);
   const lowerType = `${type} ${nestedType}`.toLowerCase();
@@ -275,13 +278,72 @@ function geminiTranscriptEventFromPlainText(body) {
   };
 }
 
+function tokenNumbersFrom(candidate) {
+  // Tolerates both stats shapes the Gemini CLI emits: stream-json uses flat
+  // snake_case counters ({input_tokens, output_tokens, cached, total_tokens}),
+  // while --output-format json nests models.<id>.tokens
+  // ({prompt, candidates, thoughts, cached, tool, total}).
+  const tokens = asRecord(candidate?.tokens) ?? asRecord(candidate);
+  if (!tokens) return null;
+  const candidateTokens = numberFrom(tokens.candidates);
+  const thoughtTokens = numberFrom(tokens.thoughts);
+  const combinedOutput = candidateTokens === undefined && thoughtTokens === undefined
+    ? undefined
+    : (candidateTokens ?? 0) + (thoughtTokens ?? 0);
+  return {
+    inputTokens: numberFrom(tokens.input_tokens ?? tokens.inputTokens ?? tokens.prompt ?? tokens.input),
+    outputTokens: numberFrom(tokens.output_tokens ?? tokens.outputTokens) ?? combinedOutput,
+    cacheReadInputTokens: numberFrom(tokens.cached ?? tokens.cachedContentTokenCount ?? tokens.cached_content_token_count),
+    totalTokens: numberFrom(tokens.total_tokens ?? tokens.totalTokens ?? tokens.total),
+  };
+}
+
+function hasTokenCounts(usage) {
+  return Boolean(usage) &&
+    (usage.inputTokens !== undefined || usage.outputTokens !== undefined || usage.totalTokens !== undefined);
+}
+
+function sumModelTokens(models) {
+  const summed = {};
+  for (const value of Object.values(models)) {
+    const tokens = tokenNumbersFrom(value);
+    if (!tokens) continue;
+    for (const key of ["inputTokens", "outputTokens", "cacheReadInputTokens", "totalTokens"]) {
+      if (tokens[key] !== undefined) summed[key] = (summed[key] ?? 0) + tokens[key];
+    }
+  }
+  return hasTokenCounts(summed) ? summed : null;
+}
+
+function statsUsage(records) {
+  // The stream-json `result` event carries the session stats already summed
+  // across the main model and the CLI's utility-router model. Gemini's
+  // input/prompt counts INCLUDE cached tokens (codex-style cumulative), so
+  // cacheReadInputTokens must accompany inputTokens for fresh-input math.
+  for (let index = records.length - 1; index >= 0; index -= 1) {
+    const stats = asRecord(records[index].stats);
+    if (!stats) continue;
+    const direct = tokenNumbersFrom(stats);
+    if (hasTokenCounts(direct)) return direct;
+    const models = asRecord(stats.models);
+    if (models) {
+      const summed = sumModelTokens(models);
+      if (summed) return summed;
+    }
+  }
+  return null;
+}
+
 function collectUsage(records) {
-  const usage = {};
+  const usage = { ...(statsUsage(records) ?? {}) };
   for (const record of records) {
     const candidate = asRecord(record.usage) ?? asRecord(record.usageMetadata) ?? asRecord(record.tokenUsage) ?? record;
     if (!candidate) continue;
     usage.inputTokens ??= numberFrom(candidate.inputTokens ?? candidate.input_tokens ?? candidate.promptTokenCount);
     usage.outputTokens ??= numberFrom(candidate.outputTokens ?? candidate.output_tokens ?? candidate.candidatesTokenCount);
+    usage.cacheReadInputTokens ??= numberFrom(
+      candidate.cacheReadInputTokens ?? candidate.cachedContentTokenCount ?? candidate.cached_content_token_count,
+    );
     usage.totalTokens ??= numberFrom(candidate.totalTokens ?? candidate.total_tokens ?? candidate.totalTokenCount);
   }
   if (!usage.totalTokens && (usage.inputTokens || usage.outputTokens)) {
@@ -465,6 +527,33 @@ function benchmarkCostTelemetry(payload, model, usage) {
       ? "benchmark_payload_missing_harness_local_pricing"
       : "provider_usage_tokens_unavailable",
   };
+}
+
+function rawStringFrom(value) {
+  // Unlike stringFrom this does NOT trim: delta fragment boundaries fall
+  // mid-text, so trailing spaces/newlines are load-bearing when concatenating.
+  return typeof value === "string" ? value : "";
+}
+
+function assistantTextFromRecords(records) {
+  // stream-json delivers assistant output as `delta: true` fragments whose
+  // boundaries fall mid-text; they concatenate byte-for-byte, and standalone
+  // (non-delta) messages get their own line. Returns "" when no deltas were
+  // seen so legacy non-delta records keep their last-message-wins behavior.
+  let sawDelta = false;
+  let text = "";
+  for (const record of records) {
+    if (stringFrom(record.role) !== "assistant") continue;
+    const body = rawStringFrom(record.content) || rawStringFrom(record.text);
+    if (!body) continue;
+    if (record.delta === true) {
+      sawDelta = true;
+      text += body;
+    } else {
+      text = text ? `${text}\n${body}` : body;
+    }
+  }
+  return sawDelta ? text.trim() : "";
 }
 
 function collectTranscriptEvents(records, finalMessage) {
@@ -731,9 +820,12 @@ function usageFromGenerateContent(body) {
   const usage = asRecord(body?.usageMetadata) ?? {};
   const inputTokens = numberFrom(usage.promptTokenCount ?? usage.inputTokens ?? usage.input_tokens);
   const outputTokens = numberFrom(usage.candidatesTokenCount ?? usage.outputTokens ?? usage.output_tokens);
+  const cacheReadInputTokens = numberFrom(
+    usage.cachedContentTokenCount ?? usage.cacheReadInputTokens ?? usage.cached_content_token_count,
+  );
   const totalTokens = numberFrom(usage.totalTokenCount ?? usage.totalTokens ?? usage.total_tokens) ??
     (inputTokens || outputTokens ? (inputTokens ?? 0) + (outputTokens ?? 0) : undefined);
-  return { inputTokens, outputTokens, totalTokens };
+  return { inputTokens, outputTokens, cacheReadInputTokens, totalTokens };
 }
 
 async function runDirectGeminiGeneration(prompt, model, preflight) {
@@ -919,7 +1011,7 @@ function buildGeminiInvocation(payload, prompt) {
         "--prompt",
         prompt,
         "--output-format",
-        "text",
+        "stream-json",
         "--approval-mode",
         approvalMode,
         "--model",
@@ -1055,6 +1147,7 @@ async function main() {
       directGeneration: direct.provenance,
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
+      cacheReadInputTokens: usage.cacheReadInputTokens,
       totalTokens: usage.totalTokens,
       durationMs: direct.durationMs,
       transcriptEvents: [
@@ -1095,9 +1188,11 @@ async function main() {
   const costTelemetry = benchmarkCostTelemetry(payload, invocation.model, usage);
   const commandTelemetry = commandResultTelemetry(result);
   const stderrSummary = result.noOutputTimedOut ? "" : meaningfulPlainTextFromOutput(result.stderr);
+  const nonUserRecords = records.filter((record) => stringFrom(record.role) !== "user");
   const assistantSummary =
-    records.map(extractText).filter(Boolean).at(-1) ||
-    meaningfulPlainTextFromOutput(result.stdout) ||
+    assistantTextFromRecords(records) ||
+    nonUserRecords.map(extractText).filter(Boolean).at(-1) ||
+    (records.length === 0 ? meaningfulPlainTextFromOutput(result.stdout) : "") ||
     stderrSummary ||
     result.error ||
     "";
@@ -1113,6 +1208,7 @@ async function main() {
     ...commandTelemetry,
     inputTokens: usage.inputTokens,
     outputTokens: usage.outputTokens,
+    cacheReadInputTokens: usage.cacheReadInputTokens,
     totalTokens: usage.totalTokens,
     durationMs: result.durationMs,
     transcriptEvents: [

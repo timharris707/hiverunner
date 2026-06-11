@@ -48,6 +48,40 @@ if (process.env.FAKE_GEMINI_MODE === "stderr-auth-chatter-sleep") {
   setTimeout(() => process.stdout.write("too late\\n"), 60_000);
   return;
 }
+if (process.env.FAKE_GEMINI_MODE === "stream-json-live") {
+  process.stdout.write(JSON.stringify({ type: "init", timestamp: "2026-06-11T18:22:45.222Z", session_id: "fixture-session", model: "gemini-3-flash" }) + "\\n");
+  process.stdout.write(JSON.stringify({ type: "message", timestamp: "2026-06-11T18:22:45.223Z", role: "user", content: "PROMPT ECHO MUST NOT LEAK" }) + "\\n");
+  process.stdout.write(JSON.stringify({ type: "message", timestamp: "2026-06-11T18:22:46.000Z", role: "assistant", content: "Gemini stream final ", delta: true }) + "\\n");
+  process.stdout.write(JSON.stringify({ type: "message", timestamp: "2026-06-11T18:22:46.500Z", role: "assistant", content: "summary.", delta: true }) + "\\n");
+  process.stdout.write(JSON.stringify({
+    type: "result",
+    timestamp: "2026-06-11T18:22:47.000Z",
+    status: "success",
+    stats: {
+      total_tokens: 8669, input_tokens: 8591, output_tokens: 4, cached: 1200, input: 8591,
+      duration_ms: 1743, tool_calls: 0,
+      models: {
+        "gemini-3-flash": { total_tokens: 8000, input_tokens: 7991, output_tokens: 4, cached: 1200, input: 7991 },
+        "gemini-3.1-flash-lite": { total_tokens: 669, input_tokens: 600, output_tokens: 0, cached: 0, input: 600 }
+      }
+    }
+  }) + "\\n");
+  return;
+}
+if (process.env.FAKE_GEMINI_MODE === "stream-json-models-only") {
+  process.stdout.write(JSON.stringify({ type: "message", role: "assistant", content: "Models-only stats run.", delta: true }) + "\\n");
+  process.stdout.write(JSON.stringify({
+    type: "result",
+    status: "success",
+    stats: {
+      models: {
+        "gemini-3-flash": { total_tokens: 5000, input_tokens: 4400, output_tokens: 600, cached: 900 },
+        "gemini-3.1-flash-lite": { total_tokens: 500, input_tokens: 450, output_tokens: 50, cached: 100 }
+      }
+    }
+  }) + "\\n");
+  return;
+}
 if (process.env.FAKE_GEMINI_MODE === "json-live") {
   process.stdout.write(JSON.stringify({ type: "message", role: "assistant", text: "Gemini streamed a live update." }) + "\\n");
   process.stdout.write(JSON.stringify({ type: "function_call", name: "npm test", args: { command: "npm test" } }) + "\\n");
@@ -212,7 +246,7 @@ async function run() {
       const args = readFileSync(argsFile, "utf8").split("\n");
       assert.ok(args.includes("--prompt"));
       assert.ok(args.includes("--output-format"));
-      assert.ok(args.includes("text"));
+      assert.ok(args.includes("stream-json"));
       assert.ok(args.includes("--approval-mode"));
       assert.ok(args.includes("yolo"));
       assert.ok(args.includes("--model"));
@@ -362,6 +396,58 @@ async function run() {
       assert.ok(transcriptEvents.some((event) => event.kind === "tool_call_start"));
       assert.ok(transcriptEvents.some((event) => event.kind === "tool_result"));
       assert.ok(transcriptEvents.some((event) => event.kind === "assistant_text_final"));
+    });
+
+    await test("Gemini runner maps stream-json result stats into usage and reconstructs delta text", () => {
+      const output = runGeminiRunnerResult(payload, {
+        FAKE_GEMINI_MODE: "stream-json-live",
+      });
+
+      assert.strictEqual(output.status, 0, output.stderr || String(output.error));
+      const parsed = JSON.parse(output.stdout) as Record<string, unknown>;
+      assert.strictEqual(parsed.runnerProvider, "gemini");
+      assert.strictEqual(parsed.resultText, "Gemini stream final summary.");
+      assert.strictEqual(parsed.inputTokens, 8591);
+      assert.strictEqual(parsed.outputTokens, 4);
+      assert.strictEqual(parsed.cacheReadInputTokens, 1200);
+      assert.strictEqual(parsed.totalTokens, 8669);
+
+      const usage = parsed.usage as Record<string, unknown>;
+      assert.strictEqual(usage.inputTokens, 8591);
+      assert.strictEqual(usage.outputTokens, 4);
+      assert.strictEqual(usage.cacheReadInputTokens, 1200);
+      assert.strictEqual(usage.totalTokens, 8669);
+      assert.strictEqual(usage.runnerProvider, "gemini");
+
+      assert.ok(
+        !output.stdout.includes("PROMPT ECHO"),
+        "stream-json user prompt echo must not leak into result text or transcript events",
+      );
+      const liveEvents = output.stderr
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith("::hiverunner-live-event "))
+        .map((line) => JSON.parse(line.slice("::hiverunner-live-event ".length)) as Record<string, unknown>)
+        .map((frame) => frame.event as Record<string, unknown>);
+      assert.ok(liveEvents.every((event) => !String(event.body).includes("PROMPT ECHO")));
+      assert.ok(liveEvents.some((event) => event.kind === "assistant_text_delta" && /Gemini stream final/.test(String(event.body))));
+
+      const transcriptEvents = parsed.transcriptEvents as Array<Record<string, unknown>>;
+      assert.ok(transcriptEvents.some((event) => event.kind === "assistant_text_delta"));
+      assert.ok(transcriptEvents.every((event) => !String(event.body).includes("PROMPT ECHO")));
+    });
+
+    await test("Gemini runner sums per-model stats when the result lacks top-level counters", () => {
+      const output = runGeminiRunnerResult(payload, {
+        FAKE_GEMINI_MODE: "stream-json-models-only",
+      });
+
+      assert.strictEqual(output.status, 0, output.stderr || String(output.error));
+      const parsed = JSON.parse(output.stdout) as Record<string, unknown>;
+      assert.strictEqual(parsed.resultText, "Models-only stats run.");
+      assert.strictEqual(parsed.inputTokens, 4850);
+      assert.strictEqual(parsed.outputTokens, 650);
+      assert.strictEqual(parsed.cacheReadInputTokens, 1000);
+      assert.strictEqual(parsed.totalTokens, 5500);
     });
 
     await test("Gemini 3.5 Flash benchmark cells run through direct API after no-generation preflight", () => {
