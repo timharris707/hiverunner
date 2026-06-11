@@ -164,7 +164,11 @@ function ensureExperiment(
     hypothesis:
       `${model.name} matches gpt-5.5 quality on fast-lane work at a fraction of the latency and cost.`,
     workspaceMode: "snapshot",
-    limits: { variantCap: 1, attemptLimit: repeats, timeboxMinutes },
+    // attemptLimit is a cap, not a target — and idempotent reuse keeps the
+    // limits stored at first creation, so a smoke-created experiment with
+    // attemptLimit 1 would reject the full run's attempts 2-3. Always create
+    // with headroom for the full 3-repeat matrix (subsystem max is 10).
+    limits: { variantCap: 1, attemptLimit: Math.min(10, Math.max(3, repeats)), timeboxMinutes },
     variants: [{
       key: model.key,
       name: model.name,
