@@ -21,6 +21,7 @@
  *   --repeats N          attempts per variant (default 3)
  *   --timebox-minutes N  per-attempt timebox (default 40)
  */
+import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 
@@ -41,16 +42,29 @@ type ModelSpec = {
   name: string;
   provider: "codex" | "anthropic" | "gemini";
   model: string;
+  /**
+   * Per-attempt gemini CLI auth override. The CLI's user settings pin
+   * oauth-personal (Code Assist), whose tier 404s on gemini-3.5 generation
+   * even though the API-key surface serves it (verified live 2026-06-11).
+   * Workspace-level .gemini/settings.json wins over user settings, so the
+   * executor drops one into the snapshot workspace — scoped to that attempt;
+   * OAuth cells in the same matrix are untouched.
+   */
+  workspaceAuth?: "gemini-api-key";
 };
 
 // Lineup verified live 2026-06-11: gpt-5-mini is rejected on ChatGPT-account
-// codex (gpt-5.4-mini replaces it); gemini-3.5-flash 404s for generation on
-// every available surface, so gemini-3-flash stays the newest servable flash.
+// codex (gpt-5.4-mini replaces it). gemini-3.5-flash is served by the
+// API-key surface but NOT by the CLI's oauth-personal tier (generation
+// 404s under both bare and -preview ids) — so it runs with the
+// workspaceAuth override below, and gemini-3-flash stays as the
+// oauth-surface flash baseline. Cross-surface caveat belongs in the report.
 const MODELS: ModelSpec[] = [
   { key: "spark-gpt-5-3", name: "Codex Spark (gpt-5.3-codex-spark)", provider: "codex", model: "gpt-5.3-codex-spark" },
   { key: "haiku-4-5", name: "Claude Haiku 4.5", provider: "anthropic", model: "claude-haiku-4-5" },
   { key: "mini-gpt-5-4", name: "GPT-5.4 Mini", provider: "codex", model: "gpt-5.4-mini" },
   { key: "flash-gemini-3", name: "Gemini 3 Flash", provider: "gemini", model: "gemini-3-flash" },
+  { key: "flash-gemini-3-5", name: "Gemini 3.5 Flash", provider: "gemini", model: "gemini-3.5-flash", workspaceAuth: "gemini-api-key" },
   { key: "control-gpt-5-5", name: "Control (gpt-5.5)", provider: "codex", model: "gpt-5.5" },
 ];
 
@@ -97,6 +111,20 @@ function parseArgs(argv: string[]): CliOptions {
     process.exit(1);
   }
   return options;
+}
+
+// Bare script spawns don't get Next's env files, and a missing key would
+// silently block every gemini-3.5 cell at preflight (fire_basket pattern:
+// self-load, then fail loud at startup rather than per-attempt).
+function ensureGoogleApiKey(): void {
+  if (process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY) return;
+  try {
+    const raw = fs.readFileSync(path.join(process.cwd(), ".env.local"), "utf8");
+    const match = raw.match(/^GOOGLE_AI_API_KEY=("?)(.+?)\1\s*$/m);
+    if (match) process.env.GOOGLE_AI_API_KEY = match[2];
+  } catch {
+    // handled by the startup presence check
+  }
 }
 
 type CorpusSource = {
@@ -209,12 +237,13 @@ function runRunner(input: {
   payload: Record<string, unknown>;
   timeoutMs: number;
   signal: AbortSignal;
+  envOverrides?: Record<string, string>;
 }): Promise<{ stdout: string; stderr: string; exitCode: number | null; durationMs: number; timedOut: boolean }> {
   return new Promise((resolve) => {
     const startedAt = Date.now();
     const child = spawn(process.execPath, [path.join(process.cwd(), "scripts", input.runnerScript)], {
       cwd: process.cwd(),
-      env: process.env,
+      env: { ...process.env, ...(input.envOverrides ?? {}) },
       stdio: ["pipe", "pipe", "pipe"],
     });
     let stdout = "";
@@ -270,21 +299,42 @@ function buildExecutor(corpus: CorpusSource, model: ModelSpec, timeoutMs: number
       ].join("\n"),
     };
 
+    const envOverrides: Record<string, string> = {};
+    if (model.workspaceAuth === "gemini-api-key") {
+      const key = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_AI_API_KEY;
+      if (!key) throw new Error(`${model.key} requires a Google API key (GEMINI_API_KEY/GOOGLE_AI_API_KEY) for workspaceAuth`);
+      envOverrides.GEMINI_API_KEY = key;
+      const settingsDir = path.join(context.workspace.cwd, ".gemini");
+      fs.mkdirSync(settingsDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(settingsDir, "settings.json"),
+        JSON.stringify({ security: { auth: { selectedType: "gemini-api-key" } } }),
+      );
+    }
+
     const result = await runRunner({
       runnerScript: RUNNER_BY_PROVIDER[model.provider],
       payload,
       timeoutMs,
       signal: context.signal,
+      envOverrides,
     });
     const parsed = lastJsonLine(result.stdout) ?? {};
     const usage = (parsed.usage && typeof parsed.usage === "object" ? parsed.usage : {}) as Record<string, unknown>;
-    const errorMessage = typeof parsed.error === "string" && parsed.error
-      ? parsed.error
-      : result.timedOut
-        ? `Runner timed out after ${timeoutMs}ms`
-        : result.exitCode !== 0
-          ? `Runner exited with code ${result.exitCode}`
-          : null;
+    // A blocked runner preflight (e.g. gemini 3.5 model gating) exits 0 with
+    // no error field but never generates — record it as a failed attempt, not
+    // a 0-token "success" that the idempotent skip would then never replay.
+    const preflight = (parsed.preflight && typeof parsed.preflight === "object" ? parsed.preflight : null) as Record<string, unknown> | null;
+    const preflightBlocked = preflight !== null && preflight.status !== "passed" && preflight.status !== "skipped";
+    const errorMessage = preflightBlocked
+      ? `Runner preflight blocked (${String(preflight?.terminalErrorClass ?? "unknown")}): ${String(preflight?.stderrTail ?? "")}`.trim()
+      : typeof parsed.error === "string" && parsed.error
+        ? parsed.error
+        : result.timedOut
+          ? `Runner timed out after ${timeoutMs}ms`
+          : result.exitCode !== 0
+            ? `Runner exited with code ${result.exitCode}`
+            : null;
     const totalTokens = numberOrNull(parsed.totalTokens ?? usage.totalTokens) ?? 0;
     context.recordIteration({ tokens: totalTokens });
 
@@ -316,6 +366,13 @@ async function main(): Promise<void> {
   const sourceWorkspaceRoot = process.cwd();
 
   const selectedModels = MODELS.filter((model) => !options.variantKeys || options.variantKeys.includes(model.key));
+  ensureGoogleApiKey();
+  const googleKeyPresent = Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY);
+  console.log(`[bakeoff] google api key: ${googleKeyPresent ? "present" : "MISSING"}`);
+  if (!googleKeyPresent && selectedModels.some((model) => model.workspaceAuth === "gemini-api-key")) {
+    console.error("[bakeoff] fatal: selected lineup includes a workspaceAuth=gemini-api-key variant but no GEMINI_API_KEY/GOOGLE_AI_API_KEY is resolvable (.env.local)");
+    process.exit(1);
+  }
   let corpusSources = loadCorpusSources(db, options.taskKeys);
   let repeats = options.repeats;
   if (options.smoke) {
