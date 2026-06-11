@@ -113,6 +113,31 @@ function parseArgs(argv: string[]): CliOptions {
   return options;
 }
 
+// WAL-inode sentinel (2026-06-11 split-journal incident): the on-disk WAL was
+// swapped out from under a live driver once (mechanism not reproduced in two
+// controlled tests); after a swap, every write lands in an orphaned journal
+// and cross-checkpoints corrupt the DB file. This guard turns any recurrence
+// into a loud abort — the idempotent re-run resumes cleanly.
+const RESOLVED_DB_PATH = process.env.ORCHESTRATION_DB_PATH ?? path.join(process.cwd(), "data", "orchestration.db");
+let walInodeBaseline: number | null = null;
+function walInode(): number | null {
+  try { return fs.statSync(`${RESOLVED_DB_PATH}-wal`).ino; } catch { return null; }
+}
+function assertWalStable(label: string): void {
+  const current = walInode();
+  if (walInodeBaseline === null) {
+    if (current !== null) walInodeBaseline = current;
+    return;
+  }
+  if (current === null || current !== walInodeBaseline) {
+    console.error(
+      `[bakeoff] FATAL: WAL inode changed ${walInodeBaseline} -> ${current ?? "deleted"} at ${label}; ` +
+      "aborting to avoid split-journal corruption. Re-run the same command to resume.",
+    );
+    process.exit(2);
+  }
+}
+
 // Bare script spawns don't get Next's env files, and a missing key would
 // silently block every gemini-3.5 cell at preflight (fire_basket pattern:
 // self-load, then fail loud at startup rather than per-attempt).
@@ -392,6 +417,7 @@ async function main(): Promise<void> {
   for (const corpus of corpusSources) {
     for (const model of selectedModels) {
       const experiment = ensureExperiment(db, corpus, model, repeats, options.timeboxMinutes);
+      assertWalStable(`${corpus.taskKey} x ${model.key} cell start`);
       console.log(`[bakeoff] experiment ${experiment.id} ready for ${corpus.taskKey} x ${model.key} (${corpus.source.kind}:${corpus.source.id.slice(0, 8)})`);
       const existingAttempts = experiment.attempts.filter((attempt) =>
         attempt.variantId === experiment.variants.find((variant) => variant.key === model.key)?.id &&
@@ -438,6 +464,7 @@ async function main(): Promise<void> {
             totalTokens: runTokens,
           });
           console.log(`[bakeoff] done  ${label}: ${attempt.status} run=${attempt.executionRunId}`);
+          assertWalStable(`${label} end`);
         } catch (error) {
           infraFailures += 1;
           const message = error instanceof Error ? error.message : String(error);
