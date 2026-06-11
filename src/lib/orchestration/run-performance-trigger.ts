@@ -87,7 +87,28 @@ function parseUsage(raw: string | null | undefined): Record<string, unknown> {
  * Key lists mirror cost-ledger.ts normalization so every provider that reports
  * usage (codex CLI camelCase, anthropic bridge, snake_case writers) is read the
  * same way the cost ledger reads it.
+ *
+ * Fresh-input semantics differ by provider: the codex CLI reports inputTokens
+ * cumulative (cache reads included), while Anthropic-style usage reports
+ * inputTokens net of cache (cache reads are a separate counter, often larger
+ * than inputTokens itself). Subtracting cache reads from an already-net number
+ * would zero out exactly the runs this trigger exists to catch.
  */
+function freshInputFor(
+  usage: Record<string, unknown>,
+  inputTokens: number | null,
+  cacheReadTokens: number,
+): number | null {
+  if (inputTokens === null) return null;
+  const provider = (typeof usage.runnerProvider === "string" ? usage.runnerProvider : null)
+    ?? (typeof usage.provider === "string" ? usage.provider : null);
+  if (provider === "codex") return Math.max(0, inputTokens - cacheReadTokens);
+  if (provider) return inputTokens;
+  // Unknown provider: subtract only while it stays non-negative; a cache count
+  // larger than input proves net-of-cache semantics.
+  return cacheReadTokens <= inputTokens ? inputTokens - cacheReadTokens : inputTokens;
+}
+
 export function extractRunPerformanceMetrics(run: {
   duration_ms: number | null;
   token_usage_json: string | null;
@@ -101,12 +122,11 @@ export function extractRunPerformanceMetrics(run: {
     "cacheReadInputTokens",
     "cache_read_tokens",
   ]) ?? 0;
-  const freshInputTokens = inputTokens === null ? null : Math.max(0, inputTokens - cacheReadTokens);
   return {
     durationMs: finiteNumber(run.duration_ms),
     inputTokens,
     cacheReadTokens,
-    freshInputTokens,
+    freshInputTokens: freshInputFor(usage, inputTokens, cacheReadTokens),
     outputTokens,
     hasTokenData: inputTokens !== null || outputTokens !== null,
   };

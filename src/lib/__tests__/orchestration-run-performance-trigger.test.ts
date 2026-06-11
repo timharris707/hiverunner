@@ -136,6 +136,35 @@ async function run() {
       assert.equal(metrics.hasTokenData, true);
     });
 
+    await test("uses provider-aware fresh-input semantics", () => {
+      // Anthropic-style usage: inputTokens is already net of cache reads.
+      const anthropicCacheHeavy = extractRunPerformanceMetrics({
+        duration_ms: 120_000,
+        token_usage_json: JSON.stringify({ runnerProvider: "anthropic", inputTokens: 12_000, outputTokens: 4_000, cacheReadInputTokens: 180_000 }),
+      });
+      assert.equal(anthropicCacheHeavy.freshInputTokens, 12_000);
+
+      const anthropicCacheLight = extractRunPerformanceMetrics({
+        duration_ms: 120_000,
+        token_usage_json: JSON.stringify({ provider: "anthropic", inputTokens: 20_000, outputTokens: 1_000, cacheReadInputTokens: 5_000 }),
+      });
+      assert.equal(anthropicCacheLight.freshInputTokens, 20_000);
+
+      // Codex CLI usage: inputTokens is cumulative (cache reads included).
+      const codex = extractRunPerformanceMetrics({
+        duration_ms: 120_000,
+        token_usage_json: JSON.stringify({ runnerProvider: "codex", inputTokens: 429_139, outputTokens: 9_042, cacheReadInputTokens: 379_136 }),
+      });
+      assert.equal(codex.freshInputTokens, 429_139 - 379_136);
+
+      // Unknown provider: cache larger than input proves net-of-cache semantics.
+      const unknownNet = extractRunPerformanceMetrics({
+        duration_ms: 120_000,
+        token_usage_json: JSON.stringify({ inputTokens: 9_000, outputTokens: 500, cacheReadInputTokens: 200_000 }),
+      });
+      assert.equal(unknownNet.freshInputTokens, 9_000);
+    });
+
     await test("extracts snake_case usage and tolerates missing token data", () => {
       const snake = extractRunPerformanceMetrics({
         duration_ms: 60_000,
