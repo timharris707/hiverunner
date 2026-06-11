@@ -104,7 +104,7 @@ export interface ImproveTriggerControl {
   enabled: boolean;
   thresholdLabel: string;
   thresholdValue: number;
-  lastFiredAt: string;
+  lastFiredAt: string | null;
   fireCount: number;
   recommendationCount: number;
   suppressedCount: number;
@@ -171,6 +171,7 @@ const IMPROVE_TRIGGER_OPTIONS: readonly ImproveTriggerId[] = [
   "template_drift",
   "runner_mismatch",
   "reviewer_request",
+  "slow_expensive_run",
 ] as const;
 
 const DISMISSAL_CATEGORIES: Array<{ value: ImproveDismissalCategory; label: string }> = [
@@ -883,7 +884,7 @@ function TriggerControlRow({
         <MetricCell label="Suppressed" value={control.suppressedCount} />
       </div>
       <p style={{ margin: 0, color: color.textMuted, fontSize: T.caption.size }}>
-        Last fired {formatShortDate(control.lastFiredAt)}
+        {control.lastFiredAt ? `Last fired ${formatShortDate(control.lastFiredAt)}` : "Never fired"}
       </p>
     </article>
   );
@@ -1540,7 +1541,7 @@ export function ImproveQueueView({ companySlug }: { companySlug: string }) {
           enabled: trigger.enabled,
           thresholdLabel: "Threshold",
           thresholdValue: thresholdValue(trigger.threshold),
-          lastFiredAt: trigger.latestFiring?.firedAt ?? new Date().toISOString(),
+          lastFiredAt: trigger.latestFiring?.firedAt ?? null,
           fireCount: firedCount,
           recommendationCount: recCount,
           suppressedCount: suppCount,

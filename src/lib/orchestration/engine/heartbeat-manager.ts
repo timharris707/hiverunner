@@ -38,6 +38,7 @@ import { nonExecutableRuntimeReason } from "@/lib/orchestration/runtime-readines
 import { admitHeartbeatRuntimePreflight } from "@/lib/orchestration/runtime-preflight";
 import { evaluateRuntimeBudgetAdmission, type RuntimeBudgetAdmission } from "@/lib/orchestration/runtime-budget-policy";
 import { recordRuntimeUsageLedgerEntry } from "@/lib/orchestration/runtime-usage-ledger";
+import { runPerformanceTriggerForExecutionRun } from "@/lib/orchestration/run-performance-trigger";
 import type { TaskExecutionEngine } from "@/lib/orchestration/types";
 import { enqueueWakeup as enqueueWakeupDirect } from "@/lib/orchestration/engine/wakeup-queue";
 import {
@@ -2820,6 +2821,18 @@ export function finishRun(
           },
           createdAt: now,
         });
+        if (execStatus === "completed") {
+          // Improve 2.0: flag slow/expensive outlier runs. Must never break run
+          // finalization — the trigger is advisory.
+          try {
+            runPerformanceTriggerForExecutionRun(executionRunId, db);
+          } catch (triggerError) {
+            console.warn(
+              `[heartbeat-manager] run performance trigger failed for ${executionRunId}:`,
+              triggerError instanceof Error ? triggerError.message : String(triggerError),
+            );
+          }
+        }
       }
       const executionRunRow = db
         .prepare(

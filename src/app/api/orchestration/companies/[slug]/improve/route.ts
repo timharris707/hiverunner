@@ -24,6 +24,7 @@ const triggerKeySchema = z.enum([
   "template_drift",
   "runner_mismatch",
   "reviewer_request",
+  "slow_expensive_run",
 ]);
 
 const scopeTypeSchema = z.enum(["company", "project", "template", "task_type", "agent", "runner", "recommendation"]);

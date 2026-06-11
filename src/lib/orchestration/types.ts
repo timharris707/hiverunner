@@ -444,7 +444,8 @@ export type OrchestrationImprovementTriggerKey =
   | "missing_tool_runtime"
   | "template_drift"
   | "runner_mismatch"
-  | "reviewer_request";
+  | "reviewer_request"
+  | "slow_expensive_run";
 
 export type OrchestrationImprovementScopeType = "company" | "project" | "template" | "task_type" | "agent" | "runner" | "recommendation";
 export type OrchestrationImprovementSeverity = "low" | "medium" | "high" | "critical";

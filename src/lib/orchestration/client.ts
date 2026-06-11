@@ -1522,6 +1522,7 @@ const IMPROVEMENT_TRIGGER_KEYS = new Set<string>([
   "template_drift",
   "runner_mismatch",
   "reviewer_request",
+  "slow_expensive_run",
 ]);
 
 const IMPROVEMENT_RECOMMENDATION_STATUSES = new Set<OrchestrationImprovementRecommendationStatus>([

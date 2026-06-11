@@ -13,7 +13,7 @@ test("Improve queue trigger controls and suppression", async ({ page }) => {
   await page.goto("http://localhost:3010/companies/insight/improve?status=all&suppression=all");
 
   await expect(page.locator("[data-improve-queue]")).toBeVisible();
-  await expect(page.locator("[data-improve-trigger]")).toHaveCount(7);
+  await expect(page.locator("[data-improve-trigger]")).toHaveCount(8);
 
   // Test Pause automation
   const pauseAutomation = page.locator("button:has-text('Pause automation')");

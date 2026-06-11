@@ -1811,6 +1811,12 @@ const TRIGGER_DEFINITIONS: Array<{
     description: "Creates recommendations from explicit reviewer improvement requests.",
     threshold: { minEvidenceCount: 1 },
   },
+  {
+    triggerKey: "slow_expensive_run",
+    label: "Slow or expensive run",
+    description: "Creates recommendations when a completed run is a duration or fresh-input-token outlier versus the INS-G006 efficiency baseline.",
+    threshold: { maxDurationMs: 1_200_000, maxFreshInputTokens: 117_000 },
+  },
 ];
 
 const TRIGGER_KEYS = new Set<string>(TRIGGER_DEFINITIONS.map((trigger) => trigger.triggerKey));

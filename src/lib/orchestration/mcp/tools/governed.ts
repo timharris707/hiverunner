@@ -96,6 +96,7 @@ const triggerKeys = [
   "template_drift",
   "runner_mismatch",
   "reviewer_request",
+  "slow_expensive_run",
 ] as const satisfies readonly OrchestrationImprovementTriggerKey[];
 
 const scopeTypes = [
