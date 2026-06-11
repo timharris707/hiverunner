@@ -110,8 +110,14 @@ function loadCorpusSources(db: ReturnType<typeof getOrchestrationDb>, filterKeys
   const taskByKey = db.prepare(
     "SELECT id, task_key, title, description FROM tasks WHERE task_key = ? LIMIT 1",
   );
+  // Exclude experiment-attempt runs: bake-off cells complete as the matrix
+  // fills, and without this filter later-created experiments would source
+  // their run_trace lineage from earlier bake-off runs instead of the frozen
+  // production run.
   const latestRunForTask = db.prepare(
-    "SELECT id FROM execution_runs WHERE task_id = ? AND status = 'completed' ORDER BY completed_at DESC LIMIT 1",
+    "SELECT id FROM execution_runs WHERE task_id = ? AND status = 'completed' " +
+    "AND (session_id IS NULL OR session_id NOT LIKE 'experiment-attempt:%') " +
+    "ORDER BY completed_at DESC LIMIT 1",
   );
   const evalCaseForTask = db.prepare(
     "SELECT id, source_task_id FROM eval_cases WHERE source_task_key = ? LIMIT 1",
@@ -353,19 +359,22 @@ async function main(): Promise<void> {
             runnerModel: model.model,
             executor: buildExecutor(corpus, model, options.timeboxMinutes * 60_000),
           }, db);
-          const attemptRecord = attempt.experiment.attempts.find((item) =>
-            item.attemptNumber === repeat &&
-            attempt.experiment.variants.find((variant) => variant.key === model.key)?.id === item.variantId);
-          const snapshotRaw = attemptRecord?.comparisonSnapshot as unknown;
-          const snapshot = (typeof snapshotRaw === "string" ? JSON.parse(snapshotRaw) : snapshotRaw) as { metrics?: Record<string, unknown> } | null;
-          const metrics = snapshot?.metrics ?? {};
+          const runRow = db.prepare(
+            "SELECT duration_ms, token_usage_json FROM execution_runs WHERE id = ? LIMIT 1",
+          ).get(attempt.executionRunId) as { duration_ms: number | null; token_usage_json: string | null } | undefined;
+          let runTokens: number | null = null;
+          try {
+            runTokens = numberOrNull(JSON.parse(runRow?.token_usage_json ?? "{}")?.totalTokens);
+          } catch {
+            runTokens = null;
+          }
           summary.push({
             taskKey: corpus.taskKey,
             variant: model.key,
             attempt: repeat,
             status: attempt.status,
-            durationMs: numberOrNull(metrics.durationMs),
-            totalTokens: numberOrNull(metrics.totalTokens),
+            durationMs: numberOrNull(runRow?.duration_ms),
+            totalTokens: runTokens,
           });
           console.log(`[bakeoff] done  ${label}: ${attempt.status} run=${attempt.executionRunId}`);
         } catch (error) {
