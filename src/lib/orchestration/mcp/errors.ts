@@ -47,7 +47,7 @@ export function mcpToolUnavailableResult(toolName: string): CallToolResult {
           {
             schema: "mcp.tool.error.v1",
             code: "tool_not_implemented",
-            message: `${toolName} is registered by the local scaffold; governed write behavior is implemented in INS-262.`,
+            message: `${toolName} is registered by the local scaffold; governed write behavior is not implemented in this scaffold.`,
           },
           null,
           2,

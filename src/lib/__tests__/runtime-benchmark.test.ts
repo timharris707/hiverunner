@@ -85,7 +85,7 @@ function createFixtureDb(): Database.Database {
     );
   `);
 
-  db.prepare("INSERT INTO sprints (id, parent_id, goal_key) VALUES ('goal', NULL, 'INS-G006')").run();
+  db.prepare("INSERT INTO sprints (id, parent_id, goal_key) VALUES ('goal', NULL, 'GOAL-BENCH-1')").run();
   db.prepare("INSERT INTO sprints (id, parent_id, goal_key) VALUES ('sprint-1', 'goal', NULL)").run();
   db
     .prepare("INSERT INTO tasks (id, sprint_id, task_key, company_id, status, blocked_reason) VALUES ('task-1', 'sprint-1', 'INS-1', 'company-1', 'done', NULL)")
@@ -139,7 +139,7 @@ function promotionSummary(overrides: Partial<RuntimeBenchmarkSummary> = {}): Run
   const taskIds = Array.from({ length: 10 }, (_, index) => `task-${index + 1}`);
   return {
     scope: {
-      goalKey: "INS-G006",
+      goalKey: "GOAL-BENCH-1",
       goalSprintId: "goal",
       sprintIds: ["goal"],
       taskIds,
@@ -149,7 +149,7 @@ function promotionSummary(overrides: Partial<RuntimeBenchmarkSummary> = {}): Run
       overseerScope: "company_all_turns",
     },
     protocol: {
-      fixtureId: "ins-g006-runtime-replay-v1",
+      fixtureId: "runtime-replay-v1",
       arm: "candidate",
       repeatIndex: 1,
       requiredRepeats: 3,
@@ -284,7 +284,7 @@ async function run() {
   await test("benchmark summary includes execution and overseer usage", () => {
     const db = createFixtureDb();
     try {
-      const summary = buildRuntimeBenchmarkSummary(db, "INS-G006");
+      const summary = buildRuntimeBenchmarkSummary(db, "GOAL-BENCH-1");
       assert.equal(summary.taskCount, 2);
       assert.deepEqual(summary.finalTaskStatus, {
         total: 2,
@@ -338,7 +338,7 @@ async function run() {
     const db = createFixtureDb();
     try {
       db.prepare("UPDATE execution_runs SET token_usage_json = '{}' WHERE id = 'run-2'").run();
-      const summary = buildRuntimeBenchmarkSummary(db, "INS-G006");
+      const summary = buildRuntimeBenchmarkSummary(db, "GOAL-BENCH-1");
 
       assert.equal(summary.completedRunCount, 1);
       assert.deepEqual(summary.executionUsageValidation, {
@@ -359,7 +359,7 @@ async function run() {
     const db = createFixtureDb();
     try {
       db.prepare("UPDATE execution_runs SET token_usage_json = ? WHERE id = 'run-2'").run("{");
-      const summary = buildRuntimeBenchmarkSummary(db, "INS-G006");
+      const summary = buildRuntimeBenchmarkSummary(db, "GOAL-BENCH-1");
 
       assert.equal(summary.completedRunCount, 1);
       assert.deepEqual(summary.executionUsageValidation, {
@@ -379,7 +379,7 @@ async function run() {
   await test("benchmark summary filters frozen task keys and run windows", () => {
     const db = createFixtureDb();
     try {
-      const summary = buildRuntimeBenchmarkSummary(db, "INS-G006", {
+      const summary = buildRuntimeBenchmarkSummary(db, "GOAL-BENCH-1", {
         expectedTaskCount: 1,
         taskKeys: [" INS-2 ", "INS-2"],
         runStartedAfter: "2026-01-01T00:00:08.000Z",
@@ -514,7 +514,7 @@ async function run() {
     };
     const baselineSummaries = [0, 1, 2].map((index) => promotionSummary({
       protocol: {
-        fixtureId: "ins-g006-runtime-replay-v1",
+        fixtureId: "runtime-replay-v1",
         arm: "baseline",
         repeatIndex: index + 1,
         requiredRepeats: 3,
@@ -546,7 +546,7 @@ async function run() {
     }));
     const candidateSummaries = [0, 1, 2].map((index) => promotionSummary({
       protocol: {
-        fixtureId: "ins-g006-runtime-replay-v1",
+        fixtureId: "runtime-replay-v1",
         arm: "candidate",
         repeatIndex: index + 1,
         requiredRepeats: 3,
@@ -734,7 +734,7 @@ async function run() {
       CREATE TABLE overseer_turns (id TEXT PRIMARY KEY, company_id TEXT NOT NULL, usage_json TEXT NOT NULL DEFAULT '{}', created_at TEXT);
       CREATE TABLE runtime_preflight_results (id TEXT PRIMARY KEY, classification TEXT, runtime_fingerprint TEXT, created_at TEXT);
     `);
-    db.prepare("INSERT INTO sprints (id, parent_id, goal_key) VALUES ('goal', NULL, 'INS-G006')").run();
+    db.prepare("INSERT INTO sprints (id, parent_id, goal_key) VALUES ('goal', NULL, 'GOAL-BENCH-1')").run();
     db.prepare("INSERT INTO sprints (id, parent_id, goal_key) VALUES ('sprint-1', 'goal', NULL)").run();
     db.prepare("INSERT INTO tasks (id, sprint_id, task_key, company_id, status, blocked_reason) VALUES ('task-1', 'sprint-1', 'INS-1', 'company-1', 'done', NULL)").run();
     db.prepare(`INSERT INTO execution_runs (id, task_id, status, token_usage_json, duration_ms, created_at, started_at, completed_at, updated_at, fallback_used) VALUES
@@ -746,7 +746,7 @@ async function run() {
       ('p2','quarantined_provider_model_fingerprint','fingerprint-B','2026-01-01T00:00:00.500Z')
     `).run();
 
-    const summary = buildRuntimeBenchmarkSummary(db, "INS-G006");
+    const summary = buildRuntimeBenchmarkSummary(db, "GOAL-BENCH-1");
     assert.equal(summary.safetySignals.fallbackUsedCount, 1);
     // Only classification='deterministic_preflight' rows count as circuit-opens (the quarantined row is excluded).
     assert.equal(summary.safetySignals.preflightCircuitOpenCount, 1);
@@ -757,14 +757,14 @@ async function run() {
   await test("promotion report fails when any safety-signal attestation is missing or did not fire", () => {
     const frozenKeys = Array.from({ length: 10 }, (_, i) => `INS-${i + 1}`);
     const baselineSummaries = [0, 1, 2].map((index) => promotionSummary({
-      protocol: { fixtureId: "ins-g006-runtime-replay-v1", arm: "baseline", repeatIndex: index + 1, requiredRepeats: 3, expectedTaskCount: 10, frozenTaskKeys: frozenKeys },
+      protocol: { fixtureId: "runtime-replay-v1", arm: "baseline", repeatIndex: index + 1, requiredRepeats: 3, expectedTaskCount: 10, frozenTaskKeys: frozenKeys },
       averageRunsPerTask: 2 + index * 0.1,
       executionRunCount: 20 + index,
       combinedUsage: { inputTokens: 100_000, cacheReadInputTokens: 0, freshInputTokens: 100_000 + index * 1_000, outputTokens: 10_000, totalTokens: 110_000, estimatedCostUsd: null },
       latency: { firstEvidenceMs: { sampleCount: 20 + index, medianMs: [10_000, 11_000, 9_000][index], p95Ms: [30_000, 31_000, 29_000][index] }, detectUnhealthyMs: { sampleCount: 1, medianMs: [60_000, 62_000, 58_000][index], p95Ms: [60_000, 62_000, 58_000][index] } },
     }));
     const candidateSummaries = [0, 1, 2].map((index) => promotionSummary({
-      protocol: { fixtureId: "ins-g006-runtime-replay-v1", arm: "candidate", repeatIndex: index + 1, requiredRepeats: 3, expectedTaskCount: 10, frozenTaskKeys: frozenKeys },
+      protocol: { fixtureId: "runtime-replay-v1", arm: "candidate", repeatIndex: index + 1, requiredRepeats: 3, expectedTaskCount: 10, frozenTaskKeys: frozenKeys },
       latency: { firstEvidenceMs: { sampleCount: 10, medianMs: [2_000, 2_200, 2_100][index], p95Ms: [5_000, 5_200, 5_100][index] }, detectUnhealthyMs: { sampleCount: 0, medianMs: null, p95Ms: null } },
     }));
     const allPass = {

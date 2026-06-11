@@ -24,9 +24,9 @@ type CliOptions = {
 
 function usage(): never {
   console.error([
-    "Usage: npm run tsx -- scripts/runtime-benchmark.ts [--db path] [--goal INS-G006] [--format markdown|json] [--out path]",
-    "       [--fixture-id ins-g006-runtime-replay-v1] [--arm baseline|candidate] [--repeat 1] [--required-repeats 3] [--expected-tasks 10]",
-    "       [--task-key INS-205] [--task-keys INS-205,INS-208] [--run-started-after ISO] [--run-started-before ISO]",
+    "Usage: npm run tsx -- scripts/runtime-benchmark.ts --goal <goal-key> [--db path] [--format markdown|json] [--out path]",
+    "       [--fixture-id runtime-replay-v1] [--arm baseline|candidate] [--repeat 1] [--required-repeats 3] [--expected-tasks 10]",
+    "       [--task-key TASK-101] [--task-keys TASK-101,TASK-102] [--run-started-after ISO] [--run-started-before ISO]",
   ].join("\n"));
   process.exit(1);
 }
@@ -34,7 +34,7 @@ function usage(): never {
 function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
     dbPath: process.env.ORCHESTRATION_DB_PATH || path.join(process.cwd(), "data", "orchestration.db"),
-    goalKey: "INS-G006",
+    goalKey: "",
     format: "markdown",
     outPath: null,
     fixtureId: null,
@@ -104,6 +104,10 @@ function parseArgs(argv: string[]): CliOptions {
     }
   }
 
+  if (!options.goalKey) {
+    console.error("Missing required --goal <goal-key>.");
+    usage();
+  }
   if ((options.arm || options.repeatIndex !== null) && (!options.runStartedAfter || !options.runStartedBefore)) {
     console.error("Controlled arm/repeat benchmark summaries require --run-started-after and --run-started-before.");
     usage();

@@ -45,9 +45,9 @@ const BUNDLED_RUNNER_SCRIPT_NAMES: ReadonlySet<string> = new Set(Object.values(B
 
 function usage(): never {
   console.error([
-    "Usage: node ./scripts/run-tsx.mjs scripts/prepare-exec-dev-benchmark.ts [--source-db data/orchestration.db] [--target-db data-exec-dev/orchestration.db] [--goal INS-G006]",
-    "       [--fixture-id ins-g006-runtime-replay-v1] [--expected-tasks 10] [--required-repeats 3]",
-    "       [--task-key INS-205] [--task-keys INS-205,INS-208,...] [--reset-selected-tasks-to to-do|none]",
+    "Usage: node ./scripts/run-tsx.mjs scripts/prepare-exec-dev-benchmark.ts --goal <goal-key> [--source-db data/orchestration.db] [--target-db data-exec-dev/orchestration.db]",
+    "       [--fixture-id runtime-replay-v1] [--expected-tasks 10] [--required-repeats 3]",
+    "       [--task-key TASK-101] [--task-keys TASK-101,TASK-102,...] [--reset-selected-tasks-to to-do|none]",
     "       [--source-workspace-root /path/to/source-worktree] [--company-workspace-root /path/to/company-workspace]",
     "       [--sanitize-runner-routes] [--allowed-runner-providers codex,anthropic] [--preferred-runner-provider codex]",
   ].join("\n"));
@@ -81,8 +81,8 @@ function parseArgs(argv: string[]): CliOptions {
     sourceDbPath: path.join(appDir, "data", "orchestration.db"),
     targetDbPath: path.join(appDir, "data-exec-dev", "orchestration.db"),
     manifestPath: path.join(appDir, "data-exec-dev", "benchmark-manifest.json"),
-    goalKey: "INS-G006",
-    fixtureId: "ins-g006-runtime-replay-v1",
+    goalKey: "",
+    fixtureId: "runtime-replay-v1",
     expectedTaskCount: 10,
     requiredRepeats: 3,
     taskKeys: [],
@@ -156,6 +156,10 @@ function parseArgs(argv: string[]): CliOptions {
     }
   }
 
+  if (!options.goalKey) {
+    console.error("Missing required --goal <goal-key>.");
+    usage();
+  }
   if (!options.allowedRunnerProviders.includes(options.preferredRunnerProvider)) {
     throw new Error(`Preferred runner provider ${options.preferredRunnerProvider} is not included in --allowed-runner-providers.`);
   }

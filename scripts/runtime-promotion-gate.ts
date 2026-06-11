@@ -28,7 +28,7 @@ type CliOptions = {
 function usage(): never {
   console.error([
     "Usage: node ./scripts/run-tsx.mjs scripts/runtime-promotion-gate.ts --candidate-summary <new-1.json> --candidate-summary <new-2.json> --candidate-summary <new-3.json> --baseline-summary <old-1.json> --baseline-summary <old-2.json> --baseline-summary <old-3.json> --evidence <proof.json>",
-    "       node ./scripts/run-tsx.mjs scripts/runtime-promotion-gate.ts --db <new.db> --baseline-db <old.db> [--goal INS-G006]",
+    "       node ./scripts/run-tsx.mjs scripts/runtime-promotion-gate.ts --db <new.db> --baseline-db <old.db> --goal <goal-key>",
     "Options: [--required-repeats 3] [--expected-tasks 10] [--format markdown|json] [--out path]",
   ].join("\n"));
   process.exit(1);
@@ -40,7 +40,7 @@ function parseArgs(argv: string[]): CliOptions {
     candidateSummaryPaths: [],
     baselineDbPath: null,
     baselineSummaryPaths: [],
-    goalKey: "INS-G006",
+    goalKey: "",
     outPath: null,
     evidencePath: null,
     requiredRepeats: 3,
@@ -100,6 +100,10 @@ function parseArgs(argv: string[]): CliOptions {
     usage();
   }
   if (!options.baselineDbPath && options.baselineSummaryPaths.length === 0) {
+    usage();
+  }
+  if ((options.candidateSummaryPaths.length === 0 || options.baselineSummaryPaths.length === 0) && !options.goalKey) {
+    console.error("Building a summary from a DB requires --goal <goal-key>.");
     usage();
   }
   return options;

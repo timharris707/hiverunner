@@ -41,8 +41,8 @@ const DEFAULT_ALLOWED_RUNNER_PROVIDERS = ["codex", "anthropic"];
 
 function usage(): never {
   console.error([
-    "Usage: node ./scripts/run-tsx.mjs scripts/runtime-benchmark-repeat.ts --db data-exec-dev/orchestration.db --task-keys INS-205,INS-208 [options]",
-    "       [--goal INS-G006] [--out output/runtime-benchmark/repeat-window.json]",
+    "Usage: node ./scripts/run-tsx.mjs scripts/runtime-benchmark-repeat.ts --db data-exec-dev/orchestration.db --task-keys TASK-101,TASK-102 --goal <goal-key> [options]",
+    "       [--out output/runtime-benchmark/repeat-window.json]",
     "       [--max-minutes 30] [--poll-ms 5000] [--allow-live-workspace] [--allow-generated-tasks] [--allowed-runner-providers codex,anthropic] [--check-only]",
   ].join("\n"));
   process.exit(1);
@@ -67,7 +67,7 @@ function parseProviderList(value: string | null | undefined): string[] {
 function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
     dbPath: null,
-    goalKey: "INS-G006",
+    goalKey: "",
     taskKeys: [],
     outPath: null,
     maxMinutes: 30,
@@ -126,6 +126,10 @@ function parseArgs(argv: string[]): CliOptions {
 
   options.taskKeys = Array.from(new Set(options.taskKeys.map((key) => key.trim()).filter(Boolean))).sort();
   if (options.taskKeys.length === 0) usage();
+  if (!options.goalKey) {
+    console.error("Missing required --goal <goal-key>.");
+    usage();
+  }
   return options;
 }
 

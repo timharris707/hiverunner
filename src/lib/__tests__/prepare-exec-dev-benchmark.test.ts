@@ -245,7 +245,7 @@ function createSourceDb(
     `);
 
   db.prepare("INSERT INTO sprints (id, parent_id, goal_key, name, status) VALUES (?, ?, ?, ?, ?)")
-    .run("goal", null, "INS-G006", "Runtime benchmark", "active");
+    .run("goal", null, "GOAL-BENCH-1", "Runtime benchmark", "active");
   db.prepare("INSERT INTO sprints (id, parent_id, goal_key, name, status) VALUES (?, ?, ?, ?, ?)")
     .run("sprint", "goal", null, "Fixture sprint", "active");
   db.prepare("INSERT INTO companies (id, workspace_root, workspace_source, settings_json, updated_at) VALUES (?, ?, ?, ?, ?)")
@@ -464,7 +464,7 @@ async function run() {
         "--manifest",
         manifestPath,
         "--goal",
-        "INS-G006",
+        "GOAL-BENCH-1",
         "--expected-tasks",
         "2",
         "--required-repeats",
@@ -583,7 +583,7 @@ async function run() {
         "--manifest",
         manifestPath,
         "--goal",
-        "INS-G006",
+        "GOAL-BENCH-1",
         "--expected-tasks",
         "2",
         "--required-repeats",
@@ -639,7 +639,7 @@ async function run() {
         "--manifest",
         manifestPath,
         "--goal",
-        "INS-G006",
+        "GOAL-BENCH-1",
         "--expected-tasks",
         "2",
         "--required-repeats",
@@ -912,7 +912,7 @@ async function run() {
         "--manifest",
         manifestPath,
         "--goal",
-        "INS-G006",
+        "GOAL-BENCH-1",
         "--expected-tasks",
         "1",
         "--required-repeats",
@@ -1034,7 +1034,7 @@ async function run() {
         "--manifest",
         manifestPath,
         "--goal",
-        "INS-G006",
+        "GOAL-BENCH-1",
         "--expected-tasks",
         "2",
         "--required-repeats",
@@ -1067,6 +1067,8 @@ async function run() {
         dbPath,
         "--task-key",
         "INS-1",
+        "--goal",
+        "GOAL-BENCH-1",
         "--check-only",
       ], {
         cwd: process.cwd(),
