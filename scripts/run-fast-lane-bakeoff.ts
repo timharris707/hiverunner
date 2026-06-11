@@ -1,0 +1,396 @@
+/**
+ * Fast-lane model bake-off driver (first real use of the experiments subsystem).
+ *
+ * Creates one experiment per frozen corpus source (7 completed-run traces +
+ * 1 eval case), each with 5 runner_model variants, then executes attempts by
+ * spawning the per-provider external runner against a snapshot workspace
+ * lease. Usage, transcript events, and comparison snapshots persist through
+ * the standard experiment tables.
+ *
+ * Target the exec-dev lane by pointing ORCHESTRATION_DB_PATH at
+ * data-exec-dev/orchestration.db before launching:
+ *
+ *   ORCHESTRATION_DB_PATH="$PWD/data-exec-dev/orchestration.db" \
+ *     node ./scripts/run-ts-test.mjs scripts/run-fast-lane-bakeoff.ts -- --smoke
+ *
+ * Modes:
+ *   --smoke              1 source x all variants x 1 attempt (pipeline proof)
+ *   --full               8 sources x 5 variants x --repeats attempts
+ *   --task-keys A,B      restrict sources
+ *   --variants k1,k2     restrict variant keys
+ *   --repeats N          attempts per variant (default 3)
+ *   --timebox-minutes N  per-attempt timebox (default 40)
+ */
+import path from "node:path";
+import { spawn } from "node:child_process";
+
+import { getOrchestrationDb } from "@/lib/orchestration/db";
+import {
+  approveExperimentVariants,
+  createExperimentDraft,
+  type ExperimentRecord,
+} from "@/lib/orchestration/experiments";
+import {
+  runExperimentAttempt,
+  type ExperimentAttemptExecutorContext,
+  type ExperimentAttemptExecutorResult,
+} from "@/lib/orchestration/experiment-attempt-runner";
+
+type ModelSpec = {
+  key: string;
+  name: string;
+  provider: "codex" | "anthropic" | "gemini";
+  model: string;
+};
+
+// Lineup verified live 2026-06-11: gpt-5-mini is rejected on ChatGPT-account
+// codex (gpt-5.4-mini replaces it); gemini-3.5-flash 404s for generation on
+// every available surface, so gemini-3-flash stays the newest servable flash.
+const MODELS: ModelSpec[] = [
+  { key: "spark-gpt-5-3", name: "Codex Spark (gpt-5.3-codex-spark)", provider: "codex", model: "gpt-5.3-codex-spark" },
+  { key: "haiku-4-5", name: "Claude Haiku 4.5", provider: "anthropic", model: "claude-haiku-4-5" },
+  { key: "mini-gpt-5-4", name: "GPT-5.4 Mini", provider: "codex", model: "gpt-5.4-mini" },
+  { key: "flash-gemini-3", name: "Gemini 3 Flash", provider: "gemini", model: "gemini-3-flash" },
+  { key: "control-gpt-5-5", name: "Control (gpt-5.5)", provider: "codex", model: "gpt-5.5" },
+];
+
+const RUNNER_BY_PROVIDER: Record<ModelSpec["provider"], string> = {
+  anthropic: "hiverunner-claude-runner.mjs",
+  gemini: "hiverunner-gemini-runner.mjs",
+  codex: "hiverunner-symphony-runner.mjs",
+};
+
+const CORPUS_TASK_KEYS = ["INS-264", "INS-266", "INS-277", "INS-260", "INS-129", "INS-147", "INS-184"];
+const EVAL_CASE_TASK_KEY = "INS-278";
+const COMPANY_SLUG = "insight";
+const BAKEOFF_VERSION = "fast-lane-bakeoff-v1";
+
+type CliOptions = {
+  smoke: boolean;
+  full: boolean;
+  taskKeys: string[] | null;
+  variantKeys: string[] | null;
+  repeats: number;
+  timeboxMinutes: number;
+};
+
+function parseArgs(argv: string[]): CliOptions {
+  const options: CliOptions = {
+    smoke: false,
+    full: false,
+    taskKeys: null,
+    variantKeys: null,
+    repeats: 3,
+    timeboxMinutes: 40,
+  };
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === "--smoke") options.smoke = true;
+    else if (arg === "--full") options.full = true;
+    else if (arg === "--task-keys") options.taskKeys = String(argv[++index] ?? "").split(",").map((value) => value.trim()).filter(Boolean);
+    else if (arg === "--variants") options.variantKeys = String(argv[++index] ?? "").split(",").map((value) => value.trim()).filter(Boolean);
+    else if (arg === "--repeats") options.repeats = Math.max(1, Number.parseInt(String(argv[++index] ?? "3"), 10) || 3);
+    else if (arg === "--timebox-minutes") options.timeboxMinutes = Math.max(5, Number.parseInt(String(argv[++index] ?? "40"), 10) || 40);
+  }
+  if (!options.smoke && !options.full) {
+    console.error("Pass --smoke or --full (see header comment for usage).");
+    process.exit(1);
+  }
+  return options;
+}
+
+type CorpusSource = {
+  taskKey: string;
+  source: { kind: "run_trace" | "eval_case"; id: string };
+  task: { id: string; task_key: string; title: string; description: string };
+};
+
+function loadCorpusSources(db: ReturnType<typeof getOrchestrationDb>, filterKeys: string[] | null): CorpusSource[] {
+  const sources: CorpusSource[] = [];
+  const taskByKey = db.prepare(
+    "SELECT id, task_key, title, description FROM tasks WHERE task_key = ? LIMIT 1",
+  );
+  const latestRunForTask = db.prepare(
+    "SELECT id FROM execution_runs WHERE task_id = ? AND status = 'completed' ORDER BY completed_at DESC LIMIT 1",
+  );
+  const evalCaseForTask = db.prepare(
+    "SELECT id, source_task_id FROM eval_cases WHERE source_task_key = ? LIMIT 1",
+  );
+
+  for (const taskKey of CORPUS_TASK_KEYS) {
+    if (filterKeys && !filterKeys.includes(taskKey)) continue;
+    const task = taskByKey.get(taskKey) as CorpusSource["task"] | undefined;
+    if (!task) throw new Error(`Corpus task ${taskKey} not found in target DB`);
+    const run = latestRunForTask.get(task.id) as { id: string } | undefined;
+    if (!run) throw new Error(`No completed run found for corpus task ${taskKey}`);
+    sources.push({ taskKey, source: { kind: "run_trace", id: run.id }, task });
+  }
+
+  if (!filterKeys || filterKeys.includes(EVAL_CASE_TASK_KEY)) {
+    const evalCase = evalCaseForTask.get(EVAL_CASE_TASK_KEY) as { id: string; source_task_id: string | null } | undefined;
+    if (!evalCase) throw new Error(`Eval case for ${EVAL_CASE_TASK_KEY} not found in target DB`);
+    const task = (evalCase.source_task_id
+      ? db.prepare("SELECT id, task_key, title, description FROM tasks WHERE id = ? LIMIT 1").get(evalCase.source_task_id)
+      : taskByKey.get(EVAL_CASE_TASK_KEY)) as CorpusSource["task"] | undefined;
+    if (!task) throw new Error(`Source task for eval case ${EVAL_CASE_TASK_KEY} not found`);
+    sources.push({ taskKey: EVAL_CASE_TASK_KEY, source: { kind: "eval_case", id: evalCase.id }, task });
+  }
+
+  return sources;
+}
+
+// The experiments subsystem caps variantCap at 3, so the 5-model matrix maps
+// to one experiment per (source, model) cell: 8 sources x 5 models = 40
+// experiments, each with a single runner_model variant and `repeats` attempts.
+function ensureExperiment(
+  db: ReturnType<typeof getOrchestrationDb>,
+  corpus: CorpusSource,
+  model: ModelSpec,
+  repeats: number,
+  timeboxMinutes: number,
+): ExperimentRecord {
+  const experiment = createExperimentDraft({
+    companyIdOrSlug: COMPANY_SLUG,
+    source: corpus.source,
+    objective: "reduce_cost",
+    definitionOfBetter:
+      "Same-or-better completion quality than the gpt-5.5 control at lower duration and fresh-input token cost on a frozen fast-lane task.",
+    hypothesis:
+      `${model.name} matches gpt-5.5 quality on fast-lane work at a fraction of the latency and cost.`,
+    workspaceMode: "snapshot",
+    limits: { variantCap: 1, attemptLimit: repeats, timeboxMinutes },
+    variants: [{
+      key: model.key,
+      name: model.name,
+      changeType: "runner_model" as const,
+      plannedChange: { runnerProvider: model.provider, runnerModel: model.model },
+    }],
+    idempotencyKey: `${BAKEOFF_VERSION}:${corpus.taskKey}:${model.key}`,
+    createdByUserId: "tim",
+  }, db);
+
+  return approveExperimentVariants({
+    companyIdOrSlug: COMPANY_SLUG,
+    experimentId: experiment.id,
+    variantKeys: [model.key],
+    approvedByUserId: "tim",
+  }, db);
+}
+
+function lastJsonLine(stdout: string): Record<string, unknown> | null {
+  const lines = stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    try {
+      const parsed = JSON.parse(lines[index]);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+    } catch {
+      // keep scanning upward; runners emit a single JSON object on the last line
+    }
+  }
+  return null;
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function runRunner(input: {
+  runnerScript: string;
+  payload: Record<string, unknown>;
+  timeoutMs: number;
+  signal: AbortSignal;
+}): Promise<{ stdout: string; stderr: string; exitCode: number | null; durationMs: number; timedOut: boolean }> {
+  return new Promise((resolve) => {
+    const startedAt = Date.now();
+    const child = spawn(process.execPath, [path.join(process.cwd(), "scripts", input.runnerScript)], {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+      setTimeout(() => child.kill("SIGKILL"), 10_000).unref();
+    }, input.timeoutMs);
+    const onAbort = () => {
+      child.kill("SIGTERM");
+    };
+    input.signal.addEventListener("abort", onAbort, { once: true });
+    child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf8"); });
+    child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString("utf8"); });
+    child.on("close", (exitCode) => {
+      clearTimeout(timer);
+      input.signal.removeEventListener("abort", onAbort);
+      resolve({ stdout, stderr, exitCode, durationMs: Date.now() - startedAt, timedOut });
+    });
+    child.stdin.write(JSON.stringify(input.payload));
+    child.stdin.end();
+  });
+}
+
+function buildExecutor(corpus: CorpusSource, model: ModelSpec, timeoutMs: number) {
+  return async (context: ExperimentAttemptExecutorContext): Promise<ExperimentAttemptExecutorResult> => {
+    const payload = {
+      schema: "hiverunner.symphony.execution.v1",
+      runId: `bakeoff-${context.experiment.id.slice(0, 8)}-${context.variant.key}-${context.attemptNumber}`,
+      runnerModel: model.model,
+      task: {
+        id: corpus.task.id,
+        key: corpus.task.task_key,
+        title: corpus.task.title,
+        description: corpus.task.description,
+        project: { name: "HiveRunner" },
+        company: { name: "Insight" },
+      },
+      workspace: {
+        cwd: context.workspace.cwd,
+        sourceWorkspaceRoot: context.workspace.cwd,
+        companyWorkspaceRoot: context.workspace.cwd,
+        additionalWritableDirs: [],
+        runtimeCapabilities: { trustedLocalExecution: true, capabilities: [] },
+      },
+      prompt: [
+        corpus.task.description || corpus.task.title,
+        "",
+        "Complete this task inside the provided workspace.",
+        "When finished, summarize what you changed and why.",
+      ].join("\n"),
+    };
+
+    const result = await runRunner({
+      runnerScript: RUNNER_BY_PROVIDER[model.provider],
+      payload,
+      timeoutMs,
+      signal: context.signal,
+    });
+    const parsed = lastJsonLine(result.stdout) ?? {};
+    const usage = (parsed.usage && typeof parsed.usage === "object" ? parsed.usage : {}) as Record<string, unknown>;
+    const errorMessage = typeof parsed.error === "string" && parsed.error
+      ? parsed.error
+      : result.timedOut
+        ? `Runner timed out after ${timeoutMs}ms`
+        : result.exitCode !== 0
+          ? `Runner exited with code ${result.exitCode}`
+          : null;
+    const totalTokens = numberOrNull(parsed.totalTokens ?? usage.totalTokens) ?? 0;
+    context.recordIteration({ tokens: totalTokens });
+
+    return {
+      status: errorMessage ? "failed" : "succeeded",
+      resultText: typeof parsed.resultText === "string" ? parsed.resultText : "",
+      errorMessage,
+      metrics: {
+        runnerProvider: model.provider,
+        runnerModel: model.model,
+        inputTokens: numberOrNull(parsed.inputTokens ?? usage.inputTokens),
+        outputTokens: numberOrNull(parsed.outputTokens ?? usage.outputTokens),
+        cacheReadInputTokens: numberOrNull(parsed.cacheReadInputTokens ?? usage.cacheReadInputTokens),
+        totalTokens,
+        durationMs: result.durationMs,
+        exitCode: result.exitCode,
+        timedOut: result.timedOut,
+      },
+      verification: { runnerExitCode: result.exitCode, runnerTimedOut: result.timedOut },
+      transcriptEvents: Array.isArray(parsed.transcriptEvents) ? parsed.transcriptEvents : [],
+    };
+  };
+}
+
+async function main(): Promise<void> {
+  const options = parseArgs(process.argv.slice(2));
+  const db = getOrchestrationDb();
+  const dbPath = process.env.ORCHESTRATION_DB_PATH ?? "(default data/orchestration.db)";
+  const sourceWorkspaceRoot = process.cwd();
+
+  const selectedModels = MODELS.filter((model) => !options.variantKeys || options.variantKeys.includes(model.key));
+  let corpusSources = loadCorpusSources(db, options.taskKeys);
+  let repeats = options.repeats;
+  if (options.smoke) {
+    corpusSources = corpusSources.slice(0, 1);
+    repeats = 1;
+  }
+
+  const totalAttempts = corpusSources.length * selectedModels.length * repeats;
+  console.log(`[bakeoff] db=${dbPath}`);
+  console.log(`[bakeoff] sources=${corpusSources.map((item) => item.taskKey).join(",")}`);
+  console.log(`[bakeoff] variants=${selectedModels.map((model) => model.key).join(",")}`);
+  console.log(`[bakeoff] repeats=${repeats} totalAttempts=${totalAttempts}`);
+
+  const summary: Array<{ taskKey: string; variant: string; attempt: number; status: string; durationMs: number | null; totalTokens: number | null }> = [];
+  let infraFailures = 0;
+
+  for (const corpus of corpusSources) {
+    for (const model of selectedModels) {
+      const experiment = ensureExperiment(db, corpus, model, repeats, options.timeboxMinutes);
+      console.log(`[bakeoff] experiment ${experiment.id} ready for ${corpus.taskKey} x ${model.key} (${corpus.source.kind}:${corpus.source.id.slice(0, 8)})`);
+      const existingAttempts = experiment.attempts.filter((attempt) =>
+        attempt.variantId === experiment.variants.find((variant) => variant.key === model.key)?.id &&
+        (attempt.status === "succeeded" || attempt.status === "failed" || attempt.status === "timed_out"));
+      for (let repeat = 1; repeat <= repeats; repeat += 1) {
+        if (existingAttempts.some((attempt) => attempt.attemptNumber === repeat)) {
+          console.log(`[bakeoff] skip ${corpus.taskKey} ${model.key} attempt ${repeat} (already recorded)`);
+          continue;
+        }
+        const label = `${corpus.taskKey} ${model.key} attempt ${repeat}/${repeats}`;
+        console.log(`[bakeoff] start ${label}`);
+        try {
+          const attempt = await runExperimentAttempt({
+            companyIdOrSlug: COMPANY_SLUG,
+            experimentId: experiment.id,
+            variantKey: model.key,
+            attemptNumber: repeat,
+            sourceWorkspaceRoot,
+            runtimeLimits: {
+              timeboxMs: options.timeboxMinutes * 60_000,
+              maxIterations: 5,
+              maxCostUsd: 50,
+              maxTokens: 10_000_000,
+            },
+            runnerProvider: model.provider,
+            runnerModel: model.model,
+            executor: buildExecutor(corpus, model, options.timeboxMinutes * 60_000),
+          }, db);
+          const attemptRecord = attempt.experiment.attempts.find((item) =>
+            item.attemptNumber === repeat &&
+            attempt.experiment.variants.find((variant) => variant.key === model.key)?.id === item.variantId);
+          const snapshotRaw = attemptRecord?.comparisonSnapshot as unknown;
+          const snapshot = (typeof snapshotRaw === "string" ? JSON.parse(snapshotRaw) : snapshotRaw) as { metrics?: Record<string, unknown> } | null;
+          const metrics = snapshot?.metrics ?? {};
+          summary.push({
+            taskKey: corpus.taskKey,
+            variant: model.key,
+            attempt: repeat,
+            status: attempt.status,
+            durationMs: numberOrNull(metrics.durationMs),
+            totalTokens: numberOrNull(metrics.totalTokens),
+          });
+          console.log(`[bakeoff] done  ${label}: ${attempt.status} run=${attempt.executionRunId}`);
+        } catch (error) {
+          infraFailures += 1;
+          const message = error instanceof Error ? error.message : String(error);
+          summary.push({ taskKey: corpus.taskKey, variant: model.key, attempt: repeat, status: `infra_error: ${message.slice(0, 80)}`, durationMs: null, totalTokens: null });
+          console.error(`[bakeoff] FAIL ${label}: ${message}`);
+        }
+      }
+    }
+  }
+
+  console.log("\n[bakeoff] summary:");
+  for (const row of summary) {
+    const duration = row.durationMs === null ? "-" : `${Math.round(row.durationMs / 1000)}s`;
+    const tokens = row.totalTokens === null ? "-" : String(row.totalTokens);
+    console.log(`  ${row.taskKey}\t${row.variant}\tattempt ${row.attempt}\t${row.status}\t${duration}\t${tokens} tok`);
+  }
+  if (infraFailures > 0) {
+    console.error(`[bakeoff] ${infraFailures} attempt(s) hit infrastructure errors`);
+    process.exit(1);
+  }
+}
+
+main().catch((error) => {
+  console.error("[bakeoff] fatal:", error instanceof Error ? error.stack ?? error.message : error);
+  process.exit(1);
+});

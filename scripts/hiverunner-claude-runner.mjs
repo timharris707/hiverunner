@@ -86,6 +86,10 @@ function collectUsage(records) {
     if (!candidate) continue;
     usage.inputTokens ??= numberFrom(candidate.inputTokens ?? candidate.input_tokens ?? candidate.prompt_tokens);
     usage.outputTokens ??= numberFrom(candidate.outputTokens ?? candidate.output_tokens ?? candidate.completion_tokens);
+    // Anthropic usage reports inputTokens net of cache; cache reads/writes are
+    // separate counters the cost ledger needs (cache reads bill at ~0.1x).
+    usage.cacheReadInputTokens ??= numberFrom(candidate.cacheReadInputTokens ?? candidate.cache_read_input_tokens);
+    usage.cacheCreationInputTokens ??= numberFrom(candidate.cacheCreationInputTokens ?? candidate.cache_creation_input_tokens);
     usage.totalTokens ??= numberFrom(candidate.totalTokens ?? candidate.total_tokens);
   }
   if (!usage.totalTokens && (usage.inputTokens || usage.outputTokens)) {
@@ -271,6 +275,8 @@ async function main() {
     runnerModel: invocation.model,
     inputTokens: usage.inputTokens,
     outputTokens: usage.outputTokens,
+    cacheReadInputTokens: usage.cacheReadInputTokens,
+    cacheCreationInputTokens: usage.cacheCreationInputTokens,
     totalTokens: usage.totalTokens,
     durationMs: result.durationMs,
     timedOut: result.timedOut,

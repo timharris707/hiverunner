@@ -25,7 +25,7 @@ if (Number.isFinite(delayMs) && delayMs > 0) {
 }
 process.stdout.write(JSON.stringify({ type: "system", session_id: "claude-fixture-session" }) + "\\n");
 process.stdout.write(JSON.stringify({ type: "assistant", role: "assistant", message: { content: [{ type: "text", text: "Fixture Claude completed the external runner task." }] } }) + "\\n");
-process.stdout.write(JSON.stringify({ type: "result", result: "Fixture Claude completed the external runner task.", usage: { input_tokens: 21, output_tokens: 13, total_tokens: 34 } }) + "\\n");
+process.stdout.write(JSON.stringify({ type: "result", result: "Fixture Claude completed the external runner task.", usage: { input_tokens: 21, output_tokens: 13, total_tokens: 34, cache_read_input_tokens: 1800, cache_creation_input_tokens: 250 } }) + "\\n");
 `,
     "utf8",
   );
@@ -98,7 +98,12 @@ async function run() {
       assert.strictEqual(output.resultText, "Fixture Claude completed the external runner task.");
       assert.strictEqual(output.inputTokens, 21);
       assert.strictEqual(output.outputTokens, 13);
+      assert.strictEqual(output.cacheReadInputTokens, 1800);
+      assert.strictEqual(output.cacheCreationInputTokens, 250);
       assert.strictEqual(output.totalTokens, 34);
+      const usageRecord = output.usage as Record<string, unknown>;
+      assert.strictEqual(usageRecord.cacheReadInputTokens, 1800);
+      assert.strictEqual(usageRecord.cacheCreationInputTokens, 250);
 
       const args = readFileSync(argsFile, "utf8").split("\n");
       assert.ok(args.includes("--permission-mode"));
