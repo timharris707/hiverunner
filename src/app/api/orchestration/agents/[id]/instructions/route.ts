@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { errorResponse, handleRouteError } from "@/lib/orchestration/api";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
+import { resolveOnboardingAssetBucket } from "@/lib/orchestration/engine/onboarding-bucket";
 import { resolveAgentProviderFromRecord } from "@/lib/orchestration/service/provider-activation";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +16,7 @@ type AgentRow = {
   name: string;
   role: string;
   personality: string;
+  company_id: string;
   adapter_type: string;
   model: string | null;
   openclaw_agent_id: string | null;
@@ -46,11 +48,16 @@ function resolveOpenClawDir(): string {
   return configured ? path.resolve(configured) : path.join(os.homedir(), ".openclaw");
 }
 
-function resolveRoleAssetDir(role: string): string {
-  return path.join(
-    ONBOARDING_ASSET_ROOT,
-    role.trim().toLowerCase() === "ceo" ? "ceo" : "default",
-  );
+function resolveRoleAssetDir(agent: AgentRow): string {
+  // Bucket choice follows companies.lead_agent_id (designation-first) so this
+  // surface shows the same assets the prompt-builder actually loads for
+  // arbitrary-titled leads. Role string remains the fallback only.
+  const bucket = resolveOnboardingAssetBucket(agent.role, {
+    db: getOrchestrationDb(),
+    companyId: agent.company_id,
+    agentId: agent.id,
+  });
+  return path.join(ONBOARDING_ASSET_ROOT, bucket);
 }
 
 function readTextFile(filePath: string): { content: string; updatedAt?: string } | null {
@@ -145,7 +152,7 @@ function buildInstructionSources(agent: AgentRow): {
   const soulPath = runtimeRoot ? path.join(runtimeRoot, "SOUL.md") : null;
   const soulFile = soulPath ? readTextFile(soulPath) : null;
 
-  const roleAssetDir = resolveRoleAssetDir(agent.role);
+  const roleAssetDir = resolveRoleAssetDir(agent);
   const roleAssets: Record<string, string> = {};
   for (const file of ["AGENTS.md", "HEARTBEAT.md", "SOUL.md"]) {
     const assetPath = path.join(roleAssetDir, file);
@@ -230,7 +237,7 @@ function resolveAgent(agentIdOrSlug: string): AgentRow | null {
   const db = getOrchestrationDb();
   const row = db
     .prepare(
-      `SELECT id, name, role, personality, adapter_type, model,
+      `SELECT id, name, role, personality, company_id, adapter_type, model,
               openclaw_agent_id, instructions_mode, updated_at,
               (
                 SELECT ar.workspace_root

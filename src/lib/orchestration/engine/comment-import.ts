@@ -685,6 +685,10 @@ function actionExecutionSummary(action: McAction, outcome: McActionExecutionOutc
         : "Updated task";
     case "added_comment":
       return `Comment on ${action.action === "add_comment" ? action.taskKey : "task"}`;
+    case "recorded_lesson":
+      return action.action === "record_lesson"
+        ? `${outcome.saved ? "Recorded" : "Already recorded"} run lesson: ${action.lesson.slice(0, 80)}`
+        : "Recorded run lesson";
     case "recorded_skill_use":
       return action.action === "use_skill"
         ? `${outcome.inserted ? "Recorded" : "Already recorded"} skill use: ${action.skill}`

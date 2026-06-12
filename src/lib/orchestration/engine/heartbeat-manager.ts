@@ -8,6 +8,7 @@ import {
   recordExecutionRunAttemptEvent,
 } from "@/lib/orchestration/db";
 import { estimatePromptTokens, recordRuntimeContextManifest } from "@/lib/orchestration/context-manifest";
+import { enforceLessonsBookendAtRunEnd } from "@/lib/orchestration/engine/agent-lessons";
 import {
   buildCancellationRequestResult,
   recordExecutionRunCancellationSignalResult,
@@ -2896,6 +2897,30 @@ export function finishRun(
               producerAgentId: run.agent_id,
               runId,
             });
+          }
+        }
+        // H3 memory bookend (same philosophy as the FIX 9/11 status bookends):
+        // if an eligible agent ends a task-linked run without a record_lesson
+        // action, the engine writes a structured stub from the run outcome so
+        // the next wake still starts smarter. Advisory — must never break run
+        // finalization. Cancelled runs are exempt (operator interruptions are
+        // not lessons).
+        if (status !== "cancelled") {
+          try {
+            enforceLessonsBookendAtRunEnd(db, {
+              agentId: run.agent_id,
+              taskId: executionRunRow.task_id,
+              runId,
+              executionRunId,
+              status: execStatus,
+              error,
+              durationMs,
+            });
+          } catch (lessonsError) {
+            console.warn(
+              `[heartbeat-manager] lessons bookend enforcement failed for run ${runId}:`,
+              lessonsError instanceof Error ? lessonsError.message : String(lessonsError),
+            );
           }
         }
         reconcileTerminalOpenClawTaskState(executionRunRow.task_id, db);

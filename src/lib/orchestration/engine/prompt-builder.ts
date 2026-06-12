@@ -12,7 +12,14 @@ import { isExecutableAgentRuntime, nonExecutableRuntimeReason, runtimeProviderLa
 import { mergeExecutionRunMetadata, parseJson } from "@/lib/orchestration/engine/persistence";
 import type { TaskSession } from "@/lib/orchestration/engine/persistence";
 import { resolveTaskKey } from "@/lib/orchestration/engine/heartbeat-manager";
-import { isCeoRole } from "@/lib/orchestration/engine/role-matcher";
+import {
+  buildAgentLessonsPromptSection,
+  isLessonsBookendEligible,
+} from "@/lib/orchestration/engine/agent-lessons";
+import {
+  resolveOnboardingAssetBucket,
+  type OnboardingBucketContext,
+} from "@/lib/orchestration/engine/onboarding-bucket";
 import type { PlanningPolicy } from "@/lib/orchestration/planning-policy";
 import { resolveOpenClawDir } from "@/lib/workspaces/root";
 import { PUBLIC_HUMAN_LABEL } from "@/lib/public-identity";
@@ -93,9 +100,14 @@ function resolveOnboardingDir(): string {
   return candidates[0];
 }
 
-export function loadOnboardingAssets(role: string): Record<string, string> {
+export function loadOnboardingAssets(
+  role: string,
+  context?: OnboardingBucketContext,
+): Record<string, string> {
   const baseDir = resolveOnboardingDir();
-  const roleDir = isCeoRole(role) ? path.join(baseDir, "ceo") : path.join(baseDir, "default");
+  // Designation-aware: companies.lead_agent_id decides the lead bucket when a
+  // designation exists; the role-string heuristic is only the fallback.
+  const roleDir = path.join(baseDir, resolveOnboardingAssetBucket(role, context));
   const assets: Record<string, string> = {};
 
   if (!fs.existsSync(roleDir)) return assets;
@@ -316,6 +328,7 @@ export function buildHeartbeatPrompt(
           "soul",
           "runtime_skills",
           "memory_context",
+          "agent_lessons",
           "other_assigned_tasks",
           "nearby_open_tasks",
           "runtime_roster",
@@ -337,7 +350,11 @@ export function buildHeartbeatPrompt(
   }
 
   // Load onboarding assets based on agent role
-  const assets = loadOnboardingAssets(agent.role.toLowerCase());
+  const assets = loadOnboardingAssets(agent.role.toLowerCase(), {
+    db,
+    companyId: agent.company_id,
+    agentId: agent.id,
+  });
 
   // Agent instructions
   if (assets["AGENTS.md"]) {
@@ -531,6 +548,23 @@ export function buildHeartbeatPrompt(
           records: memoryContext.evidence,
         },
         injectedMemoryQuality: memoryContext.quality,
+      });
+    }
+  }
+
+  // H3 lessons bookend: eligible agents (designated lead + builder roles)
+  // wake with their per-agent run lessons and must close every task run with
+  // a record_lesson action; finishRun appends an engine stub if they skip it.
+  const lessonsEligible = !compactPrompt.enabled && isLessonsBookendEligible(db, agent);
+  if (lessonsEligible) {
+    const lessonsSection = buildAgentLessonsPromptSection(db, agent);
+    if (lessonsSection) sections.push(lessonsSection);
+    sections.push(
+      "Lessons bookend: before your final action, emit one `record_lesson` mc-action capturing the single most reusable lesson from this run — what you would tell the next run of yourself. If nothing new surfaced, record the most load-bearing confirmation instead. If you skip this, the engine appends an automatic stub from the run outcome.",
+    );
+    if (executionRunId) {
+      mergeExecutionRunMetadata(db, executionRunId, {
+        lessonsBookendRequested: true,
       });
     }
   }
@@ -880,6 +914,7 @@ export function buildHeartbeatPrompt(
   sections.push("- Review decisions: if you are reviewing a task and it passes, use `add_comment` for QA notes and then `update_task` with `{ \"taskKey\", \"status\": \"done\" }`. Do not leave accepted work sitting in `review`.");
   sections.push("- Explicit skill use: when you materially apply one of your Active Runtime Skills, emit exactly one `use_skill` with `{ \"skill\", \"taskKey\", \"note\" }`. Prefer the skill slug. The note should name the concrete procedure or checklist you applied.");
   sections.push("- Learning reviews: if you are reviewing a skill or memory candidate, use `add_comment` for rationale and then `review_candidate` with `{ \"targetType\": \"skill\" | \"memory\", \"targetId\", \"decision\": \"approve\" | \"reject\", \"note\", \"confidence\" }`.");
+  sections.push("- Record a run lesson: `record_lesson` with `{ \"taskKey\", \"lesson\" }`. One concise, reusable lesson per run — what the next run of you should know. Written to your durable per-agent memory and injected into your future wakes.");
   sections.push("- Hire an agent: `hire_agent` with `{ \"name\", \"role\", \"capabilities\", \"reason\" }`");
   sections.push("- Report only (no action needed): `report` with `{ \"summary\" }`");
   sections.push("Even if your only output is a status report, wrap it in an `mc-action` `report` block. Narrative paragraphs outside blocks do NOT count.");

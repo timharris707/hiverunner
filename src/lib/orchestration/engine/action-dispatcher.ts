@@ -29,6 +29,7 @@ import { normalizeTaskModelLane } from "@/lib/orchestration/task-model-routing";
 import { assertExecutableAgentRuntime, isExecutableAgentRuntime, runtimeProviderLabel } from "@/lib/orchestration/runtime-readiness";
 import type { TaskExecutionEngine, TaskModelLane, TaskPriority, TaskType } from "@/lib/orchestration/types";
 import { resolveExecutionRoute } from "@/lib/orchestration/execution-route-resolver";
+import { appendAgentRunLesson } from "@/lib/orchestration/engine/agent-lessons";
 import { getTaskRefForActionKey, mergeExecutionRunMetadata, parseJson, resetNoopCounterForActionTask } from "@/lib/orchestration/engine/persistence";
 import { enqueueWakeup, wakeTargetFromJson, type EnqueueWakeupResult } from "@/lib/orchestration/engine/wakeup-queue";
 import type { ExecutionRunProvider } from "@/lib/orchestration/engine/heartbeat-manager";
@@ -151,6 +152,10 @@ export type McAction =
   | { action: "update_task"; taskKey: string; status?: string; assignee?: string; comment?: string }
   | AgentRuntimeUpdateAction
   | { action: "add_comment"; taskKey: string; body: string; source?: string }
+  // H3 — one reusable lesson per run, persisted to the agent's per-agent
+  // memory file and injected into future wakes. finishRun appends an engine
+  // stub when an eligible agent ends a task run without one.
+  | { action: "record_lesson"; taskKey?: string; lesson: string }
   | { action: "use_skill"; skill: string; taskKey?: string; note?: string }
   | MemoryReceiptAction
   | {
@@ -271,6 +276,7 @@ export type McActionExecutionOutcome =
   | { kind: "reported" }
   | { kind: "updated_task"; taskId?: string; dependentAutostartDeferred?: boolean }
   | { kind: "added_comment" }
+  | { kind: "recorded_lesson"; saved: boolean }
   | { kind: "recorded_skill_use"; inserted: boolean }
   | { kind: "recorded_memory_receipt"; claimCount: number }
   | { kind: "reviewed_candidate" }
@@ -596,6 +602,38 @@ export async function executeMcAction(
         return added
           ? { kind: "added_comment" }
           : { kind: "failed", reason: "task_not_found" };
+      }
+      case "record_lesson": {
+        const lesson = typeof action.lesson === "string" ? action.lesson.trim() : "";
+        if (!lesson) {
+          return { kind: "failed", reason: "record_lesson requires a non-empty lesson" };
+        }
+        const agentRow = db
+          .prepare("SELECT company_id FROM agents WHERE id = ? LIMIT 1")
+          .get(input.agentId) as { company_id: string } | undefined;
+        if (!agentRow) {
+          return { kind: "failed", reason: "agent_not_found" };
+        }
+        const result = appendAgentRunLesson(db, {
+          companyId: agentRow.company_id,
+          agentId: input.agentId,
+          lesson,
+          source: "agent",
+          taskKey: action.taskKey ?? input.taskKey,
+          runId: input.runId,
+        });
+        if (input.executionRunId) {
+          // finishRun's bookend enforcement reads this to know the agent
+          // already fed its memory this run (duplicates count — the agent
+          // did not skip the bookend).
+          mergeExecutionRunMetadata(db, input.executionRunId, {
+            lessonRecordedByAgent: true,
+          });
+        }
+        if (!result.saved && result.reason !== "duplicate_lesson") {
+          return { kind: "failed", reason: `record_lesson_failed:${result.reason ?? "unknown"}` };
+        }
+        return { kind: "recorded_lesson", saved: result.saved };
       }
       case "use_skill": {
         const result = executeUseSkill(action, input);
@@ -1092,6 +1130,7 @@ const VALID_ACTION_TYPES = new Set([
   "update_task",
   "update_agent",
   "add_comment",
+  "record_lesson",
   "use_skill",
   "memory_receipt",
   "review_candidate",
@@ -1136,6 +1175,7 @@ export function getActionTarget(action: McAction): string {
     case "update_task": return action.taskKey ?? "";
     case "update_agent": return action.agentName ?? action.agentId ?? "";
     case "add_comment": return action.taskKey ?? "";
+    case "record_lesson": return (action.lesson ?? "").slice(0, 50);
     case "use_skill": return action.skill ?? "";
     case "memory_receipt": return action.taskKey ?? "";
     case "review_candidate": return `${action.targetType}:${action.targetId}`;
