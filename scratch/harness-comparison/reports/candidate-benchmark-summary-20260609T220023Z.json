@@ -1,0 +1,990 @@
+{
+  "runDir": "/Users/timharris/.mission-control/app/scratch/harness-comparison/exec-dev-candidate-20260609T220023Z",
+  "projectSourceWorkspaceRoot": "/Users/timharris/.mission-control/app/scratch/harness-comparison/exec-dev-candidate-20260609T220023Z/repo",
+  "goal": {
+    "id": "d155f3bd-fec1-4e99-82c0-777664bf8772",
+    "key": "VIR-G009",
+    "name": "Harness comparison candidate 20260609T220107Z",
+    "createdAt": "2026-06-09T22:01:07.049Z",
+    "elapsedSec": 153.1,
+    "stopReason": "terminal",
+    "failure": null
+  },
+  "draft": {
+    "id": "7ba5dd6d-a85e-45fd-b0c3-539b5a0967d1",
+    "taskCount": 1,
+    "sprint": {
+      "name": "Build and validate Decision Log Summarizer",
+      "objective": "Implement one small, local TypeScript utility that parses markdown decision logs, includes representative fixtures, focused tests, usage notes, and final validation evidence without touching production runtime behavior.",
+      "completionProposal": false,
+      "owner": "20f1ad33-8784-41e4-b1de-ee23147a6891",
+      "startDate": "2026-06-09",
+      "endDate": "2026-06-09",
+      "defaultExecutionEngine": "hiverunner",
+      "defaultModelLane": "default",
+      "successCriteria": [
+        "A small TypeScript decision-log summarizer exists in the most obvious repo-local location, or under `scratch/harness-comparison/decision-log-summarizer/` if no obvious home exists.",
+        "The parser extracts decision title, status, owner, date, tags, and short summary from markdown decision-log files.",
+        "Fixtures cover complete metadata, missing optional metadata, and malformed metadata that must not crash parsing.",
+        "Focused tests cover parser behavior and summary output using existing repo test patterns/tooling where available.",
+        "A short README or usage note explains how to run and use the utility.",
+        "Final handoff reports elapsed wall-clock time if available, changed files, tests run with pass/fail status, and any token/cost/runtime metrics available from the harness."
+      ],
+      "validationChecks": [
+        "Operator can inspect exactly one focused sprint with exactly one implementation task and zero QA/review/release tasks.",
+        "Evidence names exact changed files and confirms all work stayed small/local with no production runtime behavior changes, no promotion, no push, no deploy, and no network access.",
+        "Evidence confirms fixture coverage for complete metadata, missing optional metadata, and malformed metadata safety.",
+        "Evidence records the test command(s) run and whether they passed.",
+        "Evidence states whether the fallback path `scratch/harness-comparison/decision-log-summarizer/` was used because no obvious repo home existed."
+      ],
+      "outOfScope": [
+        "Do not modify production runtime behavior.",
+        "Do not promote, push, deploy, or use network access.",
+        "Do not add broad infrastructure, shared API/client contract changes, UI changes, migrations, or orchestration/runtime changes.",
+        "Do not create follow-up sprints unless the single implementation task is genuinely blocked by an external dependency."
+      ],
+      "sourceTemplateVersionId": null,
+      "templateIntakeAnswerId": null,
+      "templateGenerationProvenance": {
+        "planningPolicy": {
+          "schema": "hiverunner.planning_policy.v1",
+          "size": "tiny",
+          "risk": "low",
+          "blastRadius": "scratch",
+          "validationMode": "deterministic",
+          "qaMode": "skip_by_default",
+          "requireQa": false,
+          "parallelism": "none",
+          "maxSprints": 1,
+          "maxTasksPerSprint": 1,
+          "maxImplementationTasksPerSprint": 1,
+          "maxQaTasksPerSprint": 0,
+          "reasons": [
+            "operator framed the goal as small or self-contained",
+            "operator requested one sprint/no follow-up sprints",
+            "work has deterministic local validation signals"
+          ]
+        }
+      }
+    },
+    "tasks": [
+      {
+        "title": "Implement, document, and validate Decision Log Summarizer",
+        "assignee": "20f1ad33-8784-41e4-b1de-ee23147a6891",
+        "executionEngine": "hiverunner",
+        "modelLane": "default"
+      }
+    ],
+    "planningPolicy": {
+      "schema": "hiverunner.planning_policy.v1",
+      "size": "tiny",
+      "risk": "low",
+      "blastRadius": "scratch",
+      "validationMode": "deterministic",
+      "qaMode": "skip_by_default",
+      "requireQa": false,
+      "parallelism": "none",
+      "maxSprints": 1,
+      "maxTasksPerSprint": 1,
+      "maxImplementationTasksPerSprint": 1,
+      "maxQaTasksPerSprint": 0,
+      "reasons": [
+        "operator framed the goal as small or self-contained",
+        "operator requested one sprint/no follow-up sprints",
+        "work has deterministic local validation signals"
+      ]
+    }
+  },
+  "approval": {
+    "taskIds": [
+      "eceb5ca1-942a-48bf-9fbc-354bca8f9c6b"
+    ],
+    "sprintStartRunIds": [
+      "7375afa6-3f2a-4420-ab86-bb6e24f8bdc9"
+    ]
+  },
+  "tasks": [
+    {
+      "key": "VIR-52",
+      "title": "Plan sprint for Harness comparison candidate 20260609T220107Z",
+      "status": "done",
+      "assignee": "Helm",
+      "sprintId": "d155f3bd-fec1-4e99-82c0-777664bf8772",
+      "parentGoalId": null
+    },
+    {
+      "key": "VIR-53",
+      "title": "Implement, document, and validate Decision Log Summarizer",
+      "status": "done",
+      "assignee": "Anvil",
+      "sprintId": "165847d4-a153-41d8-b174-fc6bdb2ff13f",
+      "parentGoalId": "d155f3bd-fec1-4e99-82c0-777664bf8772"
+    }
+  ],
+  "executionRuns": [
+    {
+      "id": "a3933ec0-ee40-470f-8b42-e89cda06fdf1",
+      "taskKey": "VIR-52",
+      "taskTitle": "Plan sprint for Harness comparison candidate 20260609T220107Z",
+      "taskStatus": "done",
+      "agent": "Helm",
+      "provider": "codex",
+      "executionEngine": "hiverunner",
+      "runnerProvider": "codex",
+      "runnerModel": "gpt-5.5",
+      "modelLane": "default",
+      "status": "completed",
+      "durationMs": 37077,
+      "fallbackUsed": false,
+      "tokenUsage": {
+        "provider": "codex",
+        "runnerProvider": "codex",
+        "runnerModel": "gpt-5.5",
+        "source": "codex-cli",
+        "cli": "codex exec --json",
+        "integrationPath": "cli-json-events",
+        "structuredTelemetry": true,
+        "observedLiveText": false,
+        "observedThinking": false,
+        "observedStructuredTools": true,
+        "jsonEventCount": 7,
+        "parsedEventCount": 7,
+        "rawJsonLineCount": 7,
+        "toolCallNames": [
+          "/bin/zsh -lc \"sed -n '1,220p' .agents/skills/hiverunner-orchestration-overseer/SKILL.md\""
+        ],
+        "assistantSummary": "",
+        "thinkingSummary": "",
+        "toolResultSummary": "Codex reported tool activity: /bin/zsh -lc \"sed -n '1,220p' .agents/skills/hiverunner-orchestration-overseer/SKILL.md\"",
+        "resultErrors": [],
+        "inputTokens": 73103,
+        "outputTokens": 2248,
+        "cacheReadInputTokens": 4864,
+        "totalTokens": 75351,
+        "command": "codex",
+        "ephemeral": true,
+        "ignoreUserConfig": true,
+        "model": "gpt-5.5",
+        "reasoningEffort": "high",
+        "taskModelLane": "default",
+        "taskModelRoutingLabel": "Default",
+        "speedPreference": "fast_1_5x",
+        "fastMode": null,
+        "serviceTier": "fast",
+        "serviceTierApplied": true,
+        "runtimeSkillCount": 0,
+        "runtimeSkillContract": {
+          "schema": "hiverunner.runtime_skills.v1",
+          "trackingAction": "use_skill",
+          "trackingRule": "When an assigned active skill is materially applied during the run, emit one use_skill mc-action with the skill slug and a short evidence note."
+        },
+        "runtimeSkills": [],
+        "runtimeSlug": "helm",
+        "runtimeScope": "agent",
+        "runtimeDisplayName": "Helm runtime",
+        "workspaceRoot": "/Users/timharris/.mission-control/app/scratch/harness-comparison/exec-dev-candidate-20260609T220023Z/repo",
+        "companyWorkspaceRoot": "/Users/timharris/.mission-control/app/scratch/harness-comparison/exec-dev-candidate-20260609T220023Z/workspaces/companies/virtual-design-house",
+        "sourceWorkspaceRoot": "/Users/timharris/.mission-control/app/scratch/harness-comparison/exec-dev-candidate-20260609T220023Z/repo",
+        "additionalWritableDirs": [
+          "/Users/timharris/.mission-control/app/scratch/harness-comparison/exec-dev-candidate-20260609T220023Z/workspaces/companies/virtual-design-house"
+        ],
+        "workspaceRunVisibility": {
+          "schema": "hiverunner.workspace_run_visibility.v1",
+          "capturedAt": "2026-06-09T22:01:44.468Z",
+          "readOnlyIntent": false,
+          "roots": [
+            {
+              "root": "/Users/timharris/.mission-control/app",
+              "exists": true,
+              "isGitRepo": true,
+              "beforeDirtyCount": 9,
+              "afterDirtyCount": 9,
+              "changedDuringRunCount": 0,
+              "changedDuringRun": [],
+              "beforeEntries": [
+                {
+                  "raw": " M src/lib/__tests__/orchestration-goal-contract-gates.test.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/__tests__/orchestration-goal-contract-gates.test.ts"
+                },
+                {
+                  "raw": " M src/lib/__tests__/orchestration-heartbeat-prompt-focus.test.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/__tests__/orchestration-heartbeat-prompt-focus.test.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/company-service.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/company-service.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/engine/action-dispatcher.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/engine/action-dispatcher.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/engine/prompt-builder.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/engine/prompt-builder.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/engine/run-continuation.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/engine/run-continuation.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/goal-context.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/goal-context.ts"
+                },
+                {
+                  "raw": "?? scratch/harness-comparison/",
+                  "index": "?",
+                  "workingTree": "?",
+                  "path": "scratch/harness-comparison/"
+                },
+                {
+                  "raw": "?? src/lib/orchestration/planning-policy.ts",
+                  "index": "?",
+                  "workingTree": "?",
+                  "path": "src/lib/orchestration/planning-policy.ts"
+                }
+              ],
+              "afterEntries": [
+                {
+                  "raw": " M src/lib/__tests__/orchestration-goal-contract-gates.test.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/__tests__/orchestration-goal-contract-gates.test.ts"
+                },
+                {
+                  "raw": " M src/lib/__tests__/orchestration-heartbeat-prompt-focus.test.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/__tests__/orchestration-heartbeat-prompt-focus.test.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/company-service.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/company-service.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/engine/action-dispatcher.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/engine/action-dispatcher.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/engine/prompt-builder.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/engine/prompt-builder.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/engine/run-continuation.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/engine/run-continuation.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/goal-context.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/goal-context.ts"
+                },
+                {
+                  "raw": "?? scratch/harness-comparison/",
+                  "index": "?",
+                  "workingTree": "?",
+                  "path": "scratch/harness-comparison/"
+                },
+                {
+                  "raw": "?? src/lib/orchestration/planning-policy.ts",
+                  "index": "?",
+                  "workingTree": "?",
+                  "path": "src/lib/orchestration/planning-policy.ts"
+                }
+              ],
+              "warning": null
+            },
+            {
+              "root": "/Users/timharris/.mission-control/app",
+              "exists": true,
+              "isGitRepo": true,
+              "beforeDirtyCount": 9,
+              "afterDirtyCount": 9,
+              "changedDuringRunCount": 0,
+              "changedDuringRun": [],
+              "beforeEntries": [
+                {
+                  "raw": " M src/lib/__tests__/orchestration-goal-contract-gates.test.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/__tests__/orchestration-goal-contract-gates.test.ts"
+                },
+                {
+                  "raw": " M src/lib/__tests__/orchestration-heartbeat-prompt-focus.test.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/__tests__/orchestration-heartbeat-prompt-focus.test.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/company-service.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/company-service.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/engine/action-dispatcher.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/engine/action-dispatcher.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/engine/prompt-builder.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/engine/prompt-builder.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/engine/run-continuation.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/engine/run-continuation.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/goal-context.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/goal-context.ts"
+                },
+                {
+                  "raw": "?? scratch/harness-comparison/",
+                  "index": "?",
+                  "workingTree": "?",
+                  "path": "scratch/harness-comparison/"
+                },
+                {
+                  "raw": "?? src/lib/orchestration/planning-policy.ts",
+                  "index": "?",
+                  "workingTree": "?",
+                  "path": "src/lib/orchestration/planning-policy.ts"
+                }
+              ],
+              "afterEntries": [
+                {
+                  "raw": " M src/lib/__tests__/orchestration-goal-contract-gates.test.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/__tests__/orchestration-goal-contract-gates.test.ts"
+                },
+                {
+                  "raw": " M src/lib/__tests__/orchestration-heartbeat-prompt-focus.test.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/__tests__/orchestration-heartbeat-prompt-focus.test.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/company-service.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/company-service.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/engine/action-dispatcher.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/engine/action-dispatcher.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/engine/prompt-builder.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/engine/prompt-builder.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/engine/run-continuation.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/engine/run-continuation.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/goal-context.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/goal-context.ts"
+                },
+                {
+                  "raw": "?? scratch/harness-comparison/",
+                  "index": "?",
+                  "workingTree": "?",
+                  "path": "scratch/harness-comparison/"
+                },
+                {
+                  "raw": "?? src/lib/orchestration/planning-policy.ts",
+                  "index": "?",
+                  "workingTree": "?",
+                  "path": "src/lib/orchestration/planning-policy.ts"
+                }
+              ],
+              "warning": null
+            }
+          ],
+          "totals": {
+            "trackedRoots": 2,
+            "gitRoots": 2,
+            "beforeDirtyCount": 18,
+            "afterDirtyCount": 18,
+            "changedDuringRunCount": 0
+          },
+          "warnings": []
+        },
+        "taskEvidenceCommentCreated": true,
+        "startedAt": "2026-06-09T22:01:07.701Z",
+        "completedAt": "2026-06-09T22:01:44.468Z",
+        "durationMs": 36629,
+        "diagnostics": {
+          "promptChars": 49441,
+          "timeoutMs": 3600000,
+          "maxBufferBytes": 10485760,
+          "stdoutBytes": 9049,
+          "stderrBytes": 14744,
+          "outputLastMessageBytes": 5957,
+          "stdinClosedAtMs": 3,
+          "firstStdoutAtMs": 602,
+          "lastStdoutAtMs": 36426,
+          "firstStderrAtMs": 563,
+          "lastStderrAtMs": 9476,
+          "timedOut": false,
+          "killedForBuffer": false,
+          "spawnError": null,
+          "stderrFilteredLineCount": 104
+        },
+        "exitCode": 0,
+        "signal": null,
+        "stdoutTail": "y did not affect this utility implementation plan.\"}]}\n```\n\n```mc-action\n{\"action\":\"propose_sprint_plan\",\"companyGoalId\":\"d155f3bd-fec1-4e99-82c0-777664bf8772\",\"planMode\":true,\"sprints\":[{\"sequenceNumber\":1,\"name\":\"Build and validate Decision Log Summarizer\",\"objective\":\"Implement one small, local TypeScript utility that parses markdown decision logs, includes representative fixtures, focused tests, usage notes, and final validation evidence without touching production runtime behavior.\",\"owner\":\"20f1ad33-8784-41e4-b1de-ee23147a6891\",\"startDate\":\"2026-06-09\",\"endDate\":\"2026-06-09\",\"defaultExecutionEngine\":\"hiverunner\",\"defaultModelLane\":\"default\",\"successCriteria\":[\"A small TypeScript decision-log summarizer exists in the most obvious repo-local location, or under `scratch/harness-comparison/decision-log-summarizer/` if no obvious home exists.\",\"The parser extracts decision title, status, owner, date, tags, and short summary from markdown decision-log files.\",\"Fixtures cover complete metadata, missing optional metadata, and malformed metadata that must not crash parsing.\",\"Focused tests cover parser behavior and summary output using existing repo test patterns/tooling where available.\",\"A short README or usage note explains how to run and use the utility.\",\"Final handoff reports elapsed wall-clock time if available, changed files, tests run with pass/fail status, and any token/cost/runtime metrics available from the harness.\"],\"validationChecks\":[\"Operator can inspect exactly one focused sprint with exactly one implementation task and zero QA/review/release tasks.\",\"Evidence names exact changed files and confirms all work stayed small/local with no production runtime behavior changes, no promotion, no push, no deploy, and no network access.\",\"Evidence confirms fixture coverage for complete metadata, missing optional metadata, and malformed metadata safety.\",\"Evidence records the test command(s) run and whether they passed.\",\"Evidence states whether the fallback path `scratch/harness-comparison/decision-log-summarizer/` was used because no obvious repo home existed.\"],\"outOfScope\":[\"Do not modify production runtime behavior.\",\"Do not promote, push, deploy, or use network access.\",\"Do not add broad infrastructure, shared API/client contract changes, UI changes, migrations, or orchestration/runtime changes.\",\"Do not create follow-up sprints unless the single implementation task is genuinely blocked by an external dependency.\"],\"tasks\":[{\"id\":\"s1-task-1\",\"title\":\"Implement, document, and validate Decision Log Summarizer\",\"description\":\"Create the complete benchmark slice in one local change set: inspect the repo for an obvious utility/test location, otherwise use `scratch/harness-comparison/decision-log-summarizer/`; add a small TypeScript markdown decision-log parser/summarizer; add fixtures for complete metadata, missing optional metadata, and malformed metadata; add focused parser and summary-output tests using existing repo patterns/tooling where available; add a short README or usage note; run deterministic local validation; and post a polished handoff with elapsed wall-clock time if available, files changed, tests run, pass/fail status, and any available harness token/cost/runtime metrics. Keep scope small and local, and explicitly confirm no production runtime behavior changes, no network access, no promotion, no push, and no deploy.\",\"assignee\":\"20f1ad33-8784-41e4-b1de-ee23147a6891\",\"eligibleAssignees\":[\"20f1ad33-8784-41e4-b1de-ee23147a6891\",\"1c1469bd-825f-4554-aa9c-2a7e782fa71d\",\"c556fcf0-6392-4d79-8186-2c4722e7b8ca\"],\"priority\":\"P0\",\"type\":\"feature\",\"executionEngine\":\"hiverunner\",\"modelLane\":\"default\",\"dependsOn\":[],\"validation\":\"Task handoff must include exact changed file paths, confirm fixture coverage and malformed metadata non-crash behavior, include the test command(s) run and pass/fail result, identify the utility path used, and state elapsed wall-clock time plus any available token/cost/runtime metrics.\"}]}]}\n```",
+        "stderrTail": "",
+        "resultText": "```mc-action\n{\"action\":\"use_skill\",\"skill\":\"hiverunner-orchestration-overseer\",\"taskKey\":\"VIR-52\",\"note\":\"Applied the Plan Mode/goal supervision checklist: confirmed goal scope, routing defaults, planning policy limits, and action-block-only sprint proposal.\"}\n```\n\n```mc-action\n{\"action\":\"memory_receipt\",\"taskKey\":\"VIR-52\",\"used\":[{\"recordId\":\"defe75b4-90c3-47bf-b975-941c9d795800\",\"evidenceEnvelopeId\":\"3495881fddf16fee64411ab2ed72421c7343949856b7ac984747c6a7abd5f873\",\"reason\":\"Carried forward decision-log summarizer validation expectations, especially exact changed files, fixture coverage, malformed metadata safety, and validation reporting.\"},{\"recordId\":\"ba65dac1-abce-4177-9210-cc43ab9b5da7\",\"evidenceEnvelopeId\":\"19d3f4ff4e354f04fdf1e2f43c114b113d0a9b74b77572dde52ea687a3f904a2\",\"reason\":\"Used prior approved benchmark scope boundaries for the fallback scratch path, fixtures, tests, docs, and no production runtime behavior changes.\"},{\"recordId\":\"f60bdb96-914f-4b38-a33e-372ea4f8c88c\",\"evidenceEnvelopeId\":\"6390f99ab54819be35cdb20fb725585da6cf7ea8fa57adc8dae3b9e4960b2e1a\",\"reason\":\"Used as a completeness benchmark while reducing harness overhead to match the current one-task hard policy.\"}],\"ignored\":[],\"irrelevant\":[{\"recordId\":\"7c8538cd-cb7f-4b37-a52b-f270829a7d59\",\"evidenceEnvelopeId\":\"4bd54644d309102ee3ce2847f932b1471f4f558c5a764cf5b0d2c3b27c84917c\",\"reason\":\"Smoke fixture planning memory was docs-only and not directly relevant to this TypeScript utility implementation plan.\"},{\"recordId\":\"b094cab3-80b2-46f8-a6aa-759767731f8f\",\"evidenceEnvelopeId\":\"e03907f00303ccbc93d7ac1d201e4000a805cd446a0e6e6657be38c28a002c2e\",\"reason\":\"Smoke fixture planning memory was docs-only and not directly relevant to this TypeScript utility implementation plan.\"},{\"recordId\":\"7af3a110-c3d2-42b0-8863-683aa351792a\",\"evidenceEnvelopeId\":\"3c67c0eb9088727cfcd427c5fb00a47d4dde98125ca46fba11495d7ce5800ffe\",\"reason\":\"Harness smoke report planning memory did not affect this utility implementation plan.\"}]}\n```\n\n```mc-action\n{\"action\":\"propose_sprint_plan\",\"companyGoalId\":\"d155f3bd-fec1-4e99-82c0-777664bf8772\",\"planMode\":true,\"sprints\":[{\"sequenceNumber\":1,\"name\":\"Build and validate Decision Log Summarizer\",\"objective\":\"Implement one small, local TypeScript utility that parses markdown decision logs, includes representative fixtures, focused tests, usage notes, and final validation evidence without touching production runtime behavior.\",\"owner\":\"20f1ad33-8784-41e4-b1de-ee23147a6891\",\"startDate\":\"2026-06-09\",\"endDate\":\"2026-06-09\",\"defaultExecutionEngine\":\"hiverunner\",\"defaultModelLane\":\"default\",\"successCriteria\":[\"A small TypeScript decision-log summarizer exists in the most obvious repo-local location, or under `scratch/harness-comparison/decision-log-summarizer/` if no obvious home exists.\",\"The parser extracts decision title, status, owner, date, tags, and short summary from markdown decision-log files.\",\"Fixtures cover complete metadata, missing optional metadata, and malformed metadata that must not crash parsing.\",\"Focused tests cover parser behavior and summary output using existing repo test patterns/tooling where available.\",\"A short README or usage note explains how to run and use the utility.\",\"Final handoff reports elapsed wall-clock time if available, changed files, tests run with pass/fail status, and any token/cost/runtime metrics available from the harness.\"],\"validationChecks\":[\"Operator can inspect exactly one focused sprint with exactly one implementation task and zero QA/review/release tasks.\",\"Evidence names exact changed files and confirms all work stayed small/local with no production runtime behavior changes, no promotion, no push, no deploy, and no network access.\",\"Evidence confirms fixture coverage for complete metadata, missing optional metadata, and malformed metadata safety.\",\"Evidence records the test command(s) run and whether they passed.\",\"Evidence states whether the fallback path `scratch/harness-comparison/decision-log-summarizer/` was used because no obvious repo home existed.\"],\"outOfScope\":[\"Do not modify production runtime behavior.\",\"Do not promote, push, deploy, or use network access.\",\"Do not add broad infrastructure, shared API/client contract changes, UI changes, migrations, or orchestration/runtime changes.\",\"Do not create follow-up sprints unless the single implementation task is genuinely blocked by an external dependency.\"],\"tasks\":[{\"id\":\"s1-task-1\",\"title\":\"Implement, document, and validate Decision Log Summarizer\",\"description\":\"Create the complete benchmark slice in one local change set: inspect the repo for an obvious utility/test location, otherwise use `scratch/harness-comparison/decision-log-summarizer/`; add a small TypeScript markdown decision-log parser/summarizer; add fixtures for complete metadata, missing optional metadata, and malformed metadata; add focused parser and summary-output tests using existing repo patterns/tooling where available; add a short README or usage note; run deterministic local validation; and post a polished handoff with elapsed wall-clock time if available, files changed, tests run, pass/fail status, and any available harness token/cost/runtime metrics. Keep scope small and local, and explicitly confirm no production runtime behavior changes, no network access, no promotion, no push, and no deploy.\",\"assignee\":\"20f1ad33-8784-41e4-b1de-ee23147a6891\",\"eligibleAssignees\":[\"20f1ad33-8784-41e4-b1de-ee23147a6891\",\"1c1469bd-825f-4554-aa9c-2a7e782fa71d\",\"c556fcf0-6392-4d79-8186-2c4722e7b8ca\"],\"priority\":\"P0\",\"type\":\"feature\",\"executionEngine\":\"hiverunner\",\"modelLane\":\"default\",\"dependsOn\":[],\"validation\":\"Task handoff must include exact changed file paths, confirm fixture coverage and malformed metadata non-crash behavior, include the test command(s) run and pass/fail result, identify the utility path used, and state elapsed wall-clock time plus any available token/cost/runtime metrics.\"}]}]}\n```",
+        "note": "Codex CLI runs through codex exec --json when available. HiveRunner persists normalized JSON events as transcript evidence and falls back to the final message/stdout path for older or quiet CLIs; exact token/cost detail depends on the event payloads Codex emits.",
+        "transcriptEventCount": 25,
+        "heartbeatRunId": "ffd8cefe-eebb-49f2-96a9-2d3a5df42646",
+        "adapterType": "codex",
+        "routeAttemptCount": 1,
+        "fallbackUsed": false
+      },
+      "compactPromptPolicy": null,
+      "errorMessage": null
+    },
+    {
+      "id": "c3ad797a-9ef7-4a0c-9fae-73f73df3f0d0",
+      "taskKey": "VIR-53",
+      "taskTitle": "Implement, document, and validate Decision Log Summarizer",
+      "taskStatus": "done",
+      "agent": "Anvil",
+      "provider": "codex",
+      "executionEngine": "hiverunner",
+      "runnerProvider": "codex",
+      "runnerModel": "gpt-5.5",
+      "modelLane": "default",
+      "status": "completed",
+      "durationMs": 115306,
+      "fallbackUsed": false,
+      "tokenUsage": {
+        "provider": "codex",
+        "runnerProvider": "codex",
+        "runnerModel": "gpt-5.5",
+        "source": "codex-cli",
+        "cli": "codex exec --json",
+        "integrationPath": "cli-json-events",
+        "structuredTelemetry": true,
+        "observedLiveText": false,
+        "observedThinking": false,
+        "observedStructuredTools": true,
+        "jsonEventCount": 46,
+        "parsedEventCount": 46,
+        "rawJsonLineCount": 48,
+        "toolCallNames": [
+          "/bin/zsh -lc \"sed -n '1,220p' .agents/skills/hiverunner-orchestration-overseer/SKILL.md\"",
+          "/bin/zsh -lc \"pwd && rg --files -g 'package.json' -g 'vitest.config.*' -g 'jest.config.*' -g 'tsconfig*.json' -g '*test*' -g '*spec*' | head -200\"",
+          "/bin/zsh -lc 'git status --short'",
+          "/bin/zsh -lc 'git rev-parse --show-toplevel'",
+          "/bin/zsh -lc \"sed -n '1,220p' package.json\"",
+          "/bin/zsh -lc \"sed -n '1,220p' tsconfig.json\"",
+          "/bin/zsh -lc \"sed -n '1,180p' src/lib/__tests__/runtime-paths.test.ts\"",
+          "/bin/zsh -lc \"sed -n '1,220p' scripts/run-tsx.mjs\"",
+          "/bin/zsh -lc \"sed -n '1,220p' scripts/run-ts-test.mjs\"",
+          "/bin/zsh -lc \"sed -n '1,160p' src/lib/__tests__/helpers/simple-test-runner.ts\"",
+          "/bin/zsh -lc 'node ./scripts/run-ts-test.mjs scratch/harness-comparison/decision-log-summarizer/decision-log-summarizer.test.ts'",
+          "/bin/zsh -lc 'test -x node_modules/.bin/tsc && echo available || echo missing'",
+          "/bin/zsh -lc 'git status --short scratch/harness-comparison/decision-log-summarizer'",
+          "/bin/zsh -lc 'find scratch/harness-comparison/decision-log-summarizer -type f | sort'",
+          "/bin/zsh -lc 'node_modules/.bin/tsc --noEmit --target ES2022 --module ESNext --moduleResolution Bundler --strict --esModuleInterop --skipLibCheck scratch/harness-comparison/decision-log-summarizer/decision-log-summarizer.ts scratch/harness-comparison/decision-log-summarizer/decision-log-summarizer.test.ts'"
+        ],
+        "assistantSummary": "",
+        "thinkingSummary": "",
+        "toolResultSummary": "Codex reported tool activity: /bin/zsh -lc \"sed -n '1,220p' .agents/skills/hiverunner-orchestration-overseer/SKILL.md\"\n\nCodex reported tool activity: /bin/zsh -lc \"pwd && rg --files -g 'package.json' -g 'vitest.config.*' -g 'jest.config.*' -g 'tsconfig*.json' -g '*test*' -g '*spec*' | head -200\"\n\nCodex reported tool activity: /bin/zsh -lc 'git status --short'\n\nCodex reported tool activity: /bin/zsh -lc 'git rev-parse --show-toplevel'\n\nCodex reported tool activity: /bin/zsh -lc \"sed -n '1,220p' tsconfig.json\"\n\nCodex reported tool activity: /bin/zsh -lc \"sed -n '1,220p' package.json\"\n\nCodex reported tool activity: /bin/zsh -lc \"sed -n '1,180p' src/lib/__tests__/runtime-paths.test.ts\"\n\nCodex reported tool activity: /bin/zsh -lc \"sed -n '1,220p' scripts/run-tsx.mjs\"\n\nCodex reported tool activity: /bin/zsh -lc \"sed -n '1,220p' scripts/run-ts-test.mjs\"\n\nCodex reported tool activity: /bin/zsh -lc \"sed -n '1,160p' src/lib/__tests__/helpers/simple-test-runner.ts\"\n\nCodex reported tool activity: /bin/zsh -lc 'node ./scripts/run-ts-test.mjs scratch/harness-comparison/decision-log-summarizer/decision-log-summarizer.test.ts'\n\nCodex reported tool activity: /bin/zsh -lc 'node ./scripts/run-ts-test.mjs scratch/harness-comparison/decision-log-summarizer/decision-log-summarizer.test.ts'\n\nCodex reported tool activity: /bin/zsh -lc 'test -x node_modules/.bin/tsc && echo available || echo missing'\n\nCodex reported tool activity: /bin/zsh -lc 'git status --short scratch/harness-comparison/decision-log-summarizer'\n\nCodex reported tool activity: /bin/zsh -lc 'find scratch/harness-comparison/decision-log-summarizer -type f | sort'\n\nCodex reported tool activity: /bin/zsh -lc 'node_modules/.bin/tsc --noEmit --target ES2022 --module ESNext --moduleResolution Bundler --strict --esModuleInterop --skipLibCheck scratch/harness-comparison/decision-log-summarizer/decision-log-summarizer.ts scratch/harness-comparison/decision-log-summarizer/decision-log-summarizer.test.ts'",
+        "resultErrors": [],
+        "inputTokens": 336353,
+        "outputTokens": 8135,
+        "cacheReadInputTokens": 298752,
+        "totalTokens": 344488,
+        "command": "codex",
+        "ephemeral": true,
+        "ignoreUserConfig": true,
+        "model": "gpt-5.5",
+        "reasoningEffort": "high",
+        "taskModelLane": "default",
+        "taskModelRoutingLabel": "Default",
+        "speedPreference": "fast_1_5x",
+        "fastMode": null,
+        "serviceTier": "fast",
+        "serviceTierApplied": true,
+        "runtimeSkillCount": 0,
+        "runtimeSkillContract": {
+          "schema": "hiverunner.runtime_skills.v1",
+          "trackingAction": "use_skill",
+          "trackingRule": "When an assigned active skill is materially applied during the run, emit one use_skill mc-action with the skill slug and a short evidence note."
+        },
+        "runtimeSkills": [],
+        "runtimeSlug": "anvil",
+        "runtimeScope": "agent",
+        "runtimeDisplayName": "Anvil runtime",
+        "workspaceRoot": "/Users/timharris/.mission-control/app/scratch/harness-comparison/exec-dev-candidate-20260609T220023Z/repo",
+        "companyWorkspaceRoot": "/Users/timharris/.mission-control/app/scratch/harness-comparison/exec-dev-candidate-20260609T220023Z/workspaces/companies/virtual-design-house",
+        "sourceWorkspaceRoot": "/Users/timharris/.mission-control/app/scratch/harness-comparison/exec-dev-candidate-20260609T220023Z/repo",
+        "additionalWritableDirs": [
+          "/Users/timharris/.mission-control/app/scratch/harness-comparison/exec-dev-candidate-20260609T220023Z/workspaces/companies/virtual-design-house"
+        ],
+        "workspaceRunVisibility": {
+          "schema": "hiverunner.workspace_run_visibility.v1",
+          "capturedAt": "2026-06-09T22:03:40.091Z",
+          "readOnlyIntent": false,
+          "roots": [
+            {
+              "root": "/Users/timharris/.mission-control/app",
+              "exists": true,
+              "isGitRepo": true,
+              "beforeDirtyCount": 9,
+              "afterDirtyCount": 9,
+              "changedDuringRunCount": 0,
+              "changedDuringRun": [],
+              "beforeEntries": [
+                {
+                  "raw": " M src/lib/__tests__/orchestration-goal-contract-gates.test.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/__tests__/orchestration-goal-contract-gates.test.ts"
+                },
+                {
+                  "raw": " M src/lib/__tests__/orchestration-heartbeat-prompt-focus.test.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/__tests__/orchestration-heartbeat-prompt-focus.test.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/company-service.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/company-service.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/engine/action-dispatcher.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/engine/action-dispatcher.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/engine/prompt-builder.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/engine/prompt-builder.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/engine/run-continuation.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/engine/run-continuation.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/goal-context.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/goal-context.ts"
+                },
+                {
+                  "raw": "?? scratch/harness-comparison/",
+                  "index": "?",
+                  "workingTree": "?",
+                  "path": "scratch/harness-comparison/"
+                },
+                {
+                  "raw": "?? src/lib/orchestration/planning-policy.ts",
+                  "index": "?",
+                  "workingTree": "?",
+                  "path": "src/lib/orchestration/planning-policy.ts"
+                }
+              ],
+              "afterEntries": [
+                {
+                  "raw": " M src/lib/__tests__/orchestration-goal-contract-gates.test.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/__tests__/orchestration-goal-contract-gates.test.ts"
+                },
+                {
+                  "raw": " M src/lib/__tests__/orchestration-heartbeat-prompt-focus.test.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/__tests__/orchestration-heartbeat-prompt-focus.test.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/company-service.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/company-service.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/engine/action-dispatcher.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/engine/action-dispatcher.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/engine/prompt-builder.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/engine/prompt-builder.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/engine/run-continuation.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/engine/run-continuation.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/goal-context.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/goal-context.ts"
+                },
+                {
+                  "raw": "?? scratch/harness-comparison/",
+                  "index": "?",
+                  "workingTree": "?",
+                  "path": "scratch/harness-comparison/"
+                },
+                {
+                  "raw": "?? src/lib/orchestration/planning-policy.ts",
+                  "index": "?",
+                  "workingTree": "?",
+                  "path": "src/lib/orchestration/planning-policy.ts"
+                }
+              ],
+              "warning": null
+            },
+            {
+              "root": "/Users/timharris/.mission-control/app",
+              "exists": true,
+              "isGitRepo": true,
+              "beforeDirtyCount": 9,
+              "afterDirtyCount": 9,
+              "changedDuringRunCount": 0,
+              "changedDuringRun": [],
+              "beforeEntries": [
+                {
+                  "raw": " M src/lib/__tests__/orchestration-goal-contract-gates.test.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/__tests__/orchestration-goal-contract-gates.test.ts"
+                },
+                {
+                  "raw": " M src/lib/__tests__/orchestration-heartbeat-prompt-focus.test.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/__tests__/orchestration-heartbeat-prompt-focus.test.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/company-service.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/company-service.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/engine/action-dispatcher.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/engine/action-dispatcher.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/engine/prompt-builder.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/engine/prompt-builder.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/engine/run-continuation.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/engine/run-continuation.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/goal-context.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/goal-context.ts"
+                },
+                {
+                  "raw": "?? scratch/harness-comparison/",
+                  "index": "?",
+                  "workingTree": "?",
+                  "path": "scratch/harness-comparison/"
+                },
+                {
+                  "raw": "?? src/lib/orchestration/planning-policy.ts",
+                  "index": "?",
+                  "workingTree": "?",
+                  "path": "src/lib/orchestration/planning-policy.ts"
+                }
+              ],
+              "afterEntries": [
+                {
+                  "raw": " M src/lib/__tests__/orchestration-goal-contract-gates.test.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/__tests__/orchestration-goal-contract-gates.test.ts"
+                },
+                {
+                  "raw": " M src/lib/__tests__/orchestration-heartbeat-prompt-focus.test.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/__tests__/orchestration-heartbeat-prompt-focus.test.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/company-service.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/company-service.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/engine/action-dispatcher.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/engine/action-dispatcher.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/engine/prompt-builder.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/engine/prompt-builder.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/engine/run-continuation.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/engine/run-continuation.ts"
+                },
+                {
+                  "raw": " M src/lib/orchestration/goal-context.ts",
+                  "index": " ",
+                  "workingTree": "M",
+                  "path": "src/lib/orchestration/goal-context.ts"
+                },
+                {
+                  "raw": "?? scratch/harness-comparison/",
+                  "index": "?",
+                  "workingTree": "?",
+                  "path": "scratch/harness-comparison/"
+                },
+                {
+                  "raw": "?? src/lib/orchestration/planning-policy.ts",
+                  "index": "?",
+                  "workingTree": "?",
+                  "path": "src/lib/orchestration/planning-policy.ts"
+                }
+              ],
+              "warning": null
+            }
+          ],
+          "totals": {
+            "trackedRoots": 2,
+            "gitRoots": 2,
+            "beforeDirtyCount": 18,
+            "afterDirtyCount": 18,
+            "changedDuringRunCount": 0
+          },
+          "warnings": []
+        },
+        "taskEvidenceCommentCreated": true,
+        "startedAt": "2026-06-09T22:01:45.158Z",
+        "completedAt": "2026-06-09T22:03:40.091Z",
+        "durationMs": 114834,
+        "diagnostics": {
+          "promptChars": 10028,
+          "timeoutMs": 3600000,
+          "maxBufferBytes": 10485760,
+          "stdoutBytes": 55714,
+          "stderrBytes": 30584,
+          "outputLastMessageBytes": 2013,
+          "stdinClosedAtMs": 2,
+          "firstStdoutAtMs": 255,
+          "lastStdoutAtMs": 114755,
+          "firstStderrAtMs": 217,
+          "lastStderrAtMs": 95346,
+          "timedOut": false,
+          "killedForBuffer": false,
+          "spawnError": null,
+          "stderrFilteredLineCount": 208
+        },
+        "exitCode": 0,
+        "signal": null,
+        "stdoutTail": "```mc-action\n{\"action\":\"add_comment\",\"taskKey\":\"VIR-53\",\"body\":\"**Summary**\\n\\nCompleted the local Decision Log Summarizer benchmark slice under the fallback utility path `scratch/harness-comparison/decision-log-summarizer/` because no obvious non-runtime repo home existed.\\n\\n**Changed files**\\n- `scratch/harness-comparison/decision-log-summarizer/decision-log-summarizer.ts`\\n- `scratch/harness-comparison/decision-log-summarizer/decision-log-summarizer.test.ts`\\n- `scratch/harness-comparison/decision-log-summarizer/README.md`\\n- `scratch/harness-comparison/decision-log-summarizer/fixtures/complete.md`\\n- `scratch/harness-comparison/decision-log-summarizer/fixtures/missing-optional.md`\\n- `scratch/harness-comparison/decision-log-summarizer/fixtures/malformed-metadata.md`\\n\\n**Validation**\\n- Fixture coverage includes complete metadata, missing optional metadata, and malformed metadata.\\n- Malformed metadata is non-crashing and produces a parser warning while preserving usable fields.\\n- Test command passed: `node ./scripts/run-ts-test.mjs scratch/harness-comparison/decision-log-summarizer/decision-log-summarizer.test.ts`.\\n- Narrow TypeScript check passed: `node_modules/.bin/tsc --noEmit --target ES2022 --module ESNext --moduleResolution Bundler --strict --esModuleInterop --skipLibCheck scratch/harness-comparison/decision-log-summarizer/decision-log-summarizer.ts scratch/harness-comparison/decision-log-summarizer/decision-log-summarizer.test.ts`.\\n\\n**Scope confirmations**\\n- No production runtime behavior changes.\\n- No network access, promotion, push, or deploy.\\n- Existing unrelated local git changes were left untouched.\\n\\n**Metrics**\\n- Full run elapsed time was not instrumented by the compact runner; local validation wall time from command reports was approximately 0.07s for tests and 0.37s for the narrow TypeScript check.\\n- Harness token/cost/runtime metrics were not available in this run.\"}\n```\n```mc-action\n{\"action\":\"update_task\",\"taskKey\":\"VIR-53\",\"status\":\"done\"}\n```",
+        "stderrTail": "",
+        "resultText": "```mc-action\n{\"action\":\"add_comment\",\"taskKey\":\"VIR-53\",\"body\":\"**Summary**\\n\\nCompleted the local Decision Log Summarizer benchmark slice under the fallback utility path `scratch/harness-comparison/decision-log-summarizer/` because no obvious non-runtime repo home existed.\\n\\n**Changed files**\\n- `scratch/harness-comparison/decision-log-summarizer/decision-log-summarizer.ts`\\n- `scratch/harness-comparison/decision-log-summarizer/decision-log-summarizer.test.ts`\\n- `scratch/harness-comparison/decision-log-summarizer/README.md`\\n- `scratch/harness-comparison/decision-log-summarizer/fixtures/complete.md`\\n- `scratch/harness-comparison/decision-log-summarizer/fixtures/missing-optional.md`\\n- `scratch/harness-comparison/decision-log-summarizer/fixtures/malformed-metadata.md`\\n\\n**Validation**\\n- Fixture coverage includes complete metadata, missing optional metadata, and malformed metadata.\\n- Malformed metadata is non-crashing and produces a parser warning while preserving usable fields.\\n- Test command passed: `node ./scripts/run-ts-test.mjs scratch/harness-comparison/decision-log-summarizer/decision-log-summarizer.test.ts`.\\n- Narrow TypeScript check passed: `node_modules/.bin/tsc --noEmit --target ES2022 --module ESNext --moduleResolution Bundler --strict --esModuleInterop --skipLibCheck scratch/harness-comparison/decision-log-summarizer/decision-log-summarizer.ts scratch/harness-comparison/decision-log-summarizer/decision-log-summarizer.test.ts`.\\n\\n**Scope confirmations**\\n- No production runtime behavior changes.\\n- No network access, promotion, push, or deploy.\\n- Existing unrelated local git changes were left untouched.\\n\\n**Metrics**\\n- Full run elapsed time was not instrumented by the compact runner; local validation wall time from command reports was approximately 0.07s for tests and 0.37s for the narrow TypeScript check.\\n- Harness token/cost/runtime metrics were not available in this run.\"}\n```\n```mc-action\n{\"action\":\"update_task\",\"taskKey\":\"VIR-53\",\"status\":\"done\"}\n```",
+        "note": "Codex CLI runs through codex exec --json when available. HiveRunner persists normalized JSON events as transcript evidence and falls back to the final message/stdout path for older or quiet CLIs; exact token/cost detail depends on the event payloads Codex emits.",
+        "transcriptEventCount": 82,
+        "heartbeatRunId": "7375afa6-3f2a-4420-ab86-bb6e24f8bdc9",
+        "adapterType": "codex",
+        "routeAttemptCount": 1,
+        "fallbackUsed": false
+      },
+      "compactPromptPolicy": {
+        "schema": "hiverunner.compact_task_prompt.v1",
+        "reason": "tiny_deterministic_planning_policy",
+        "planningPolicy": {
+          "schema": "hiverunner.planning_policy.v1",
+          "size": "tiny",
+          "risk": "low",
+          "validationMode": "deterministic",
+          "qaMode": "skip_by_default",
+          "requireQa": false,
+          "parallelism": "none"
+        },
+        "skippedSections": [
+          "heartbeat_ritual",
+          "soul",
+          "runtime_skills",
+          "memory_context",
+          "other_assigned_tasks",
+          "nearby_open_tasks",
+          "runtime_roster",
+          "approvals",
+          "recent_actions",
+          "full_action_reference"
+        ]
+      },
+      "errorMessage": null
+    }
+  ],
+  "heartbeats": [
+    {
+      "id": "ffd8cefe-eebb-49f2-96a9-2d3a5df42646",
+      "status": "succeeded",
+      "agent": "Helm",
+      "error": null,
+      "created_at": "2026-06-09T22:01:07.055Z",
+      "finished_at": "2026-06-09T22:01:44.499Z"
+    },
+    {
+      "id": "7375afa6-3f2a-4420-ab86-bb6e24f8bdc9",
+      "status": "succeeded",
+      "agent": "Anvil",
+      "error": null,
+      "created_at": "2026-06-09T22:01:44.751Z",
+      "finished_at": "2026-06-09T22:03:40.100Z"
+    }
+  ],
+  "ledgerTotals": {
+    "inputTokens": 409456,
+    "cacheReadInputTokens": 303616,
+    "cacheWriteInputTokens": 0,
+    "freshInputTokens": 105840,
+    "outputTokens": 10383,
+    "totalTokens": 419839,
+    "costCents": 0
+  },
+  "promptContexts": [
+    {
+      "executionRunId": "a3933ec0-ee40-470f-8b42-e89cda06fdf1",
+      "sourceType": "heartbeat_prompt",
+      "provider": "codex",
+      "model": "gpt-5.5",
+      "promptChars": 49441,
+      "estimatedTokens": 12361,
+      "sectionCount": 4,
+      "compact": null
+    },
+    {
+      "executionRunId": "c3ad797a-9ef7-4a0c-9fae-73f73df3f0d0",
+      "sourceType": "heartbeat_prompt",
+      "provider": "codex",
+      "model": "gpt-5.5",
+      "promptChars": 10028,
+      "estimatedTokens": 2507,
+      "sectionCount": 2,
+      "compact": null
+    }
+  ],
+  "toolCounts": {
+    "eventKinds": [
+      {
+        "event_kind": "provider_event",
+        "count": 25
+      },
+      {
+        "event_kind": "stdout_chunk",
+        "count": 21
+      },
+      {
+        "event_kind": "stderr_chunk",
+        "count": 19
+      },
+      {
+        "event_kind": "tool_call_start",
+        "count": 17
+      },
+      {
+        "event_kind": "tool_result",
+        "count": 17
+      },
+      {
+        "event_kind": "assistant_text_final",
+        "count": 2
+      },
+      {
+        "event_kind": "command_start",
+        "count": 2
+      },
+      {
+        "event_kind": "process_spawned",
+        "count": 2
+      },
+      {
+        "event_kind": "run_end",
+        "count": 2
+      },
+      {
+        "event_kind": "run_start",
+        "count": 2
+      },
+      {
+        "event_kind": "command_exit",
+        "count": 1
+      },
+      {
+        "event_kind": "process_exit",
+        "count": 1
+      }
+    ],
+    "toolCallStart": 17,
+    "toolResult": 17,
+    "toolEvents": 34
+  }
+}

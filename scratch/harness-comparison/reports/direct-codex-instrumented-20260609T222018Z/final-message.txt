@@ -1,0 +1,26 @@
+Implemented the self-contained Decision Log Summarizer under `scratch/harness-comparison/decision-log-summarizer/`.
+
+Files added:
+- [decision-log-summarizer.ts](/Users/timharris/.mission-control/app/scratch/harness-comparison/direct-codex-instrumented-20260609T222018Z/repo/scratch/harness-comparison/decision-log-summarizer/decision-log-summarizer.ts)
+- [decision-log-summarizer.test.ts](/Users/timharris/.mission-control/app/scratch/harness-comparison/direct-codex-instrumented-20260609T222018Z/repo/scratch/harness-comparison/decision-log-summarizer/decision-log-summarizer.test.ts)
+- [README.md](/Users/timharris/.mission-control/app/scratch/harness-comparison/direct-codex-instrumented-20260609T222018Z/repo/scratch/harness-comparison/decision-log-summarizer/README.md)
+- Fixtures: `complete-metadata.md`, `missing-optional-metadata.md`, `malformed-metadata.md`
+
+What it does:
+- Reads markdown decision logs.
+- Extracts title, status, owner, date, tags, and short summary.
+- Handles missing optional metadata.
+- Ignores malformed metadata lines without crashing.
+- Formats parsed entries as a markdown summary table.
+- README includes the focused sprint/task note and usage.
+
+Validation run:
+```sh
+node ./scripts/run-ts-test.mjs scratch/harness-comparison/decision-log-summarizer/decision-log-summarizer.test.ts
+```
+
+Result: `5 passed, 0 failed`.
+
+No network access, push, deploy, or production runtime changes were made. Existing unrelated dirty orchestration files were left untouched.
+
+Elapsed wall-clock from local timestamps: about 1m 39s. Harness goal runtime: 122s. Harness token metric available: 55,619 tokens used. Cost metric was not available.

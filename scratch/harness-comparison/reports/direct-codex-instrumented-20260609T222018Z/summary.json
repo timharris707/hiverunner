@@ -1,0 +1,54 @@
+{
+  "runDir": "scratch/harness-comparison/direct-codex-instrumented-20260609T222018Z",
+  "model": "gpt-5.5",
+  "reasoning": "high",
+  "serviceTier": "priority",
+  "wallSeconds": 140.44,
+  "turnUsage": {
+    "turns": 1,
+    "inputTokens": 550163,
+    "cachedInputTokens": 500608,
+    "freshInputTokens": 49555,
+    "outputTokens": 9747,
+    "reasoningOutputTokens": 2886,
+    "totalTokens": 559910
+  },
+  "eventCounts": [
+    {
+      "type": "item.completed",
+      "count": 39
+    },
+    {
+      "type": "item.started",
+      "count": 28
+    },
+    {
+      "type": "thread.started",
+      "count": 1
+    },
+    {
+      "type": "turn.completed",
+      "count": 1
+    },
+    {
+      "type": "turn.started",
+      "count": 1
+    }
+  ],
+  "itemCounts": [
+    {
+      "type": "agent_message",
+      "count": 11
+    },
+    {
+      "type": "command_execution",
+      "count": 26
+    },
+    {
+      "type": "file_change",
+      "count": 2
+    }
+  ],
+  "commandCount": 26,
+  "fileChangeCount": 2
+}
