@@ -288,6 +288,9 @@ function runProviderProcess(input: {
         "text",
         "--output-format",
         "stream-json",
+        // Claude Code requires --verbose with --print + stream-json output
+        // (same pairing as the heartbeat adapter and the external runner).
+        "--verbose",
         "--include-partial-messages",
         "--permission-mode",
         "plan",

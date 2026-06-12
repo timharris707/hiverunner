@@ -497,8 +497,10 @@ function positiveInteger(value: unknown): number | null {
 }
 
 /**
- * Reasoning controls for the anthropic external runner. Priority: task-level
- * model routing, then the agent profile's runtime config (what the
+ * Reasoning controls for the anthropic external runner. Priority: explicit
+ * task-level model routing (non-default lane only — the default lane carries
+ * a generic "high" placeholder, same convention as the codex adapter's
+ * explicitTaskReasoning), then the agent profile's runtime config (what the
  * Configuration surface and model chip write), then runner metadata.
  */
 function resolveAnthropicThinkingControls(
@@ -507,9 +509,12 @@ function resolveAnthropicThinkingControls(
 ): { reasoningEffort: string | null; maxThinkingTokens: number | null } {
   const runner = asRecord(metadata.hiverunnerSymphony) ?? asRecord(metadata.runnerConfig) ?? {};
   const runtimeConfig = parseJson(input.agent.runtime_config_json);
+  const explicitTaskReasoning = input.taskModelRouting?.lane && input.taskModelRouting.lane !== "default"
+    ? input.taskModelRouting.reasoningEffort
+    : null;
   let reasoningEffort: string | null = null;
   for (const candidate of [
-    input.taskModelRouting?.reasoningEffort,
+    explicitTaskReasoning,
     runtimeConfig.reasoningEffort,
     runtimeConfig.modelReasoningEffort,
     runtimeConfig.thinkingLevel,
