@@ -416,9 +416,18 @@ function reconcileParentTaskStatus(db: Database.Database, parentTaskId: string, 
 
     if (nextStatus === "done") {
       const authorAgentId = parent.assignee_agent_id ?? completionOwner?.id ?? null;
+      // A parent can complete via rollup more than once (it reopens when a new
+      // child arrives, then re-completes), so this must upsert against the v4
+      // partial unique index rather than re-insert the deterministic ref. The
+      // refreshed body re-lists the children as of the latest completion.
       db.prepare(
         `INSERT INTO comments (id, task_id, author_agent_id, body, type, source, external_ref, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'status_update', 'mission_control', ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, 'status_update', 'mission_control', ?, ?, ?)
+         ON CONFLICT(task_id, source, external_ref) WHERE external_ref IS NOT NULL
+         DO UPDATE SET
+           author_agent_id = excluded.author_agent_id,
+           body = excluded.body,
+           updated_at = excluded.updated_at`,
       ).run(
         randomUUID(),
         parentTaskId,

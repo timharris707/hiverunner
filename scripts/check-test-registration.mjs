@@ -21,9 +21,6 @@ const KNOWN_OUT_OF_GATE = new Set([
   // 2026-06-12 (see wiki: 2026-06-12_test-gate-coverage-triage.md).
   //
   // REAL BUGS in app code — the test is right, the code is wrong:
-  // - trust-rules-rollups: reconcileParentTaskStatus re-INSERTs the
-  //   hierarchy:auto-complete comment, violating the v4 unique index on
-  //   comments(task_id, source, external_ref) on repeat rollups.
   // - create-full-runtime-identity: one case expects initialExecution.reason
   //   to stay "company_creation_kickoff", but triggerTaskExecution overwrites
   //   the caller's reason with the skip cause when the dev-lane execution gate
@@ -33,7 +30,6 @@ const KNOWN_OUT_OF_GATE = new Set([
   //   intent decision on the reason contract before wiring.
   //   (The planning-policy 400s that also hit this file are fixed — see
   //   template-draft-plan note.)
-  "orchestration-trust-rules-rollups.test.ts",
   "orchestration-create-full-runtime-identity.test.ts",
   // FIXED 2026-06-12 and wired into the gate:
   // - template-draft-plan: planning-policy gate (2ec97f351) rejected the
@@ -45,6 +41,10 @@ const KNOWN_OUT_OF_GATE = new Set([
   //   now maps it back (also fixes normalizeCreateTaskStatus's dead "to-do"
   //   arm). The two 8916318ec review->done drift cases were re-asserted
   //   against the convert-ungated-review-to-done contract.
+  // - trust-rules-rollups: reconcileParentTaskStatus re-INSERTed the
+  //   hierarchy:auto-complete comment when a parent re-completed after a new
+  //   child reopened it; the insert now upserts against the v4 partial unique
+  //   index and refreshes the completion summary body.
   //
   // STALE TESTS — code moved on, test asserts old behavior:
   // - vs "ungated review requests convert to done" (8916318ec):
