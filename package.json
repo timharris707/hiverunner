@@ -81,6 +81,7 @@
     "test:orchestration:symphony-tracker-shim": "node ./scripts/run-ts-test.mjs src/lib/__tests__/orchestration-symphony-tracker-shim.test.ts",
     "test:orchestration:symphony-tracker-route": "node ./scripts/run-ts-test.mjs src/lib/__tests__/orchestration-symphony-tracker-route.test.ts",
     "test:orchestration:runtime-registry": "ORCHESTRATION_DB_PATH=/tmp/orchestration-runtime-registry.db node ./scripts/run-ts-test.mjs src/lib/__tests__/orchestration-runtime-registry.test.ts",
+    "test:orchestration:runtime-preflight": "node ./scripts/run-ts-test.mjs src/lib/__tests__/orchestration-runtime-preflight.test.ts",
     "test:orchestration:overseer-cockpit": "ORCHESTRATION_DB_PATH=/tmp/orchestration-overseer-cockpit.db node ./scripts/run-ts-test.mjs src/lib/__tests__/orchestration-overseer-cockpit.test.ts",
     "test:orchestration:overseer-context-snapshots": "ORCHESTRATION_DB_PATH=/tmp/orchestration-overseer-context-snapshots.db node ./scripts/run-ts-test.mjs src/lib/__tests__/orchestration-overseer-context-snapshots.test.ts",
     "test:orchestration:review-decision": "ORCHESTRATION_DB_PATH=/tmp/orchestration-review-decision.db node ./scripts/run-ts-test.mjs src/lib/__tests__/orchestration-review-decision.test.ts",
