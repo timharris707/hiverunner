@@ -81,6 +81,8 @@ async function run() {
       durationMs?: number | null;
       usage?: Record<string, unknown> | null;
       agentId?: string | null;
+      runnerProvider?: string;
+      runnerModel?: string;
     }): string {
       const id = randomUUID();
       const completedAt = input.completedAt ?? new Date().toISOString();
@@ -88,11 +90,13 @@ async function run() {
         `INSERT INTO execution_runs
            (id, task_id, agent_id, provider, runner_provider, runner_model, status,
             started_at, completed_at, duration_ms, token_usage_json, created_at, updated_at)
-         VALUES (?, ?, ?, 'symphony', 'codex', 'gpt-5.5', ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, 'symphony', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
         task.id,
         input.agentId === undefined ? agent.id : input.agentId,
+        input.runnerProvider ?? "codex",
+        input.runnerModel ?? "gpt-5.5",
         input.status ?? "completed",
         completedAt,
         completedAt,
@@ -331,6 +335,52 @@ async function run() {
       const result = runPerformanceTriggerForExecutionRun(slowRun, db);
       assert.deepEqual(result.evaluation?.reasons, ["slow"]);
       assert.notEqual(result.outcome, "below_threshold");
+
+      setImprovementTriggerEnabled({
+        companyId,
+        triggerKey: RUN_PERFORMANCE_TRIGGER_KEY,
+        enabled: true,
+        threshold: DEFAULT_RUN_PERFORMANCE_THRESHOLDS,
+      }, db);
+    });
+
+    await test("per-lane threshold overrides overlay company-level values", () => {
+      setImprovementTriggerEnabled({
+        companyId,
+        triggerKey: RUN_PERFORMANCE_TRIGGER_KEY,
+        enabled: true,
+        threshold: {
+          ...DEFAULT_RUN_PERFORMANCE_THRESHOLDS,
+          lanes: { anthropic: { maxDurationMs: 2_700_000 } },
+        },
+      }, db);
+
+      const anthropicLane = resolveRunPerformanceThresholds(db, companyId, "anthropic");
+      assert.equal(anthropicLane.maxDurationMs, 2_700_000);
+      assert.equal(anthropicLane.maxFreshInputTokens, DEFAULT_RUN_PERFORMANCE_THRESHOLDS.maxFreshInputTokens);
+      // Lane keys normalize: provider casing/whitespace from usage rows must not miss the override.
+      assert.equal(resolveRunPerformanceThresholds(db, companyId, " Anthropic ").maxDurationMs, 2_700_000);
+      // Other lanes and the no-lane call keep company-level values.
+      assert.equal(resolveRunPerformanceThresholds(db, companyId, "codex").maxDurationMs, DEFAULT_RUN_PERFORMANCE_THRESHOLDS.maxDurationMs);
+      assert.equal(resolveRunPerformanceThresholds(db, companyId).maxDurationMs, DEFAULT_RUN_PERFORMANCE_THRESHOLDS.maxDurationMs);
+
+      // A 30-minute Claude run stays quiet under the anthropic lane allowance...
+      const slowClaude = insertRun({
+        runnerProvider: "anthropic",
+        runnerModel: "claude-fable-5",
+        durationMs: 1_800_000,
+        usage: { runnerProvider: "anthropic", inputTokens: 500, outputTokens: 40_000, cacheReadInputTokens: 200_000 },
+      });
+      assert.equal(runPerformanceTriggerForExecutionRun(slowClaude, db).outcome, "below_threshold");
+
+      // ...while the same wall clock on the codex lane still trips the default.
+      const slowCodex = insertRun({
+        durationMs: 1_800_000,
+        usage: { runnerProvider: "codex", inputTokens: 9_000, outputTokens: 2_000, cacheReadInputTokens: 4_000 },
+      });
+      const codexResult = runPerformanceTriggerForExecutionRun(slowCodex, db);
+      assert.deepEqual(codexResult.evaluation?.reasons, ["slow"]);
+      assert.notEqual(codexResult.outcome, "below_threshold");
 
       setImprovementTriggerEnabled({
         companyId,

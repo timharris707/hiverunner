@@ -17,7 +17,10 @@ const DEFAULT_NO_OUTPUT_TIMEOUT_MS = 2 * 60 * 1000;
 const DEFAULT_PROGRESS_INTERVAL_MS = 30 * 1000;
 const DEFAULT_TERMINATION_GRACE_MS = 5 * 1000;
 const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6";
-const RUNNER_VERSION = "hiverunner-claude-runner 0.1.0";
+const RUNNER_VERSION = "hiverunner-claude-runner 0.2.0";
+// Mirrors `claude --effort` accepted values (CLI 2.1.175). Invalid values are
+// dropped here rather than forwarded so the CLI never warns-and-defaults.
+const VALID_CLAUDE_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
 
 if (process.argv.includes("--version") || process.argv.includes("-v")) {
   console.log(RUNNER_VERSION);
@@ -136,6 +139,38 @@ function resolvePayloadModel(payload) {
     DEFAULT_CLAUDE_MODEL;
 }
 
+function normalizeClaudeEffort(value) {
+  const effort = stringFrom(value).toLowerCase();
+  if (!effort) return "";
+  if (effort === "extra-high" || effort === "extra_high" || effort === "extra") return "xhigh";
+  return VALID_CLAUDE_EFFORTS.has(effort) ? effort : "";
+}
+
+function resolveReasoningEffort(payload) {
+  const execution = asRecord(payload.execution) ?? {};
+  const modelRouting = asRecord(execution.modelRouting) ?? {};
+  for (const candidate of [
+    process.env.HIVERUNNER_CLAUDE_EFFORT,
+    payload.runnerReasoningEffort,
+    modelRouting.reasoningEffort,
+  ]) {
+    const effort = normalizeClaudeEffort(candidate);
+    if (effort) return effort;
+  }
+  return "";
+}
+
+function resolveMaxThinkingTokens(payload) {
+  for (const candidate of [
+    process.env.HIVERUNNER_CLAUDE_MAX_THINKING_TOKENS,
+    payload.runnerMaxThinkingTokens,
+  ]) {
+    const parsed = numberFrom(candidate);
+    if (parsed !== undefined && Number.isInteger(parsed) && parsed > 0) return parsed;
+  }
+  return null;
+}
+
 function buildClaudeInvocation(payload) {
   const commandParts = splitCommandLine(process.env.HIVERUNNER_CLAUDE_COMMAND || "claude");
   const command = commandParts[0] || "claude";
@@ -145,6 +180,8 @@ function buildClaudeInvocation(payload) {
     stringFrom(process.env.MC_CLAUDE_PERMISSION_MODE) ||
     "bypassPermissions";
   const model = normalizeClaudeModel(resolvePayloadModel(payload));
+  const reasoningEffort = resolveReasoningEffort(payload);
+  const maxThinkingTokens = resolveMaxThinkingTokens(payload);
   const configuredArgs = process.env.HIVERUNNER_CLAUDE_ARGS
     ? splitCommandLine(process.env.HIVERUNNER_CLAUDE_ARGS)
     : [
@@ -152,6 +189,7 @@ function buildClaudeInvocation(payload) {
         permissionMode,
         "--model",
         model,
+        ...(reasoningEffort ? ["--effort", reasoningEffort] : []),
         "--print",
         "--input-format",
         "text",
@@ -168,11 +206,13 @@ function buildClaudeInvocation(payload) {
       ...configuredArgs,
     ],
     model,
+    reasoningEffort: reasoningEffort || null,
+    maxThinkingTokens,
     permissionMode,
   };
 }
 
-function runClaude({ command, args, cwd, prompt }) {
+function runClaude({ command, args, cwd, prompt, maxThinkingTokens }) {
   const timeoutMs = numberFromEnv("HIVERUNNER_CLAUDE_TIMEOUT_MS", DEFAULT_TIMEOUT_MS);
   const maxBufferBytes = numberFromEnv("HIVERUNNER_CLAUDE_MAX_BUFFER", DEFAULT_MAX_BUFFER_BYTES);
   const noOutputTimeoutMs = Math.min(
@@ -189,6 +229,8 @@ function runClaude({ command, args, cwd, prompt }) {
     env: buildExternalRunnerEnv({
       HIVERUNNER_EXTERNAL_RUNNER: "1",
       HIVERUNNER_CLAUDE_RUNNER: "1",
+      // Claude Code reads MAX_THINKING_TOKENS as the per-request thinking budget.
+      ...(maxThinkingTokens ? { MAX_THINKING_TOKENS: String(maxThinkingTokens) } : {}),
     }),
     stdio: ["pipe", "pipe", "pipe"],
     stdin: prompt,
@@ -235,6 +277,8 @@ async function main() {
       assistantSummary: "Claude external runner dry run completed without launching Claude Code.",
       runnerProvider: "anthropic",
       runnerModel: normalizeClaudeModel(resolvePayloadModel(payload)),
+      reasoningEffort: resolveReasoningEffort(payload) || null,
+      maxThinkingTokens: resolveMaxThinkingTokens(payload),
       transcriptEvents: [
         {
           role: "assistant",
@@ -248,7 +292,13 @@ async function main() {
   }
 
   const invocation = buildClaudeInvocation(payload);
-  const result = await runClaude({ ...invocation, cwd, prompt });
+  const result = await runClaude({
+    command: invocation.command,
+    args: invocation.args,
+    maxThinkingTokens: invocation.maxThinkingTokens,
+    cwd,
+    prompt,
+  });
   const records = result.stdout
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -273,6 +323,8 @@ async function main() {
     error: result.error ?? undefined,
     runnerProvider: "anthropic",
     runnerModel: invocation.model,
+    reasoningEffort: invocation.reasoningEffort,
+    maxThinkingTokens: invocation.maxThinkingTokens,
     inputTokens: usage.inputTokens,
     outputTokens: usage.outputTokens,
     cacheReadInputTokens: usage.cacheReadInputTokens,
@@ -294,6 +346,8 @@ async function main() {
       runnerProvider: "anthropic",
       runnerModel: invocation.model,
       model: invocation.model,
+      reasoningEffort: invocation.reasoningEffort,
+      maxThinkingTokens: invocation.maxThinkingTokens,
       timedOut: result.timedOut,
       noOutputTimedOut: result.noOutputTimedOut,
       killedForBuffer: result.killedForBuffer,

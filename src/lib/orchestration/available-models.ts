@@ -49,6 +49,18 @@ export const AVAILABLE_MODEL_CAPABILITIES: AvailableModelCapability[] = [
 
 export const SEEDED_AVAILABLE_MODELS: Array<Omit<AvailableModel, "createdAt" | "updatedAt">> = [
   {
+    id: "claude-fable-5",
+    displayName: "Claude Fable 5",
+    runtimeProvider: "anthropic",
+    defaultRuntimeLabel: "Claude Code",
+    modelSourceId: "anthropic",
+    capabilities: ["text", "vision", "tools", "structured-output"],
+    contextWindow: 1_000_000,
+    description: "Anthropic's most powerful model — the frontier tier above Opus for orchestration-grade judgment and the hardest reasoning work.",
+    isSeed: true,
+    isActive: true,
+  },
+  {
     id: "claude-opus-4-8",
     displayName: "Claude Opus 4.8",
     runtimeProvider: "anthropic",

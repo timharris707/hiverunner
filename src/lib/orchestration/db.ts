@@ -4472,6 +4472,29 @@ const MIGRATIONS: Migration[] = [
         WHERE replay_of_action_ledger_id IS NOT NULL;
     `,
   },
+  {
+    version: 126,
+    name: "claude_fable_5_seed",
+    sql: `
+      INSERT INTO available_models (
+        id, display_name, runtime_provider, default_runtime_label, model_source_id,
+        capabilities_json, context_window, description, is_seed, is_active, created_at, updated_at
+      )
+      VALUES
+        ('claude-fable-5', 'Claude Fable 5', 'anthropic', 'Claude Code', 'anthropic', '["text","vision","tools","structured-output"]', 1000000, 'Anthropic''s most powerful model — the frontier tier above Opus for orchestration-grade judgment and the hardest reasoning work.', 1, 1, ${NOW_SQL}, ${NOW_SQL})
+      ON CONFLICT(id) DO UPDATE SET
+        display_name = excluded.display_name,
+        runtime_provider = excluded.runtime_provider,
+        default_runtime_label = excluded.default_runtime_label,
+        model_source_id = excluded.model_source_id,
+        capabilities_json = excluded.capabilities_json,
+        context_window = excluded.context_window,
+        description = excluded.description,
+        is_seed = excluded.is_seed,
+        is_active = excluded.is_active,
+        updated_at = excluded.updated_at;
+    `,
+  },
 ];
 
 let dbInstance: Database.Database | null = null;

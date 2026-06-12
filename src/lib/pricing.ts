@@ -16,6 +16,16 @@ export interface ModelPricing {
 export const MODEL_PRICING: ModelPricing[] = [
   // Anthropic models
   {
+    // Display completeness only on subscription-CLI lanes — Claude Code runs are
+    // not metered per-token; these are the published API rates.
+    id: "anthropic/claude-fable-5",
+    name: "Fable 5",
+    alias: "fable",
+    inputPricePerMillion: 10.0,
+    outputPricePerMillion: 50.0,
+    contextWindow: 1000000,
+  },
+  {
     id: "anthropic/claude-opus-4-8",
     name: "Opus 4.8",
     alias: "opus",
@@ -130,6 +140,7 @@ export function getModelName(modelId: string): string {
 export function normalizeModelId(modelId: string): string {
   const aliasMap: Record<string, string> = {
     // Short aliases
+    fable: "anthropic/claude-fable-5",
     opus: "anthropic/claude-opus-4-8",
     sonnet: "anthropic/claude-sonnet-4-6",
     haiku: "anthropic/claude-haiku-3-5",
@@ -139,6 +150,7 @@ export function normalizeModelId(modelId: string): string {
     "gemini-pro": "google/gemini-2.5-pro",
 
     // OpenClaw / bare model names
+    "claude-fable-5": "anthropic/claude-fable-5",
     "claude-opus-4-8": "anthropic/claude-opus-4-8",
     "claude-opus-4-7": "anthropic/claude-opus-4-8",
     "claude-opus-4-6": "anthropic/claude-opus-4-8",

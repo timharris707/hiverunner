@@ -141,16 +141,43 @@ function thresholdOverride(value: unknown, fallback: number): number {
   return parsed !== null && parsed > 0 ? parsed : fallback;
 }
 
-/** Per-company overrides come from improvement_trigger_controls.threshold_json; anything missing falls back to defaults. */
+function normalizedLaneKey(value: string | null | undefined): string | null {
+  const normalized = value?.trim().toLowerCase() ?? "";
+  return normalized || null;
+}
+
+/**
+ * Per-company overrides come from improvement_trigger_controls.threshold_json;
+ * anything missing falls back to defaults.
+ *
+ * Per-lane overrides nest under `lanes`, keyed by the run's runner provider
+ * (anthropic/codex/gemini/...), and overlay the company-level values. Lanes
+ * have genuinely different cost shapes — e.g. Claude runs at extra-high
+ * thinking are slow but near-fully prompt-cached, while codex runs are fast
+ * but fresh-input heavy — so one company-wide number either misses real
+ * outliers or flags every run on the heavier lane.
+ *
+ *   { "maxDurationMs": 1200000, "lanes": { "anthropic": { "maxDurationMs": 2700000 } } }
+ */
 export function resolveRunPerformanceThresholds(
   db: Database.Database,
   companyId: string,
+  runnerProvider?: string | null,
 ): RunPerformanceThresholds {
   const row = db
     .prepare("SELECT threshold_json FROM improvement_trigger_controls WHERE company_id = ? AND trigger_key = ? LIMIT 1")
     .get(companyId, RUN_PERFORMANCE_TRIGGER_KEY) as { threshold_json: string | null } | undefined;
   const stored = parseUsage(row?.threshold_json);
-  return {
+  const laneKey = normalizedLaneKey(runnerProvider);
+  const lanes = stored.lanes && typeof stored.lanes === "object" && !Array.isArray(stored.lanes)
+    ? (stored.lanes as Record<string, unknown>)
+    : {};
+  const laneRaw = laneKey ? lanes[laneKey] : undefined;
+  const lane = laneRaw && typeof laneRaw === "object" && !Array.isArray(laneRaw)
+    ? (laneRaw as Record<string, unknown>)
+    : {};
+
+  const companyLevel: RunPerformanceThresholds = {
     maxDurationMs: thresholdOverride(stored.maxDurationMs, DEFAULT_RUN_PERFORMANCE_THRESHOLDS.maxDurationMs),
     maxFreshInputTokens: thresholdOverride(
       stored.maxFreshInputTokens,
@@ -160,6 +187,12 @@ export function resolveRunPerformanceThresholds(
       stored.freshInputBaselineTokens,
       DEFAULT_RUN_PERFORMANCE_THRESHOLDS.freshInputBaselineTokens,
     ),
+  };
+
+  return {
+    maxDurationMs: thresholdOverride(lane.maxDurationMs, companyLevel.maxDurationMs),
+    maxFreshInputTokens: thresholdOverride(lane.maxFreshInputTokens, companyLevel.maxFreshInputTokens),
+    freshInputBaselineTokens: thresholdOverride(lane.freshInputBaselineTokens, companyLevel.freshInputBaselineTokens),
   };
 }
 
@@ -373,7 +406,7 @@ export function runPerformanceTriggerForExecutionRun(
     return { outcome: "skipped_no_metrics", metrics };
   }
 
-  const thresholds = resolveRunPerformanceThresholds(db, companyId);
+  const thresholds = resolveRunPerformanceThresholds(db, companyId, run.runner_provider);
   const evaluation = evaluateRunPerformance(metrics, thresholds);
   if (!evaluation.isOutlier) {
     return { outcome: "below_threshold", metrics, evaluation, thresholds };

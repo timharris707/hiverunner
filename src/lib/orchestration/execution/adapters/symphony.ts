@@ -91,6 +91,8 @@ type SymphonyExecConfig = {
   env: Record<string, string>;
   runnerProvider: string;
   runnerModel: string | null;
+  reasoningEffort: string | null;
+  maxThinkingTokens: number | null;
   modelRouting: string | null;
   modelRoutingLabel: string | null;
   activeHiveId: string | null;
@@ -478,6 +480,51 @@ function normalizeRunnerProvider(value: string | null | undefined): string {
   return provider || "codex";
 }
 
+// Mirrors `claude --effort` accepted values plus the operator-facing
+// "extra-high" spelling. Applies to the anthropic runner lane only — Codex and
+// Gemini reasoning controls flow through their own adapters.
+function normalizeAnthropicReasoningEffort(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized === "extra" || normalized === "extra-high" || normalized === "extra_high") return "xhigh";
+  return ["low", "medium", "high", "xhigh", "max"].includes(normalized) ? normalized : null;
+}
+
+function positiveInteger(value: unknown): number | null {
+  const parsed = numberFrom(value);
+  return parsed !== undefined && Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+/**
+ * Reasoning controls for the anthropic external runner. Priority: task-level
+ * model routing, then the agent profile's runtime config (what the
+ * Configuration surface and model chip write), then runner metadata.
+ */
+function resolveAnthropicThinkingControls(
+  input: ExecutionInput,
+  metadata: Record<string, unknown>,
+): { reasoningEffort: string | null; maxThinkingTokens: number | null } {
+  const runner = asRecord(metadata.hiverunnerSymphony) ?? asRecord(metadata.runnerConfig) ?? {};
+  const runtimeConfig = parseJson(input.agent.runtime_config_json);
+  let reasoningEffort: string | null = null;
+  for (const candidate of [
+    input.taskModelRouting?.reasoningEffort,
+    runtimeConfig.reasoningEffort,
+    runtimeConfig.modelReasoningEffort,
+    runtimeConfig.thinkingLevel,
+    runner.reasoningEffort,
+    runner.thinkingLevel,
+  ]) {
+    reasoningEffort = normalizeAnthropicReasoningEffort(candidate);
+    if (reasoningEffort) break;
+  }
+  return {
+    reasoningEffort,
+    maxThinkingTokens: positiveInteger(runtimeConfig.maxThinkingTokens) ?? positiveInteger(runner.maxThinkingTokens),
+  };
+}
+
 function normalizeCodexCliModel(value: unknown): string | null {
   const model = optionalString(value)
     ?.replace(/^openai-codex\//i, "")
@@ -514,6 +561,10 @@ function resolveRunnerEnv(
   metadata: Record<string, unknown>,
   runnerProvider: string,
   runnerModel: string | null,
+  thinkingControls: { reasoningEffort: string | null; maxThinkingTokens: number | null } = {
+    reasoningEffort: null,
+    maxThinkingTokens: null,
+  },
 ): Record<string, string> {
   const env: Record<string, string> = {};
   const runner = asRecord(metadata.hiverunnerSymphony) ?? asRecord(metadata.runnerConfig) ?? {};
@@ -553,6 +604,10 @@ function resolveRunnerEnv(
     if (claudePermissionMode) env.HIVERUNNER_CLAUDE_PERMISSION_MODE = claudePermissionMode;
     if (timeoutMs) env.HIVERUNNER_CLAUDE_TIMEOUT_MS = timeoutMs;
     if (maxBuffer) env.HIVERUNNER_CLAUDE_MAX_BUFFER = maxBuffer;
+    if (thinkingControls.reasoningEffort) env.HIVERUNNER_CLAUDE_EFFORT = thinkingControls.reasoningEffort;
+    if (thinkingControls.maxThinkingTokens) {
+      env.HIVERUNNER_CLAUDE_MAX_THINKING_TOKENS = String(thinkingControls.maxThinkingTokens);
+    }
   }
   if (runnerProvider === "gemini") {
     if (geminiCommand) env.HIVERUNNER_GEMINI_COMMAND = geminiCommand;
@@ -1346,15 +1401,20 @@ function resolveCommandConfig(
   const workspace = resolveWorkspaceRoot(db, input);
   const routeModel = routeAttempt?.target.model;
   const runnerModel = routeModel ?? resolveRunnerModel(metadata, runnerProvider, !Boolean(routeAttempt));
+  const thinkingControls = runnerProvider === "anthropic"
+    ? resolveAnthropicThinkingControls(input, metadata)
+    : { reasoningEffort: null, maxThinkingTokens: null };
 
   return {
     command,
     args,
     launchCommand: launch.command,
     launchArgs: launch.args,
-    env: resolveRunnerEnv(metadata, runnerProvider, runnerModel),
+    env: resolveRunnerEnv(metadata, runnerProvider, runnerModel, thinkingControls),
     runnerProvider,
     runnerModel,
+    reasoningEffort: thinkingControls.reasoningEffort,
+    maxThinkingTokens: thinkingControls.maxThinkingTokens,
     modelRouting: matrixDefaults.modelRouting ?? null,
     modelRoutingLabel: matrixDefaults.modelRoutingLabel ?? null,
     activeHiveId: input.executionRoute?.activeHiveId ?? matrixDefaults.activeHiveId ?? null,
@@ -1439,6 +1499,8 @@ function buildPayload(input: ExecutionInput, config: SymphonyExecConfig, db: Dat
     executionEngine: "symphony",
     runnerProvider: config.runnerProvider,
     runnerModel: config.runnerModel,
+    runnerReasoningEffort: config.reasoningEffort,
+    runnerMaxThinkingTokens: config.maxThinkingTokens,
     modelLane: input.executionRoute?.laneId ?? input.taskModelRouting?.lane ?? "default",
     modelRouting: config.modelRouting,
     modelRoutingLabel: config.modelRoutingLabel,
@@ -2194,6 +2256,8 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
       activeHiveId: config.activeHiveId,
       activeHiveName: config.activeHiveName,
       integrationPath: "hiverunner-symphony-command",
+      reasoningEffort: stringFrom(parsedUsage.reasoningEffort) || config.reasoningEffort || null,
+      maxThinkingTokens: numberFrom(parsedUsage.maxThinkingTokens) ?? config.maxThinkingTokens ?? null,
       command: config.command,
       args: config.args,
       runnerEnv: config.env,
