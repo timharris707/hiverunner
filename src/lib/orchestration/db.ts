@@ -4530,6 +4530,44 @@ const MIGRATIONS: Migration[] = [
         WHERE lead_agent_id IS NOT NULL;
     `,
   },
+  {
+    version: 128,
+    name: "role_template_patches",
+    sql: `
+      -- H4 Improve -> template compounding. Approved improvement
+      -- recommendations land here as additive playbook patches scoped to an
+      -- onboarding-asset bucket; prompt assembly appends active patches to
+      -- the bucket's assets at load time. Base assets in source control stay
+      -- immutable, so a patch is data: auditable (this table + approval_id),
+      -- rollbackable (status flip preserves the row), and deduped (active
+      -- content hash per company/bucket/file).
+      CREATE TABLE IF NOT EXISTS role_template_patches (
+        id                      TEXT PRIMARY KEY,
+        company_id              TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        role_bucket             TEXT NOT NULL CHECK (role_bucket IN ('ceo','default')),
+        target_file             TEXT NOT NULL DEFAULT 'AGENTS.md',
+        recommendation_id       TEXT REFERENCES improvement_recommendations(id) ON DELETE SET NULL,
+        approval_id             TEXT REFERENCES approvals(id) ON DELETE SET NULL,
+        title                   TEXT NOT NULL,
+        content                 TEXT NOT NULL,
+        content_hash            TEXT NOT NULL,
+        status                  TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','rolled_back')),
+        applied_by_user_id      TEXT,
+        rolled_back_at          TEXT,
+        rolled_back_by_user_id  TEXT,
+        rollback_reason         TEXT,
+        created_at              TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        updated_at              TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_role_template_patches_company_bucket
+        ON role_template_patches(company_id, role_bucket, status, created_at);
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_role_template_patches_active_dedupe
+        ON role_template_patches(company_id, role_bucket, target_file, content_hash)
+        WHERE status = 'active';
+    `,
+  },
 ];
 
 let dbInstance: Database.Database | null = null;

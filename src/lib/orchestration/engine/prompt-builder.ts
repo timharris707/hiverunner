@@ -20,6 +20,7 @@ import {
   resolveOnboardingAssetBucket,
   type OnboardingBucketContext,
 } from "@/lib/orchestration/engine/onboarding-bucket";
+import { buildRoleTemplatePatchBlock } from "@/lib/orchestration/role-template-patches";
 import type { PlanningPolicy } from "@/lib/orchestration/planning-policy";
 import { resolveOpenClawDir } from "@/lib/workspaces/root";
 import { PUBLIC_HUMAN_LABEL } from "@/lib/public-identity";
@@ -107,7 +108,8 @@ export function loadOnboardingAssets(
   const baseDir = resolveOnboardingDir();
   // Designation-aware: companies.lead_agent_id decides the lead bucket when a
   // designation exists; the role-string heuristic is only the fallback.
-  const roleDir = path.join(baseDir, resolveOnboardingAssetBucket(role, context));
+  const bucket = resolveOnboardingAssetBucket(role, context);
+  const roleDir = path.join(baseDir, bucket);
   const assets: Record<string, string> = {};
 
   if (!fs.existsSync(roleDir)) return assets;
@@ -118,6 +120,26 @@ export function loadOnboardingAssets(
       assets[file] = fs.readFileSync(path.join(roleDir, file), "utf8").trim();
     } catch {
       // Skip unreadable files
+    }
+  }
+
+  // H4 compounding: operator-approved Improve patches extend the bucket's
+  // base assets at load time, so learned playbook rules live where the next
+  // run actually reads them. Base files in source control stay immutable.
+  if (context?.db && context.companyId) {
+    for (const file of Object.keys(assets)) {
+      try {
+        const patchBlock = buildRoleTemplatePatchBlock(context.db, {
+          companyId: context.companyId,
+          bucket,
+          targetFile: file,
+        });
+        if (patchBlock) {
+          assets[file] = `${assets[file]}\n${patchBlock}`;
+        }
+      } catch {
+        // Patches must never break prompt assembly; base assets stand alone.
+      }
     }
   }
   return assets;

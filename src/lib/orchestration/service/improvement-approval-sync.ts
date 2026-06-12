@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 
 import { getOrchestrationDb } from "@/lib/orchestration/db";
+import { applyTemplatePatchesForApprovedRecommendations } from "@/lib/orchestration/role-template-patches";
 import { recordImproveActivity } from "@/lib/orchestration/service/improvement-provenance";
 import type { ApprovalStatus, ImprovementApprovalPackageStatus } from "@/lib/orchestration/types";
 
@@ -91,6 +92,33 @@ export function syncImproveApprovalDecision(input: {
          updated_at = ?
      WHERE id = ?`,
   );
+
+  // H4 compounding: an approved Improve package is the operator's consent to
+  // make the lesson durable. Agent-scoped recommendations auto-patch the
+  // originating role's onboarding-asset bucket (audit trail + rollback +
+  // dedupe live in role_template_patches); recommendations flip to
+  // 'applied'. Apply failures must never break approval resolution.
+  if (status === "approved") {
+    try {
+      applyTemplatePatchesForApprovedRecommendations({
+        approvalId: input.approvalId,
+        actorUserId: input.actorUserId ?? null,
+        db,
+      });
+      for (const row of rows) {
+        const refreshed = db
+          .prepare("SELECT status FROM improvement_recommendations WHERE id = ? LIMIT 1")
+          .get(row.recommendation_id) as { status: string } | undefined;
+        if (refreshed) row.recommendation_status = refreshed.status;
+      }
+    } catch (applyError) {
+      console.warn(
+        `[improve] template patch apply failed for approval ${input.approvalId}:`,
+        applyError instanceof Error ? applyError.message : String(applyError),
+      );
+    }
+  }
+
   for (const row of rows) {
     update.run(status, now, row.id);
     const projectId = resolveProjectForImproveActivity(db, row);
