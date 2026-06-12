@@ -703,6 +703,10 @@ function actionExecutionSummary(action: McAction, outcome: McActionExecutionOutc
       return action.action === "register_artifact"
         ? `Registered artifact on ${action.taskKey} (${action.kind ?? "unknown kind"})`
         : "Registered artifact";
+    case "created_goal":
+      return action.action === "create_goal"
+        ? `Created goal: ${action.name.slice(0, 80)}`
+        : `Created goal ${outcome.goalId}`;
     case "proposed_sprint_plan":
       return `Proposed sprint plan draft ${outcome.draftId}`;
     case "proposed_goal_completion":

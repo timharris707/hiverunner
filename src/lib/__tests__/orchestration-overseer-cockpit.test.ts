@@ -251,6 +251,24 @@ async function run() {
     assert.strictEqual(readiness.ready, true);
   });
 
+  await test("Codex status discovers local bin paths when server PATH is sparse", () => {
+    const localBinDir = path.join(homeDir, ".local", "bin");
+    mkdirSync(localBinDir, { recursive: true });
+    const localCodex = writeFakeCodexCli(localBinDir);
+    const previousPath = process.env.PATH;
+    process.env.PATH = "/usr/bin:/bin";
+    try {
+      const codexStatus = detectCodexStatus("codex");
+      assert.strictEqual(codexStatus.installed, true);
+      assert.strictEqual(codexStatus.version, "codex-cli 9.9.9");
+      assert.strictEqual(codexStatus.authReady, true);
+      assert.strictEqual(codexStatus.authMode, "chatgpt");
+    } finally {
+      process.env.PATH = previousPath;
+      rmSync(localCodex, { force: true });
+    }
+  });
+
   await test("session creation uses the bound company project workspace", () => {
     const session = createOverseerSession({
       companyIdOrSlug: company.id,

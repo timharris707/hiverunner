@@ -18,6 +18,8 @@ import { triggerTaskExecution } from "@/lib/orchestration/execution";
 import { moveTask } from "@/lib/orchestration/service";
 import { resolveTaskExecutionEngine } from "@/lib/orchestration/service/shared";
 import { normalizeTaskModelLane } from "@/lib/orchestration/task-model-routing";
+import { createCompanyGoal } from "@/lib/orchestration/company-service";
+import type { TaskExecutionEngine, TaskModelLane } from "@/lib/orchestration/types";
 import {
   applyApprovedOverseerCompaction,
   recordOverseerCompactionApprovalDecision,
@@ -55,6 +57,57 @@ function triggerImmediateRunIfAllowed(taskId: string, runId: string | undefined,
   if (!companyId || !canAutonomouslyExecuteCompany(companyId, db)) return;
   after(async () => {
     await triggerImmediateHeartbeatRun(runId);
+  });
+}
+
+type CreateGoalApprovalAction = {
+  action: "create_goal";
+  name: string;
+  goal: string;
+  projectId?: string;
+  goalKind?: "company" | "sprint";
+  status?: "planned" | "active" | "blocked" | "paused" | "done";
+  startDate?: string;
+  endDate?: string | null;
+  parentId?: string;
+  owner?: string | null;
+  leadAgentId?: string | null;
+  stopCondition?: string;
+  progressSummary?: string;
+  defaultExecutionEngine?: TaskExecutionEngine | null;
+  defaultModelLane?: TaskModelLane | null;
+};
+
+function isCreateGoalAction(actionType: string, payloadAction: unknown): payloadAction is CreateGoalApprovalAction {
+  return actionType === "create_goal" &&
+    typeof payloadAction === "object" &&
+    payloadAction !== null &&
+    !Array.isArray(payloadAction) &&
+    (payloadAction as { action?: unknown }).action === "create_goal";
+}
+
+function applyApprovedCreateGoalAction(input: {
+  companyId: string;
+  action: CreateGoalApprovalAction;
+  actorUserId: string;
+}): ReturnType<typeof createCompanyGoal> {
+  return createCompanyGoal({
+    companyIdOrSlug: input.companyId,
+    projectId: input.action.projectId,
+    name: input.action.name,
+    goal: input.action.goal,
+    goalKind: input.action.goalKind,
+    status: input.action.status ?? "active",
+    startDate: input.action.startDate,
+    endDate: input.action.endDate ?? null,
+    parentId: input.action.parentId,
+    owner: input.action.owner ?? null,
+    leadAgentId: input.action.leadAgentId ?? null,
+    stopCondition: input.action.stopCondition,
+    progressSummary: input.action.progressSummary,
+    defaultExecutionEngine: input.action.defaultExecutionEngine ?? null,
+    defaultModelLane: input.action.defaultModelLane ?? null,
+    actorUserId: input.actorUserId,
   });
 }
 
@@ -263,6 +316,7 @@ async function handleApprove(approvalId: string, body: Record<string, unknown>) 
   let protectedRuntimeResume: Awaited<ReturnType<typeof resumeApprovedProtectedRuntimeTask>> | null = null;
   let approvedAgentUpdate: ReturnType<typeof applyApprovedAgentRuntimeUpdate> | null = null;
   let approvedOverseerCompaction: ReturnType<typeof applyApprovedOverseerCompaction> | null = null;
+  let approvedGoalCreation: ReturnType<typeof applyApprovedCreateGoalAction> | null = null;
 
   if (approval.type === "hire_agent") {
     materializeApprovedHireAgent({
@@ -309,6 +363,12 @@ async function handleApprove(approvalId: string, body: Record<string, unknown>) 
         approvalId,
         actorUserId: typeof body.decidedByUserId === "string" ? body.decidedByUserId : "operator",
         db,
+      });
+    } else if (isCreateGoalAction(actionType, payloadAction)) {
+      approvedGoalCreation = applyApprovedCreateGoalAction({
+        companyId: approval.companyId,
+        action: payloadAction,
+        actorUserId: typeof body.decidedByUserId === "string" ? body.decidedByUserId : "operator",
       });
     } else if (isAgentUpdateAction) {
       approvedAgentUpdate = applyApprovedAgentRuntimeUpdate({
@@ -360,7 +420,7 @@ async function handleApprove(approvalId: string, body: Record<string, unknown>) 
     }
   }
 
-  return NextResponse.json({ ...result, providerSwitch, protectedRuntimeResume, approvedAgentUpdate, approvedOverseerCompaction });
+  return NextResponse.json({ ...result, providerSwitch, protectedRuntimeResume, approvedAgentUpdate, approvedOverseerCompaction, approvedGoalCreation });
 }
 
 function handleReject(approvalId: string, body: Record<string, unknown>) {

@@ -13,7 +13,7 @@ import { shouldAutoApproveNewHires } from "@/lib/orchestration/service/hiring-go
 import { reconcileTaskHierarchy, refreshAgentLoad, resolveTaskExecutionEngine, resolveTaskExecutionRouting } from "@/lib/orchestration/service/shared";
 import { sanitizeAgentCommentLinks } from "@/lib/orchestration/comment-link-verification";
 import { submitCompanyReviewDecision } from "@/lib/orchestration/review-decision";
-import { createGoalCompletionProposal, createSprintPlanDrafts, recordGoalContractEvidence } from "@/lib/orchestration/company-service";
+import { createCompanyGoal, createGoalCompletionProposal, createSprintPlanDrafts, recordGoalContractEvidence } from "@/lib/orchestration/company-service";
 import {
   buildPlanningPolicy,
   formatPlanningPolicyViolationMessage,
@@ -148,6 +148,23 @@ export type McAction =
       adapterType?: string;
       model?: string;
     }
+  | {
+      action: "create_goal";
+      name: string;
+      goal: string;
+      projectId?: string;
+      goalKind?: "company" | "sprint";
+      status?: "planned" | "active" | "blocked" | "paused" | "done";
+      startDate?: string;
+      endDate?: string | null;
+      parentId?: string;
+      owner?: string | null;
+      leadAgentId?: string | null;
+      stopCondition?: string;
+      progressSummary?: string;
+      defaultExecutionEngine?: TaskExecutionEngine | null;
+      defaultModelLane?: TaskModelLane | null;
+    }
   | { action: "report"; summary: string }
   | { action: "update_task"; taskKey: string; status?: string; assignee?: string; comment?: string }
   | AgentRuntimeUpdateAction
@@ -271,6 +288,7 @@ export type McAction =
 
 export type McActionExecutionOutcome =
   | { kind: "created_task"; taskId: string }
+  | { kind: "created_goal"; goalId: string }
   | { kind: "created_approval"; approvalId: string }
   | { kind: "hired_agent"; agentId: string }
   | { kind: "reported" }
@@ -559,6 +577,27 @@ export async function executeMcAction(
           return { kind: "hired_agent", agentId: hireResult.slice(AUTO_APPROVED_HIRE_PREFIX.length) };
         }
         return { kind: "created_approval", approvalId: hireResult };
+      }
+      case "create_goal": {
+        const result = createCompanyGoal({
+          companyIdOrSlug: input.companyId,
+          projectId: action.projectId,
+          name: action.name,
+          goal: action.goal,
+          goalKind: action.goalKind,
+          status: action.status ?? "active",
+          startDate: action.startDate,
+          endDate: action.endDate ?? null,
+          parentId: action.parentId,
+          owner: action.owner ?? null,
+          leadAgentId: action.leadAgentId ?? null,
+          stopCondition: action.stopCondition,
+          progressSummary: action.progressSummary,
+          defaultExecutionEngine: action.defaultExecutionEngine ?? null,
+          defaultModelLane: action.defaultModelLane ?? null,
+          actorUserId: input.agentId,
+        });
+        return { kind: "created_goal", goalId: result.goal.sprint.id };
       }
       case "report": {
         importCommentOnTask(
@@ -1125,6 +1164,7 @@ function resolveHireRuntimeDefaults(
 
 const VALID_ACTION_TYPES = new Set([
   "create_task",
+  "create_goal",
   "hire_agent",
   "report",
   "update_task",
@@ -1170,6 +1210,7 @@ export function emitRunEvent(
 export function getActionTarget(action: McAction): string {
   switch (action.action) {
     case "create_task": return (action.title ?? "").slice(0, 50);
+    case "create_goal": return (action.name ?? "").slice(0, 50);
     case "hire_agent": return `${action.name} (${action.role})`;
     case "report": return (action.summary ?? "").slice(0, 50);
     case "update_task": return action.taskKey ?? "";
@@ -1194,6 +1235,8 @@ export function actionFingerprint(action: McAction): string {
   switch (action.action) {
     case "create_task":
       return `create_task:${action.title?.toLowerCase().trim()}`;
+    case "create_goal":
+      return `create_goal:${action.name?.toLowerCase().trim()}:${action.status ?? "active"}:${action.leadAgentId ?? ""}`;
     case "hire_agent":
       return `hire_agent:${action.name?.toLowerCase().trim()}:${action.role?.toLowerCase().trim()}`;
     case "report":
@@ -1627,6 +1670,23 @@ function validateActionFields(parsed: Record<string, unknown>): string | null {
     case "hire_agent":
       if (!parsed.name || typeof parsed.name !== "string") return "hire_agent: 'name' is required";
       if (!parsed.role || typeof parsed.role !== "string") return "hire_agent: 'role' is required";
+      break;
+    case "create_goal":
+      if (!parsed.name || typeof parsed.name !== "string") return "create_goal: 'name' is required";
+      if (!parsed.goal || typeof parsed.goal !== "string") return "create_goal: 'goal' is required";
+      if (parsed.projectId !== undefined && typeof parsed.projectId !== "string") return "create_goal: 'projectId' must be a string";
+      if (parsed.goalKind !== undefined && parsed.goalKind !== "company" && parsed.goalKind !== "sprint") return "create_goal: 'goalKind' must be 'company' or 'sprint'";
+      if (parsed.status !== undefined && !["planned", "active", "blocked", "paused", "done"].includes(String(parsed.status))) return "create_goal: 'status' must be planned, active, blocked, paused, or done";
+      if (parsed.startDate !== undefined && typeof parsed.startDate !== "string") return "create_goal: 'startDate' must be a string";
+      if (parsed.endDate !== undefined && parsed.endDate !== null && typeof parsed.endDate !== "string") return "create_goal: 'endDate' must be a string or null";
+      if (parsed.parentId !== undefined && typeof parsed.parentId !== "string") return "create_goal: 'parentId' must be a string";
+      if (parsed.owner !== undefined && parsed.owner !== null && typeof parsed.owner !== "string") return "create_goal: 'owner' must be a string or null";
+      if (parsed.leadAgentId !== undefined && parsed.leadAgentId !== null && typeof parsed.leadAgentId !== "string") return "create_goal: 'leadAgentId' must be a string or null";
+      if (parsed.stopCondition !== undefined && typeof parsed.stopCondition !== "string") return "create_goal: 'stopCondition' must be a string";
+      if (parsed.progressSummary !== undefined && typeof parsed.progressSummary !== "string") return "create_goal: 'progressSummary' must be a string";
+      if (parsed.defaultExecutionEngine !== undefined && parsed.defaultExecutionEngine !== null && !["hiverunner", "symphony", "manual"].includes(String(parsed.defaultExecutionEngine))) return "create_goal: 'defaultExecutionEngine' must be hiverunner, symphony, manual, or null";
+      if (parsed.defaultModelLane !== undefined && parsed.defaultModelLane !== null && !["default", "fast", "mini", "deep"].includes(String(parsed.defaultModelLane))) return "create_goal: 'defaultModelLane' must be default, fast, mini, deep, or null";
+      if (parsed.goalKind === "sprint" && !parsed.parentId) return "create_goal: sprint goals require 'parentId'";
       break;
     case "report":
       if (!parsed.summary || typeof parsed.summary !== "string") return "report: 'summary' is required";

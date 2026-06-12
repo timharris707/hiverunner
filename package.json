@@ -65,6 +65,7 @@
     "test:orchestration:heartbeat-settings": "node ./scripts/run-ts-test.mjs src/lib/__tests__/orchestration-heartbeat-settings-contract.test.ts",
     "test:orchestration:execution-heartbeat-bridge": "sh -c 'ORCHESTRATION_DB_PATH=\"/tmp/orchestration-execution-heartbeat-bridge-$$.db\" node ./scripts/run-ts-test.mjs src/lib/__tests__/orchestration-execution-heartbeat-bridge.test.ts'",
     "test:orchestration:execution-engine": "ORCHESTRATION_DB_PATH=/tmp/orchestration-execution-engine.db node ./scripts/run-ts-test.mjs src/lib/__tests__/orchestration-execution-engine.test.ts",
+    "test:orchestration:reviewer-overseer-goal-action": "sh -c 'ORCHESTRATION_DB_PATH=\"/tmp/orchestration-reviewer-overseer-goal-action-$$.db\" node ./scripts/run-ts-test.mjs src/lib/__tests__/orchestration-reviewer-overseer-goal-action.test.ts'",
     "test:orchestration:child-policy-inheritance": "ORCHESTRATION_DB_PATH=/tmp/orchestration-child-policy-inheritance.db node ./scripts/run-ts-test.mjs src/lib/__tests__/orchestration-child-task-policy-inheritance.test.ts",
     "test:orchestration:hiverunner-symphony-runner": "node ./scripts/run-ts-test.mjs src/lib/__tests__/hiverunner-symphony-runner.test.ts",
     "test:orchestration:hiverunner-claude-runner": "node ./scripts/run-ts-test.mjs src/lib/__tests__/hiverunner-claude-runner.test.ts",
