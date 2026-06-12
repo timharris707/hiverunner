@@ -48,6 +48,7 @@ import {
   getLatestReviewSubmissionAuthor,
   isPlanningDraftLifecycleTask,
   learningReviewTargetHasDecision,
+  normalizeTaskStatusToken,
   planningTaskHasSprintDraft,
   taskLabelsInclude,
 } from "@/lib/orchestration/engine/status-transitions";
@@ -2522,7 +2523,7 @@ function normalizeCreateTaskLabels(value: unknown): string[] {
 
 function normalizeCreateTaskStatus(value: unknown): "backlog" | "to-do" | "in_progress" | "review" | "done" | "blocked" | null {
   if (typeof value !== "string") return null;
-  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  const normalized = normalizeTaskStatusToken(value);
   if (
     normalized === "backlog" ||
     normalized === "to-do" ||

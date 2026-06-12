@@ -146,6 +146,17 @@ export type StatusTransitionResult = {
 
 const VALID_STATUSES = ["backlog", "to-do", "in_progress", "review", "done", "blocked"];
 
+/**
+ * Collapse separators the way agents actually write statuses ("In Progress",
+ * "in-progress") while keeping "to-do" on its canonical hyphen — it is the
+ * one status whose stored form (VALID_STATUSES, status_transition_rules,
+ * board columns) does NOT use the underscore the collapse produces.
+ */
+export function normalizeTaskStatusToken(value: string): string {
+  const collapsed = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return collapsed === "to_do" ? "to-do" : collapsed;
+}
+
 export function taskLabelsInclude(labelsJson: string | null | undefined, label: string): boolean {
   if (!labelsJson) return false;
   try {
@@ -328,7 +339,7 @@ export function applyStatusTransition(
     statusWritten: false,
   };
 
-  let normalized = requestedStatus.toLowerCase().replace(/[\s-]+/g, "_");
+  let normalized = normalizeTaskStatusToken(requestedStatus);
   if (task.status === "review" && normalized === "to-do") {
     normalized = "in_progress";
   }

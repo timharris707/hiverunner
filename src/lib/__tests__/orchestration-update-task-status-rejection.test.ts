@@ -113,7 +113,7 @@ async function run() {
       return { project, agent, task };
     }
 
-    await test("to-do → review is allowed (migration v47 added the rule)", () => {
+    await test("to-do → review is allowed (migration v47) and converts to done when ungated", () => {
       const { project, agent, task } = makeFixture("to-do-to-review");
       const result = executeUpdateTask(
         { action: "update_task", taskKey: task.key as string, status: "review" },
@@ -125,10 +125,13 @@ async function run() {
       assert.equal(result.statusApplied, true, "to-do → review must apply (rule added in migration v47)");
       assert.equal(result.statusRejectedReason, undefined);
 
+      // Since 8916318ec, a review request with no explicit review gate is
+      // terminally completed instead of parking in review.
       const post = (db as { prepare: (q: string) => { get: (...a: unknown[]) => unknown } })
-        .prepare("SELECT status FROM tasks WHERE id = ?")
-        .get(task.id) as { status: string } | undefined;
-      assert.equal(post?.status, "review");
+        .prepare("SELECT status, completed_at FROM tasks WHERE id = ?")
+        .get(task.id) as { status: string; completed_at: string | null } | undefined;
+      assert.equal(post?.status, "done");
+      assert.ok(post?.completed_at, "ungated review request should terminally complete the task");
     });
 
     await test("to-do → done without a visible comment is rejected", () => {
@@ -176,11 +179,14 @@ async function run() {
       assert.equal(result.statusRejectedReason, undefined);
       assert.equal(result.commentApplied, true);
 
+      // Since 8916318ec the ungated review request completes terminally; the
+      // part this case still owns is that the blocked_reason gets cleared.
       const post = (db as { prepare: (q: string) => { get: (...a: unknown[]) => unknown } })
-        .prepare("SELECT status, blocked_reason FROM tasks WHERE id = ?")
-        .get(task.id) as { status: string; blocked_reason: string | null } | undefined;
-      assert.equal(post?.status, "review");
+        .prepare("SELECT status, blocked_reason, completed_at FROM tasks WHERE id = ?")
+        .get(task.id) as { status: string; blocked_reason: string | null; completed_at: string | null } | undefined;
+      assert.equal(post?.status, "done");
       assert.equal(post?.blocked_reason, null);
+      assert.ok(post?.completed_at, "ungated review request should terminally complete the task");
     });
 
     await test("review → to-do queues a rework wake for the assigned worker", () => {

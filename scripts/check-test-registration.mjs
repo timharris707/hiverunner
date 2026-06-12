@@ -21,9 +21,6 @@ const KNOWN_OUT_OF_GATE = new Set([
   // 2026-06-12 (see wiki: 2026-06-12_test-gate-coverage-triage.md).
   //
   // REAL BUGS in app code — the test is right, the code is wrong:
-  // - update-task-status-rejection: applyStatusTransition normalizes "to-do"
-  //   to "to_do", which is missing from VALID_STATUSES, so agent requests for
-  //   to-do are rejected (plus 8916318ec review->done drift in two cases).
   // - trust-rules-rollups: reconcileParentTaskStatus re-INSERTs the
   //   hierarchy:auto-complete comment, violating the v4 unique index on
   //   comments(task_id, source, external_ref) on repeat rollups.
@@ -36,13 +33,18 @@ const KNOWN_OUT_OF_GATE = new Set([
   //   intent decision on the reason contract before wiring.
   //   (The planning-policy 400s that also hit this file are fixed — see
   //   template-draft-plan note.)
-  "orchestration-update-task-status-rejection.test.ts",
   "orchestration-trust-rules-rollups.test.ts",
   "orchestration-create-full-runtime-identity.test.ts",
   // FIXED 2026-06-12 and wired into the gate:
   // - template-draft-plan: planning-policy gate (2ec97f351) rejected the
   //   built-in starter templates' own canned plans (template launch 400);
   //   template-sourced drafts now skip policy shape validation.
+  // - update-task-status-rejection: applyStatusTransition's separator
+  //   collapse stranded canonical "to-do" as "to_do" (missing from
+  //   VALID_STATUSES), rejecting agent to-do requests; normalizeTaskStatusToken
+  //   now maps it back (also fixes normalizeCreateTaskStatus's dead "to-do"
+  //   arm). The two 8916318ec review->done drift cases were re-asserted
+  //   against the convert-ungated-review-to-done contract.
   //
   // STALE TESTS — code moved on, test asserts old behavior:
   // - vs "ungated review requests convert to done" (8916318ec):
