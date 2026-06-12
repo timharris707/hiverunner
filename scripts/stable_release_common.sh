@@ -21,9 +21,25 @@ START_STABLE_SCRIPT="$APP_DIR/scripts/start_stable_service.sh"
 HEALTHCHECK_URL="${HEALTHCHECK_URL:-http://127.0.0.1:3001/api/hiverunner/health}"
 RELEASE_TAG_PREFIX="stable/"
 TIMESTAMP_UTC="$(date -u +%Y%m%dT%H%M%SZ)"
+STABLE_LAUNCHD_LABEL="${STABLE_LAUNCHD_LABEL:-com.hiverunner.stable}"
 
 ensure_release_dirs() {
   mkdir -p "$LOG_DIR" "$RELEASES_DIR" "$RELEASE_HISTORY_DIR"
+}
+
+stable_launchd_target() {
+  printf "gui/%s/%s" "$(id -u)" "$STABLE_LAUNCHD_LABEL"
+}
+
+# True when launchd owns the stable lane for the logged-in user. Promotion must
+# then restart through launchd (`kickstart -k`): starting our own background
+# process while keepalive holds a pending respawn leaves two supervisors
+# fighting over port 3001, and a stale launchd process can keep serving old
+# code while reporting healthy (both observed 2026-06-12). kickstart -k is safe
+# against every interleaving — it kills whatever instance exists (including a
+# throttled keepalive respawn that landed mid-deploy) and spawns fresh.
+stable_is_launchd_managed() {
+  launchctl print "$(stable_launchd_target)" >/dev/null 2>&1
 }
 
 current_git_commit() {
@@ -538,16 +554,33 @@ deploy_stable_from_dir() {
 
   assert_release_bookkeeping "$RELEASE_ID" "$RELEASE_TAG"
 
-  echo "[release] Starting stable lane on port 3001..."
-  "$START_STABLE_SCRIPT"
-
-  echo "[release] Waiting 8s for stable lane to boot..."
-  sleep 8
-
-  if curl -sf --max-time 5 "$HEALTHCHECK_URL" >/dev/null 2>&1; then
-    echo "[release] Stable lane is healthy on port 3001"
+  if stable_is_launchd_managed; then
+    echo "[release] Restarting launchd-managed stable lane ($(stable_launchd_target))..."
+    if ! launchctl kickstart -k "$(stable_launchd_target)"; then
+      echo "[release] WARNING: launchctl kickstart failed; falling back to background stable service."
+      "$START_STABLE_SCRIPT"
+    fi
   else
-    echo "[release] WARNING: stable lane may still be booting."
+    echo "[release] Starting stable lane on port 3001..."
+    "$START_STABLE_SCRIPT"
+  fi
+
+  echo "[release] Waiting for stable lane to report healthy..."
+  STABLE_HEALTH_OK=0
+  STABLE_HEALTH_WAITED=0
+  while [ "$STABLE_HEALTH_WAITED" -lt 30 ]; do
+    sleep 2
+    STABLE_HEALTH_WAITED=$((STABLE_HEALTH_WAITED + 2))
+    if curl -sf --max-time 5 "$HEALTHCHECK_URL" >/dev/null 2>&1; then
+      STABLE_HEALTH_OK=1
+      break
+    fi
+  done
+
+  if [ "$STABLE_HEALTH_OK" = "1" ]; then
+    echo "[release] Stable lane is healthy on port 3001 (after ${STABLE_HEALTH_WAITED}s)"
+  else
+    echo "[release] WARNING: stable lane not healthy after ${STABLE_HEALTH_WAITED}s."
     echo "[release] Check logs at data/hiverunner-stable.log"
   fi
 
