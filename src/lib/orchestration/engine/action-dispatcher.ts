@@ -3783,10 +3783,13 @@ export function executeUpdateTask(
   // reconcileTaskHierarchy (G7 — earlier the engine action path skipped the
   // call that the service-layer moveTask makes, so parents got stuck in
   // 'review' even when every child was done; observed on WEA-282).
+  // artifact_uri feeds the H2.1 review gate: a registered artifact keeps a
+  // review request in review for the clean-context grader instead of letting
+  // the ungated conversion below close it.
   const task = db
     .prepare(
       `SELECT t.id, t.project_id, t.parent_task_id, t.sprint_id, t.status, t.assignee_agent_id,
-              t.task_key, t.title, t.type, t.labels_json,
+              t.task_key, t.title, t.type, t.labels_json, t.artifact_uri,
               COALESCE(t.company_id, p.company_id) AS company_id
        FROM tasks t
        LEFT JOIN projects p ON p.id = t.project_id
@@ -3803,6 +3806,7 @@ export function executeUpdateTask(
       title: string | null;
       type: string | null;
       labels_json: string | null;
+      artifact_uri: string | null;
       company_id: string | null;
     } | undefined;
 

@@ -48,7 +48,9 @@ const KNOWN_OUT_OF_GATE = new Set([
   //
   // STALE TESTS — code moved on, test asserts old behavior:
   // - vs "ungated review requests convert to done" (8916318ec):
-  "orchestration-no-op-resubmission.test.ts",
+  //   (no-op-resubmission healed by the H2.1 artifact review gate — its
+  //   resubmit fixtures carry registered artifacts, which now hold the task
+  //   in review — and is wired into the gate as of 2026-06-12.)
   "orchestration-create-task-depends-on.test.ts",
   // - vs planning-policy gate (2ec97f351): fixture plans trip the new
   //   heuristics (engine mismatch / tight-utility wording):

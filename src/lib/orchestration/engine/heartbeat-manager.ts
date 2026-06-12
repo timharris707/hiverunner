@@ -246,6 +246,7 @@ function routeAutoflippedReviewHandoff(input: {
               t.title,
               t.type,
               t.labels_json,
+              t.artifact_uri,
               COALESCE(t.company_id, p.company_id) AS company_id
        FROM tasks t
        LEFT JOIN projects p ON p.id = t.project_id

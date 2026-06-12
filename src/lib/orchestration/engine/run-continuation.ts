@@ -364,8 +364,8 @@ export function autoFlipTaskToReviewAfterMissingEndDeclaration(
   input: { taskId: string; agentId: string; runId: string; runWindowStart?: string | null; now: string }
 ): boolean {
   const task = db
-    .prepare("SELECT id, project_id, status, type, labels_json FROM tasks WHERE id = ? AND archived_at IS NULL LIMIT 1")
-    .get(input.taskId) as { id: string; project_id: string | null; status: string; type?: string | null; labels_json?: string | null } | undefined;
+    .prepare("SELECT id, project_id, status, type, labels_json, artifact_uri FROM tasks WHERE id = ? AND archived_at IS NULL LIMIT 1")
+    .get(input.taskId) as { id: string; project_id: string | null; status: string; type?: string | null; labels_json?: string | null; artifact_uri?: string | null } | undefined;
   if (!task || !["in_progress", "to-do"].includes(task.status)) return false;
   if (runHasExplicitReviewOrDoneDeclaration(db, input)) return false;
   if (runHasExplicitReviewReturnDeclaration(db, input)) return false;

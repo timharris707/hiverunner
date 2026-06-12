@@ -10,6 +10,7 @@ import {
 } from "@/lib/orchestration/runtime-readiness";
 import { enqueueWakeup } from "@/lib/orchestration/engine/wakeup-queue";
 import { isRuntimeProviderDisabled } from "@/lib/orchestration/service/runtime-governance";
+import { cleanContextGraderEnabled } from "@/lib/orchestration/engine/grader";
 
 export type ReviewHandlerTask = {
   id: string;
@@ -23,6 +24,7 @@ export type ReviewHandlerTask = {
   type: string | null;
   labels_json: string | null;
   company_id: string | null;
+  artifact_uri: string | null;
 };
 
 type ReviewRunEvent = (runId: string, agentId: string, type: "action_executed" | "action_skipped", message: string, db: Database.Database) => void;
@@ -55,10 +57,18 @@ export function taskRequiresAutonomousReviewHandoff(task: {
   title?: string | null;
   type?: string | null;
   labels_json?: string | null;
+  artifact_uri?: string | null;
 }): boolean {
   const labels = safeJsonStringArray(task.labels_json);
   if (labels.some((label) => REVIEW_HANDOFF_DISABLED_LABELS.has(label))) return false;
   if (labels.some((label) => REVIEW_HANDOFF_LABELS.has(label))) return true;
+
+  // H2.1: a registered artifact gates review by default — the clean-context
+  // grader (H2) is the reviewer. Without this, ungated submissions and
+  // post-FAIL resubmissions auto-convert review → done without a grader pass.
+  // Explicit opt-out labels above still win, and the gate disables together
+  // with the grader kill switch so tasks can't strand in review unclaimed.
+  if (cleanContextGraderEnabled() && task.artifact_uri?.trim()) return true;
 
   const type = String(task.type ?? "").trim().toLowerCase();
   return type === "review" || type === "qa";
@@ -246,7 +256,7 @@ export function autoRouteReviewHandoff(input: {
       input.runId,
       input.producerAgentId,
       "action_skipped",
-      `Skipped automatic review handoff for ${input.task.task_key ?? input.task.id}: no explicit review-required label.`,
+      `Skipped automatic review handoff for ${input.task.task_key ?? input.task.id}: no review gate applies (label, type, or registered artifact).`,
       input.db,
     );
     return { assigneeApplied: false };

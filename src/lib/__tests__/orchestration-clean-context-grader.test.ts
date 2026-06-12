@@ -55,6 +55,22 @@ async function run() {
       parseAcceptanceCriteria,
       resolveCleanContextGraderRun,
     } = await import("@/lib/orchestration/engine/grader");
+    const { taskRequiresAutonomousReviewHandoff } = await import("@/lib/orchestration/engine/review-handler");
+    const engineMod = await import("@/lib/orchestration/engine/engine");
+    const executeUpdateTask = (engineMod as unknown as {
+      executeUpdateTask: (
+        action: { action: "update_task"; taskKey: string; status?: string; comment?: string },
+        input: { agentId: string; companyId: string; runId: string },
+        db: unknown,
+      ) => { statusApplied: boolean; statusRejectedReason?: string };
+    }).executeUpdateTask;
+    const executeRegisterArtifact = (engineMod as unknown as {
+      executeRegisterArtifact: (
+        action: { action: "register_artifact"; taskKey: string; uri: string; kind?: string; sha256?: string },
+        input: { agentId: string; companyId: string; runId: string },
+        db: unknown,
+      ) => { taskFound: boolean },
+    }).executeRegisterArtifact;
 
     const db = getOrchestrationDb();
     const project = createFixtureProject(createProject, {
@@ -316,6 +332,116 @@ async function run() {
       assert.ok(prompt.includes("Just ship the thing with quality."), "description fallback present");
       assert.ok(prompt.includes("not recorded"), "missing sha labeled");
       assert.ok(prompt.includes("output/report.html"), "relative artifact path passed through");
+    });
+
+    // ── H2.1 — a registered artifact gates the ungated review→done conversion ──
+
+    await test("H2.1 predicate: registered artifact requires review handoff; opt-outs still win", () => {
+      const base = { title: "t", type: "feature", labels_json: null as string | null };
+      assert.equal(taskRequiresAutonomousReviewHandoff({ ...base, artifact_uri: "output/r.html" }), true, "artifact gates by default");
+      assert.equal(taskRequiresAutonomousReviewHandoff({ ...base, artifact_uri: null }), false, "no artifact, no gate");
+      assert.equal(taskRequiresAutonomousReviewHandoff({ ...base, artifact_uri: "   " }), false, "blank artifact uri is not a gate");
+      assert.equal(
+        taskRequiresAutonomousReviewHandoff({ ...base, labels_json: '["review-not-required"]', artifact_uri: "output/r.html" }),
+        false,
+        "explicit opt-out label beats the artifact gate",
+      );
+      process.env.HIVERUNNER_CLEAN_CONTEXT_GRADER = "0";
+      try {
+        assert.equal(
+          taskRequiresAutonomousReviewHandoff({ ...base, artifact_uri: "output/r.html" }),
+          false,
+          "kill switch disables the artifact gate together with the grader",
+        );
+      } finally {
+        delete process.env.HIVERUNNER_CLEAN_CONTEXT_GRADER;
+      }
+    });
+
+    await test("H2.1: ungated submission with a registered artifact stays in review for the grader", () => {
+      const task = createBasicFixtureTask(createTask, {
+        projectId: project.id,
+        title: "H2.1 artifact holds review",
+        description: "## Acceptance Criteria\n- renders",
+        status: "in-progress",
+        assignee: makerAgentId,
+        createdBy: "h2-test",
+      });
+      executeRegisterArtifact(
+        { action: "register_artifact", taskKey: task.key as string, uri: "output/h21.html", kind: "html", sha256: "ab".repeat(32) },
+        { agentId: makerAgentId, companyId: project.companyId, runId: randomUUID() },
+        db,
+      );
+      const result = executeUpdateTask(
+        { action: "update_task", taskKey: task.key as string, status: "review", comment: "Ready for review." },
+        { agentId: makerAgentId, companyId: project.companyId, runId: randomUUID() },
+        db,
+      );
+      assert.equal(result.statusApplied, true, result.statusRejectedReason);
+      const row = db.prepare("SELECT status, completed_at FROM tasks WHERE id = ?").get(task.id) as {
+        status: string;
+        completed_at: string | null;
+      };
+      assert.equal(row.status, "review", "artifact-registered submission must hold in review, not auto-convert to done");
+      assert.equal(row.completed_at, null, "no terminal completion while the grader gate holds");
+    });
+
+    await test("H2.1: kill switch restores the ungated conversion (no stranding in review)", () => {
+      const task = createBasicFixtureTask(createTask, {
+        projectId: project.id,
+        title: "H2.1 kill switch converts",
+        description: "x",
+        status: "in-progress",
+        assignee: makerAgentId,
+        createdBy: "h2-test",
+      });
+      executeRegisterArtifact(
+        { action: "register_artifact", taskKey: task.key as string, uri: "output/h21-off.html", kind: "html", sha256: "cd".repeat(32) },
+        { agentId: makerAgentId, companyId: project.companyId, runId: randomUUID() },
+        db,
+      );
+      process.env.HIVERUNNER_CLEAN_CONTEXT_GRADER = "0";
+      try {
+        const result = executeUpdateTask(
+          { action: "update_task", taskKey: task.key as string, status: "review", comment: "Ready." },
+          { agentId: makerAgentId, companyId: project.companyId, runId: randomUUID() },
+          db,
+        );
+        assert.equal(result.statusApplied, true, result.statusRejectedReason);
+      } finally {
+        delete process.env.HIVERUNNER_CLEAN_CONTEXT_GRADER;
+      }
+      const row = db.prepare("SELECT status, completed_at FROM tasks WHERE id = ?").get(task.id) as {
+        status: string;
+        completed_at: string | null;
+      };
+      assert.equal(row.status, "done", "with the grader disabled, ungated review requests convert to done as before");
+      assert.ok(row.completed_at, "conversion terminally completes the task");
+    });
+
+    await test("H2.1: review-not-required label converts to done even with a registered artifact", () => {
+      const task = createBasicFixtureTask(createTask, {
+        projectId: project.id,
+        title: "H2.1 opt-out label converts",
+        description: "x",
+        status: "in-progress",
+        assignee: makerAgentId,
+        createdBy: "h2-test",
+      });
+      db.prepare(`UPDATE tasks SET labels_json = '["review-not-required"]' WHERE id = ?`).run(task.id);
+      executeRegisterArtifact(
+        { action: "register_artifact", taskKey: task.key as string, uri: "output/h21-optout.html", kind: "html", sha256: "ef".repeat(32) },
+        { agentId: makerAgentId, companyId: project.companyId, runId: randomUUID() },
+        db,
+      );
+      const result = executeUpdateTask(
+        { action: "update_task", taskKey: task.key as string, status: "review", comment: "Ready." },
+        { agentId: makerAgentId, companyId: project.companyId, runId: randomUUID() },
+        db,
+      );
+      assert.equal(result.statusApplied, true, result.statusRejectedReason);
+      const row = db.prepare("SELECT status FROM tasks WHERE id = ?").get(task.id) as { status: string };
+      assert.equal(row.status, "done", "explicit operator opt-out keeps the direct-to-done path");
     });
 
     console.log(`\n${passed} passed, ${failed} failed\n`);
