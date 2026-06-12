@@ -7,6 +7,7 @@ import { ZodError } from "zod";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { errorResponse, handleRouteError } from "@/lib/orchestration/api";
 import { updateCompanySchema } from "@/lib/orchestration/contracts";
+import { setCompanyLeadAgent } from "@/lib/orchestration/company-lead";
 import {
   archiveCompany,
   cleanupDeletedCompanyOpenClawAgents,
@@ -51,6 +52,14 @@ export async function PATCH(
   try {
     const { slug } = await params;
     const parsed = updateCompanySchema.parse(await req.json());
+    if (parsed.leadAgentId !== undefined) {
+      const db = getOrchestrationDb();
+      const resolved = resolveCompanyIdBySlug(slug, db);
+      if (!resolved) {
+        return errorResponse(404, "not_found", "Company not found");
+      }
+      setCompanyLeadAgent({ companyId: resolved.id, agentId: parsed.leadAgentId }, db);
+    }
     return NextResponse.json(
       updateCompany({
         companySlug: slug,

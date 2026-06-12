@@ -4495,6 +4495,41 @@ const MIGRATIONS: Migration[] = [
         updated_at = excluded.updated_at;
     `,
   },
+  {
+    version: 127,
+    name: "company_lead_agent_designation",
+    sql: `
+      ALTER TABLE companies ADD COLUMN lead_agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL;
+
+      -- Backfill: designate each company's current lead using the same
+      -- preference order findCompanyCeo used while detection was string-based
+      -- (CEO-titled roles first, then orchestration/team-lead titles, earliest
+      -- created wins). From here on the designation is authoritative and the
+      -- title is cosmetic.
+      UPDATE companies SET lead_agent_id = (
+        SELECT a.id FROM agents a
+        WHERE a.company_id = companies.id
+          AND a.archived_at IS NULL
+          AND (
+            LOWER(a.role) LIKE '%ceo%'
+            OR LOWER(a.role) LIKE '%product orchestrator%'
+            OR LOWER(a.role) LIKE '%orchestration lead%'
+            OR LOWER(a.role) LIKE '%team lead%'
+            OR LOWER(a.role) = 'lead'
+            OR LOWER(a.role) LIKE 'lead %'
+            OR LOWER(a.role) LIKE 'lead/%'
+          )
+        ORDER BY
+          CASE WHEN LOWER(a.role) LIKE '%ceo%' THEN 0 ELSE 1 END,
+          a.created_at ASC
+        LIMIT 1
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_companies_lead_agent
+        ON companies(lead_agent_id)
+        WHERE lead_agent_id IS NOT NULL;
+    `,
+  },
 ];
 
 let dbInstance: Database.Database | null = null;

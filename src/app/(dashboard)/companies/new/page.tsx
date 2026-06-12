@@ -30,7 +30,6 @@ import {
   parseLeadModelDefault,
   type LeadModelDefaultInfo,
 } from "@/lib/orchestration/company-wizard";
-import { isCompanyOrchestrationLeadRole } from "@/lib/orchestration/engine/role-matcher";
 import {
   STARTER_TEAM_TEMPLATES,
   cloneStarterTeamRoles,
@@ -695,12 +694,7 @@ function StepCEO({
           <datalist id="company-lead-title-presets">
             {COMPANY_LEAD_TITLE_PRESETS.map((preset) => <option key={preset} value={preset} />)}
           </datalist>
-          {data.title.trim() && !isCompanyOrchestrationLeadRole(data.title) ? (
-            <p className="mt-1 flex items-start gap-1.5 text-xs leading-relaxed text-[var(--text-secondary)]">
-              <AlertCircle size={13} className="mt-0.5 shrink-0 text-[var(--accent)]" />
-              <span>Routing tip: include &quot;CEO&quot; or a leading &quot;Lead&quot; in the title so HiveRunner routes task triage and reviews to this agent.</span>
-            </p>
-          ) : null}
+          <p className="mt-1 text-xs text-[var(--text-muted)]">Just a label — call them anything. HiveRunner designates this agent as the company lead either way.</p>
         </Field>
       </div>
       <Field label="Model">

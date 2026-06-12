@@ -417,6 +417,10 @@ export async function POST(req: NextRequest) {
       now,
     );
 
+    // This agent is the designated company lead — routing (triage, sweeps,
+    // reviews) follows the designation, so the title above is purely cosmetic.
+    db.prepare("UPDATE companies SET lead_agent_id = ? WHERE id = ?").run(agentId, companyId);
+
     // Product default: a lead/CEO on the anthropic lane runs at extra-high
     // thinking unless the operator later dials it down in Configuration.
     if (runtimeProvider === "anthropic") {

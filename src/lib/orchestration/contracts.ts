@@ -330,6 +330,9 @@ export const updateCompanySchema = z
         email: z.string().trim().email().max(240),
       })
       .optional(),
+    // Switches the designated company lead (companies.lead_agent_id). Must be
+    // an active agent in this company; the lead's title stays free-form.
+    leadAgentId: z.string().trim().min(1).max(120).optional(),
   })
   .refine(
     (value) =>
@@ -338,7 +341,8 @@ export const updateCompanySchema = z
       value.description !== undefined ||
       value.status !== undefined ||
       value.defaultExecutionEngine !== undefined ||
-      value.owner !== undefined,
+      value.owner !== undefined ||
+      value.leadAgentId !== undefined,
     {
       message: "At least one company field must be provided",
       path: [],

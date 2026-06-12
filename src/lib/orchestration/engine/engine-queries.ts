@@ -160,10 +160,23 @@ export function findCompanyCeo(
   companyId: string,
   db = getOrchestrationDb(),
 ): { id: string; name: string; role: string; adapter_type: string | null } | null {
-  // Sweep/review routing needs a human-style company orchestrator even when a
-  // company no longer has a literal "CEO" role. Prefer true CEO roles, then
-  // fall back to explicit orchestration/team lead roles such as Insight's
-  // Oracle or an operator-titled "Team Lead". The SQL only pre-filters
+  // The designated company lead (companies.lead_agent_id) is authoritative —
+  // operators may title the lead anything ("CEO", "Team Lead", "Eagle") and
+  // routing must not depend on the title string.
+  const designated = db
+    .prepare(
+      `SELECT a.id, a.name, a.role, a.adapter_type
+       FROM companies c
+       INNER JOIN agents a ON a.id = c.lead_agent_id
+       WHERE c.id = ? AND a.archived_at IS NULL
+       LIMIT 1`,
+    )
+    .get(companyId) as { id: string; name: string; role: string; adapter_type: string | null } | undefined;
+  if (designated) return designated;
+
+  // Legacy fallback: no designation (pre-migration data, or the designated
+  // lead was archived). Prefer true CEO roles, then explicit orchestration/
+  // team lead roles such as Insight's Oracle. The SQL only pre-filters
   // candidates; the role-matcher predicates below stay authoritative.
   const rows = db
     .prepare(
