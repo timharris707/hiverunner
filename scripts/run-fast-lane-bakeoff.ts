@@ -325,6 +325,12 @@ function buildExecutor(corpus: CorpusSource, model: ModelSpec, timeoutMs: number
     };
 
     const envOverrides: Record<string, string> = {};
+    if (model.provider === "gemini") {
+      // Default 120s no-output watchdog killed flash cells on heavy sources
+      // where the model thinks silently past 2 minutes; the 40-min timebox
+      // still bounds the attempt.
+      envOverrides.HIVERUNNER_GEMINI_NO_OUTPUT_TIMEOUT_MS = "600000";
+    }
     if (model.workspaceAuth === "gemini-api-key") {
       const key = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_AI_API_KEY;
       if (!key) throw new Error(`${model.key} requires a Google API key (GEMINI_API_KEY/GOOGLE_AI_API_KEY) for workspaceAuth`);
@@ -440,7 +446,13 @@ async function main(): Promise<void> {
               timeboxMs: options.timeboxMinutes * 60_000,
               maxIterations: 5,
               maxCostUsd: 50,
-              maxTokens: 10_000_000,
+              // Gross-of-cache accounting: codex/gemini usage counts the full
+              // re-read context every iteration, so heavy tasks "spend" tens
+              // of millions while fresh usage stays small. 10M cancelled mini
+              // cells mid-matrix (and a cancelled attempt bricks its variant:
+              // 'cancelled' is not attempt-runnable). The timebox is the real
+              // guard; keep this as a runaway backstop only.
+              maxTokens: 100_000_000,
             },
             runnerProvider: model.provider,
             runnerModel: model.model,
