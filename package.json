@@ -111,6 +111,7 @@
     "test:orchestration:ins-147-approval-state": "ORCHESTRATION_DB_PATH=/tmp/orchestration-ins-147-approval-state.db node ./scripts/run-ts-test.mjs src/lib/__tests__/ins-147-approval-state-normalization.test.ts",
     "test:orchestration:memory-retrieval-relevance": "sh -c 'ORCHESTRATION_DB_PATH=\"/tmp/orchestration-memory-retrieval-relevance-$$.db\" node ./scripts/run-ts-test.mjs src/lib/__tests__/orchestration-memory-retrieval-relevance.test.ts'",
     "test:orchestration:memory-retrieval-quality": "sh -c 'ORCHESTRATION_DB_PATH=\"/tmp/orchestration-memory-retrieval-quality-$$.db\" node ./scripts/run-ts-test.mjs src/lib/__tests__/orchestration-memory-retrieval-quality.test.ts'",
+    "test:orchestration:memory-context-evidence-envelope": "sh -c 'ORCHESTRATION_DB_PATH=\"/tmp/orchestration-memory-context-evidence-envelope-$$.db\" node ./scripts/run-ts-test.mjs src/lib/__tests__/orchestration-memory-context-evidence-envelope.test.ts'",
     "test:e2e": "playwright test",
     "test:e2e:smoke": "playwright test e2e/smoke.spec.ts",
     "test:e2e:ui": "playwright test --ui",
