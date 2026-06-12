@@ -27,13 +27,22 @@ const KNOWN_OUT_OF_GATE = new Set([
   // - trust-rules-rollups: reconcileParentTaskStatus re-INSERTs the
   //   hierarchy:auto-complete comment, violating the v4 unique index on
   //   comments(task_id, source, external_ref) on repeat rollups.
-  // - template-draft-plan + create-full-runtime-identity: planning-policy
-  //   gate (2ec97f351, 2026-06-12) rejects the built-in starter templates'
-  //   own canned plans, breaking template launches with a 400.
+  // - create-full-runtime-identity: one case expects initialExecution.reason
+  //   to stay "company_creation_kickoff", but triggerTaskExecution overwrites
+  //   the caller's reason with the skip cause when the dev-lane execution gate
+  //   suppresses the kickoff ("dev_autonomous_test_mode_disabled"). Fails at
+  //   pre-planning-policy HEAD too (verified 2026-06-12 in a clean worktree),
+  //   so it is independent of the template-launch 400 fix below; needs an
+  //   intent decision on the reason contract before wiring.
+  //   (The planning-policy 400s that also hit this file are fixed — see
+  //   template-draft-plan note.)
   "orchestration-update-task-status-rejection.test.ts",
   "orchestration-trust-rules-rollups.test.ts",
-  "orchestration-template-draft-plan.test.ts",
   "orchestration-create-full-runtime-identity.test.ts",
+  // FIXED 2026-06-12 and wired into the gate:
+  // - template-draft-plan: planning-policy gate (2ec97f351) rejected the
+  //   built-in starter templates' own canned plans (template launch 400);
+  //   template-sourced drafts now skip policy shape validation.
   //
   // STALE TESTS — code moved on, test asserts old behavior:
   // - vs "ungated review requests convert to done" (8916318ec):

@@ -1959,11 +1959,17 @@ function isTinyDeterministicPlanningPolicy(policy: PlanningPolicy): boolean {
 function assertSprintPlanPlanningPolicy(input: {
   goal: CompanyScopedSprintRow;
   drafts: PlanningPolicyDraftInput[];
+  templateSourced?: boolean;
 }): PlanningPolicy {
   const policy = buildPlanningPolicy({
     goal: planningPolicyGoalFromSprintRow(input.goal),
     drafts: input.drafts,
   });
+  // The policy gate exists for agent-authored plans. Template-sourced drafts are
+  // curated plans whose template version was already validated for this company,
+  // so they keep the policy classification (stamped into provenance) but skip
+  // shape validation.
+  if (input.templateSourced) return policy;
   const validation = validateSprintPlanAgainstPlanningPolicy(policy, input.drafts);
   if (!validation.ok) {
     throw new OrchestrationApiError(
@@ -6094,6 +6100,7 @@ export function createSprintPlanDrafts(input: {
       sprint: draft.sprint,
       tasks: draft.tasks,
     })),
+    templateSourced: normalizedDrafts.every((draft) => Boolean(draft.sourceTemplateVersionId)),
   });
   normalizedDrafts = normalizedDrafts.map((draft) => {
     const sprintGenerationProvenance = {
@@ -6360,6 +6367,7 @@ export function approveSprintPlanDraft(input: {
       sprint: sprintDraft,
       tasks: taskDrafts,
     }],
+    templateSourced: Boolean(sprintDraft.sourceTemplateVersionId ?? row.source_template_version_id),
   });
   const now = new Date().toISOString();
   const draftTemplateSource = resolveTemplateDraftSource({
