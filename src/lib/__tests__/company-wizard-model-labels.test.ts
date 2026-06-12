@@ -18,9 +18,10 @@ async function run() {
   console.log("\nCompany Wizard Model Label Tests\n");
 
   await test("CEO model labels are neutral while routing values stay intact", () => {
-    assert.equal(COMPANY_WIZARD_MODEL_FALLBACK.length, 12);
+    assert.equal(COMPANY_WIZARD_MODEL_FALLBACK.length, 13);
 
     const expectedValues = [
+      "anthropic/claude-fable-5",
       "openai-codex/gpt-5.5",
       "openai-codex/gpt-5.4",
       "openai-codex/gpt-5.3-codex",

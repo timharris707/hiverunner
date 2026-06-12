@@ -67,6 +67,17 @@ async function run() {
     }
   });
 
+  await test("operator lead titles (Team Lead / leading 'Lead') route sweeps; trailing-lead specialists do not", () => {
+    const matches = ["Team Lead", "team lead", "Engineering Team Lead", "Lead", "Lead / Growth", "Lead/Growth"];
+    const nonMatches = ["QA / Verification Lead", "Tech Lead Adjacent Researcher", "Sales Lead Generation Specialist", "Leader of Nothing"];
+    for (const role of matches) {
+      assert.equal(isCompanyOrchestrationLeadRole(role), true, `expected lead-title match for ${role}`);
+    }
+    for (const role of nonMatches) {
+      assert.equal(isCompanyOrchestrationLeadRole(role), false, `expected no lead-title match for ${role}`);
+    }
+  });
+
   await test("non-CEO roles still get default bucket and no CEO HEARTBEAT.md", () => {
     const assets = loadOnboardingAssets("infrastructure engineer");
     assert.ok(!assets["HEARTBEAT.md"]?.includes("# CEO Heartbeat Ritual"), "default bucket must not provide CEO HEARTBEAT.md");

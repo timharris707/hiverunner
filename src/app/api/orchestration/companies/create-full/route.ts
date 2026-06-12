@@ -31,6 +31,8 @@ import {
   goalRouteKey,
 } from "@/lib/orchestration/route-paths";
 import { canAutonomouslyExecuteCompany } from "@/lib/orchestration/service/dev-execution-test-mode";
+import { buildProviderRuntimeConfigPatch } from "@/lib/orchestration/provider-runtime-controls";
+import { LEAD_RECOMMENDED_REASONING_EFFORT } from "@/lib/orchestration/lead-model-default";
 import {
   defaultCommandForRuntimeProvider,
   normalizeModelForRuntimeProvider,
@@ -135,6 +137,7 @@ function generateWorkspaceAgentsMd(
   companyName: string,
   companyDescription: string,
   ceoName: string,
+  leadTitle: string,
   teammates: Array<{ name: string; role: string }> = [],
 ): string {
   return `# AGENTS.md - ${companyName}
@@ -143,7 +146,7 @@ function generateWorkspaceAgentsMd(
 ${companyDescription || "Mission to be defined."}
 
 ## Team
-- **${ceoName}** \u{1F3AF} — CEO
+- **${ceoName}** \u{1F3AF} — ${leadTitle}
 ${teammates.map((agent) => `- **${agent.name}** — ${agent.role}`).join("\n")}
 
 ## Workspace
@@ -359,14 +362,24 @@ export async function POST(req: NextRequest) {
     // ---------- 4. Create agent in orchestration DB ----------
     const companyDesc = company.description?.trim() || "";
     const guidance = ceo.guidance?.trim() || "";
+    // Operators may retitle the company lead ("CEO", "Team Lead", custom). The
+    // engine's sweep/review routing recognizes CEO and lead-style titles via
+    // role-matcher.ts — unrecognized custom titles get a routing tip in the
+    // wizard but are not blocked here.
+    const leadTitle = (typeof (ceo as Record<string, unknown>).title === "string"
+      ? ((ceo as Record<string, unknown>).title as string)
+      : "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 60) || "CEO";
     const ceoDossier = generateAgentDossier({
       name: ceo.name.trim(),
-      role: "CEO",
+      role: leadTitle,
       companyName: company.name.trim(),
       projectName: effectiveProject.name,
       projectSlug,
       reportsTo: "Board / Local Owner",
-      emoji: defaultAgentIconToken("CEO"),
+      emoji: defaultAgentIconToken(leadTitle),
       personality: guidance || null,
       mission: companyDesc || `Build and operate ${company.name.trim()}.`,
       reason: guidance || null,
@@ -377,7 +390,7 @@ export async function POST(req: NextRequest) {
          avatar_style_id, avatar_gender, avatar_age, avatar_hair_color, avatar_hair_length,
          avatar_eye_color, avatar_vibe, voice_id, model, adapter_type, status, openclaw_agent_id, skills_json,
          created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'CEO', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', ?, '[]', ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', ?, '[]', ?, ?)`,
     ).run(
       agentId,
       companyId,
@@ -386,6 +399,7 @@ export async function POST(req: NextRequest) {
       ceoSlug,
       agentRuntimeSlug,
       ceoDossier.emoji,
+      leadTitle,
       ceoDossier.personality,
       null,
       ceoDossier.avatar.styleId,
@@ -403,6 +417,18 @@ export async function POST(req: NextRequest) {
       now,
     );
 
+    // Product default: a lead/CEO on the anthropic lane runs at extra-high
+    // thinking unless the operator later dials it down in Configuration.
+    if (runtimeProvider === "anthropic") {
+      const reasoningPatch = buildProviderRuntimeConfigPatch("anthropic", {
+        reasoningEffort: LEAD_RECOMMENDED_REASONING_EFFORT,
+      });
+      if (Object.keys(reasoningPatch).length > 0) {
+        db.prepare("UPDATE agents SET runtime_config_json = ? WHERE id = ?")
+          .run(JSON.stringify(reasoningPatch), agentId);
+      }
+    }
+
     // ---------- 5. Generate CEO instruction files ----------
     const agentDir = ceoWorkspacePath;
 
@@ -414,7 +440,7 @@ export async function POST(req: NextRequest) {
       ensureOpenClawAgentScaffold({
         openclawAgentId,
         name: ceo.name.trim(),
-        role: "CEO",
+        role: leadTitle,
         personality: ceoDossier.personality,
         projectName: effectiveProject.name,
         projectSlug,
@@ -459,7 +485,7 @@ export async function POST(req: NextRequest) {
     // ---------- 6. Create workspace-level files ----------
     fs.writeFileSync(
       path.join(workspacePath, "AGENTS.md"),
-      generateWorkspaceAgentsMd(company.name.trim(), companyDesc, ceo.name.trim(), provisionedStarterAgents),
+      generateWorkspaceAgentsMd(company.name.trim(), companyDesc, ceo.name.trim(), leadTitle, provisionedStarterAgents),
     );
     
     // Create mc-tool CLI shortcut for agents

@@ -162,7 +162,9 @@ export function findCompanyCeo(
 ): { id: string; name: string; role: string; adapter_type: string | null } | null {
   // Sweep/review routing needs a human-style company orchestrator even when a
   // company no longer has a literal "CEO" role. Prefer true CEO roles, then
-  // fall back to explicit orchestration lead roles such as Insight's Oracle.
+  // fall back to explicit orchestration/team lead roles such as Insight's
+  // Oracle or an operator-titled "Team Lead". The SQL only pre-filters
+  // candidates; the role-matcher predicates below stay authoritative.
   const rows = db
     .prepare(
       `SELECT id, name, role, adapter_type FROM agents
@@ -171,6 +173,10 @@ export function findCompanyCeo(
            LOWER(role) LIKE '%ceo%'
            OR LOWER(role) LIKE '%product orchestrator%'
            OR LOWER(role) LIKE '%orchestration lead%'
+           OR LOWER(role) LIKE '%team lead%'
+           OR LOWER(role) = 'lead'
+           OR LOWER(role) LIKE 'lead %'
+           OR LOWER(role) LIKE 'lead/%'
          )
        ORDER BY
          CASE WHEN LOWER(role) LIKE '%ceo%' THEN 0 ELSE 1 END,

@@ -9,7 +9,10 @@ export type CompanyWizardModelOption = {
 };
 
 export const COMPANY_WIZARD_MODEL_FALLBACK: CompanyWizardModelOption[] = [
-  { value: "openai-codex/gpt-5.5", label: "Powerful - Recommended", provider: "openai-codex" },
+  // "Recommended" is appended dynamically in the wizard from the servability
+  // probe (lead-model-default.ts) — keep these labels static and neutral.
+  { value: "anthropic/claude-fable-5", label: "Frontier Orchestrator", provider: "anthropic" },
+  { value: "openai-codex/gpt-5.5", label: "Powerful", provider: "openai-codex" },
   { value: "openai-codex/gpt-5.4", label: "Balanced", provider: "openai-codex" },
   { value: "openai-codex/gpt-5.3-codex", label: "Coding Specialist", provider: "openai-codex" },
   { value: "anthropic/claude-sonnet-4-6", label: "Implementation Balanced", provider: "anthropic" },
@@ -28,6 +31,34 @@ export const COMPANY_WIZARD_STATIC_MODEL_OPTIONS = COMPANY_WIZARD_MODEL_FALLBACK
   label,
 }));
 
+/**
+ * Client-safe mirror of the lead-model recommendation served by
+ * /api/orchestration/models. The probe itself lives in lead-model-default.ts,
+ * which spawns the subscription CLI and must never be imported by client
+ * components — wizard surfaces consume the recommendation through this parser.
+ */
+export type LeadModelDefaultInfo = {
+  model: string;
+  source: "verified" | "fallback_anthropic" | "fallback_provider";
+  note: string;
+};
+
+export function parseLeadModelDefault(value: unknown): LeadModelDefaultInfo | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  if (typeof record.model !== "string" || !record.model.trim()) return null;
+  const source = record.source === "verified" || record.source === "fallback_anthropic" || record.source === "fallback_provider"
+    ? record.source
+    : "fallback_provider";
+  return {
+    model: record.model,
+    source,
+    note: typeof record.note === "string" ? record.note : "",
+  };
+}
+
+export const COMPANY_LEAD_TITLE_PRESETS = ["CEO", "Team Lead"] as const;
+
 export function createInitialCompanyWizardData() {
   const starterTeam = buildStarterTeamSetupPayload("software-product");
   return {
@@ -35,7 +66,7 @@ export function createInitialCompanyWizardData() {
     owner: { displayName: "", email: "" },
     project: null,
     starterTeam: starterTeam.starterTeam,
-    ceo: { name: "", model: "openai-codex/gpt-5.5", guidance: "" },
+    ceo: { name: "", title: "CEO", model: "openai-codex/gpt-5.5", guidance: "" },
     task: starterTeam.kickoffTask,
   };
 }

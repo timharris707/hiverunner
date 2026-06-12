@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   Building2,
@@ -24,9 +24,13 @@ import {
 } from "lucide-react";
 
 import {
+  COMPANY_LEAD_TITLE_PRESETS,
   COMPANY_WIZARD_STATIC_MODEL_OPTIONS,
   createInitialCompanyWizardData,
+  parseLeadModelDefault,
+  type LeadModelDefaultInfo,
 } from "@/lib/orchestration/company-wizard";
+import { isCompanyOrchestrationLeadRole } from "@/lib/orchestration/engine/role-matcher";
 import {
   STARTER_TEAM_TEMPLATES,
   cloneStarterTeamRoles,
@@ -53,7 +57,7 @@ interface WizardData {
   owner: { displayName: string; email: string };
   project: { name: string; description: string; sourceWorkspaceRoot?: string } | null;
   starterTeam: { workType: StarterTeamWorkType; agents: StarterTeamSelectedRoleCard[] };
-  ceo: { name: string; model: string; guidance: string };
+  ceo: { name: string; title: string; model: string; guidance: string };
   firstWork: FirstWorkTemplateData;
   task: { title: string; description: string; priority: string };
 }
@@ -62,7 +66,7 @@ const STEPS = [
   { num: 1, label: "Company", icon: Building2 },
   { num: 2, label: "Project", icon: FolderGit2 },
   { num: 3, label: "Team", icon: Users },
-  { num: 4, label: "CEO", icon: Crown },
+  { num: 4, label: "Lead", icon: Crown },
   { num: 5, label: "First Work", icon: ClipboardList },
   { num: 6, label: "Launch", icon: Rocket },
 ];
@@ -656,11 +660,13 @@ function StepCEO({
   onChange,
   modelOptions,
   loadingModels,
+  leadDefault,
 }: {
   data: WizardData["ceo"];
   onChange: (d: WizardData["ceo"]) => void;
   modelOptions: Array<{ value: string; label: string }>;
   loadingModels: boolean;
+  leadDefault: LeadModelDefaultInfo | null;
 }) {
   const setField = (k: keyof WizardData["ceo"], v: string) => onChange({ ...data, [k]: v });
   const resolvedModelOptions = loadingModels && modelOptions.length === 0
@@ -670,13 +676,33 @@ function StepCEO({
     <div className="space-y-5">
       <div>
         <h2 className="flex items-center gap-2 text-lg font-semibold text-[var(--text-primary)]">
-          <Crown size={20} className="text-[var(--accent)]" /> Appoint your CEO
+          <Crown size={20} className="text-[var(--accent)]" /> Appoint your CEO / Team Lead
         </h2>
-        <p className="mt-1 text-sm text-[var(--text-secondary)]">Your CEO will lead this company, manage the team, and execute on the mission.</p>
+        <p className="mt-1 text-sm text-[var(--text-secondary)]">This agent leads the company, manages the team, and executes on the mission — call the role whatever fits your org.</p>
       </div>
-      <Field label="CEO Name" required>
-        <input className={inputClass} placeholder='e.g. "Ridge", "Atlas", "Nova"' value={data.name} onChange={(e) => setField("name", e.target.value)} />
-      </Field>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Field label="Name" required>
+          <input className={inputClass} placeholder='e.g. "Ridge", "Atlas", "Nova"' value={data.name} onChange={(e) => setField("name", e.target.value)} />
+        </Field>
+        <Field label="Lead Title">
+          <input
+            className={inputClass}
+            list="company-lead-title-presets"
+            placeholder='e.g. "CEO", "Team Lead"'
+            value={data.title}
+            onChange={(e) => setField("title", e.target.value)}
+          />
+          <datalist id="company-lead-title-presets">
+            {COMPANY_LEAD_TITLE_PRESETS.map((preset) => <option key={preset} value={preset} />)}
+          </datalist>
+          {data.title.trim() && !isCompanyOrchestrationLeadRole(data.title) ? (
+            <p className="mt-1 flex items-start gap-1.5 text-xs leading-relaxed text-[var(--text-secondary)]">
+              <AlertCircle size={13} className="mt-0.5 shrink-0 text-[var(--accent)]" />
+              <span>Routing tip: include &quot;CEO&quot; or a leading &quot;Lead&quot; in the title so HiveRunner routes task triage and reviews to this agent.</span>
+            </p>
+          ) : null}
+        </Field>
+      </div>
       <Field label="Model">
         <select
           className={selectClass}
@@ -685,11 +711,22 @@ function StepCEO({
           disabled={loadingModels && modelOptions.length === 0}
         >
           {resolvedModelOptions.map((m) => (
-            <option key={m.value} value={m.value}>{m.label}</option>
+            <option key={m.value} value={m.value}>
+              {m.label}
+              {leadDefault && m.value === leadDefault.model ? " — Recommended" : ""}
+            </option>
           ))}
         </select>
         {loadingModels && modelOptions.length === 0 ? (
           <p className="mt-1 text-xs text-[var(--text-muted)]">Loading the full model catalog for this lane.</p>
+        ) : null}
+        {leadDefault && leadDefault.source !== "verified" ? (
+          <p className="mt-1 flex items-start gap-1.5 text-xs leading-relaxed text-[var(--text-secondary)]">
+            <AlertCircle size={13} className="mt-0.5 shrink-0 text-[var(--accent)]" />
+            <span>{leadDefault.note}</span>
+          </p>
+        ) : leadDefault ? (
+          <p className="mt-1 text-xs text-[var(--text-muted)]">{leadDefault.note}</p>
         ) : null}
       </Field>
       <Field label="Additional Guidance">
@@ -974,7 +1011,7 @@ function StepReview({ data, modelOptions }: { data: WizardData; modelOptions: Ar
           <p><strong className="text-[var(--text-primary)]">{selectedTemplate.displayCopy.label}</strong></p>
           <p>{selectedAgents.length > 0 ? selectedAgents.map((agent) => `${agent.name} (${agent.role})`).join(", ") : "Lead only; no extra teammates selected."}</p>
         </SummaryCard>
-        <SummaryCard icon={Crown} title="CEO">
+        <SummaryCard icon={Crown} title={data.ceo.title.trim() || "CEO"}>
           <p><strong className="text-[var(--text-primary)]">{data.ceo.name}</strong> <span className="text-[var(--text-muted)]">({modelOptions.find((m) => m.value === data.ceo.model)?.label})</span></p>
           <p className="flex items-center gap-1 text-[var(--accent)]"><Sparkles size={11} /> AI-generated identity files</p>
         </SummaryCard>
@@ -1009,6 +1046,10 @@ export default function CompanyOnboardingWizard() {
   const [highestStepVisited, setHighestStepVisited] = useState(1);
   const [modelOptions, setModelOptions] = useState<Array<{ value: string; label: string }>>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
+  const [leadDefault, setLeadDefault] = useState<LeadModelDefaultInfo | null>(null);
+  // Once the operator picks a model themselves, the probed recommendation must
+  // not overwrite their choice when the fetch resolves.
+  const ceoModelTouchedRef = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -1024,6 +1065,13 @@ export default function CompanyOnboardingWizard() {
           })));
         } else {
           setModelOptions(COMPANY_WIZARD_STATIC_MODEL_OPTIONS);
+        }
+        const probed = parseLeadModelDefault(d.leadDefault);
+        if (probed) {
+          setLeadDefault(probed);
+          if (!ceoModelTouchedRef.current) {
+            setData((prev) => ({ ...prev, ceo: { ...prev.ceo, model: probed.model } }));
+          }
         }
       })
       .catch(() => {
@@ -1175,9 +1223,13 @@ export default function CompanyOnboardingWizard() {
           {step === 4 && (
             <StepCEO
               data={data.ceo}
-              onChange={(c) => setData((d) => ({ ...d, ceo: c }))}
+              onChange={(c) => {
+                if (c.model !== data.ceo.model) ceoModelTouchedRef.current = true;
+                setData((d) => ({ ...d, ceo: c }));
+              }}
               modelOptions={modelOptions}
               loadingModels={modelsLoading}
+              leadDefault={leadDefault}
             />
           )}
           {step === 5 && (

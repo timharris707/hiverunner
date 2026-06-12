@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Check, ChevronLeft, ChevronRight, ClipboardList, Crown, Building2, FolderGit2, Loader2, Rocket, SkipForward, Sparkles, X } from "lucide-react";
 
 import {
   COMPANY_WIZARD_STATIC_MODEL_OPTIONS,
   createInitialCompanyWizardData,
+  parseLeadModelDefault,
+  type LeadModelDefaultInfo,
 } from "@/lib/orchestration/company-wizard";
 
 interface WizardData {
@@ -14,6 +16,7 @@ interface WizardData {
   ceo: { name: string; model: string; guidance: string };
   task: { title: string; description: string; priority: string };
 }
+
 
 const STEPS = [
   { num: 1, label: "Company", icon: Building2 },
@@ -152,11 +155,13 @@ function StepCEO({
   onChange,
   modelOptions,
   loadingModels,
+  leadDefault,
 }: {
   data: WizardData["ceo"];
   onChange: (d: WizardData["ceo"]) => void;
   modelOptions: Array<{ value: string; label: string }>;
   loadingModels: boolean;
+  leadDefault: LeadModelDefaultInfo | null;
 }) {
   const setField = (k: keyof WizardData["ceo"], v: string) => onChange({ ...data, [k]: v });
   const resolvedModelOptions = loadingModels && modelOptions.length === 0
@@ -176,10 +181,23 @@ function StepCEO({
           onChange={(e) => setField("model", e.target.value)}
           disabled={loadingModels && modelOptions.length === 0}
         >
-          {resolvedModelOptions.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+          {resolvedModelOptions.map((m) => (
+            <option key={m.value} value={m.value}>
+              {m.label}
+              {leadDefault && m.value === leadDefault.model ? " — Recommended" : ""}
+            </option>
+          ))}
         </select>
         {loadingModels && modelOptions.length === 0 ? (
           <p className="mt-1 text-xs text-[var(--text-muted)]">Loading the full model catalog for this lane.</p>
+        ) : null}
+        {leadDefault && leadDefault.source !== "verified" ? (
+          <p className="mt-1 flex items-start gap-1.5 text-xs leading-relaxed text-[var(--text-secondary)]">
+            <AlertCircle size={13} className="mt-0.5 shrink-0 text-[var(--accent)]" />
+            <span>{leadDefault.note}</span>
+          </p>
+        ) : leadDefault ? (
+          <p className="mt-1 text-xs text-[var(--text-muted)]">{leadDefault.note}</p>
         ) : null}
       </Field>
       <Field label="Additional Guidance"><textarea className={inputClass} rows={3} placeholder="Any specific instructions, personality traits, or leadership style notes for the CEO..." value={data.guidance} onChange={(e) => setField("guidance", e.target.value)} /></Field>
@@ -241,6 +259,10 @@ export function CreateCompanyModal({ open, onClose, onCreated }: { open: boolean
   const [highestStepVisited, setHighestStepVisited] = useState(1);
   const [modelOptions, setModelOptions] = useState<Array<{ value: string; label: string }>>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
+  const [leadDefault, setLeadDefault] = useState<LeadModelDefaultInfo | null>(null);
+  // Once the operator picks a model themselves, the probed recommendation must
+  // not overwrite their choice when the fetch resolves.
+  const ceoModelTouchedRef = useRef(false);
 
   useEffect(() => {
     if (!open) return;
@@ -254,6 +276,13 @@ export function CreateCompanyModal({ open, onClose, onCreated }: { open: boolean
           setModelOptions(d.models.map((m: { value: string; label: string }) => ({ value: m.value, label: m.label })));
         } else {
           setModelOptions(COMPANY_WIZARD_STATIC_MODEL_OPTIONS);
+        }
+        const probed = parseLeadModelDefault(d.leadDefault);
+        if (probed) {
+          setLeadDefault(probed);
+          if (!ceoModelTouchedRef.current) {
+            setData((prev) => ({ ...prev, ceo: { ...prev.ceo, model: probed.model } }));
+          }
         }
       })
       .catch(() => {
@@ -377,9 +406,13 @@ export function CreateCompanyModal({ open, onClose, onCreated }: { open: boolean
           {step === 3 && (
             <StepCEO
               data={data.ceo}
-              onChange={(c) => setData((d) => ({ ...d, ceo: c }))}
+              onChange={(c) => {
+                if (c.model !== data.ceo.model) ceoModelTouchedRef.current = true;
+                setData((d) => ({ ...d, ceo: c }));
+              }}
               modelOptions={modelOptions}
               loadingModels={modelsLoading}
+              leadDefault={leadDefault}
             />
           )}
           {step === 4 && <StepTask data={data.task} onChange={(t) => setData((d) => ({ ...d, task: t }))} />}
