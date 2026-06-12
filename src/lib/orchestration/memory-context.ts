@@ -13,6 +13,7 @@ type MemoryRecordRow = {
   agent_id: string | null;
   confidence: number;
   review_state: string;
+  created_at: string;
   updated_at: string;
   metadata_json: string;
 };
@@ -794,7 +795,7 @@ function loadRegistryCandidates(
   projectId: string | null | undefined,
   focus: MemoryRetrievalFocus | null,
 ): MemoryRecordRow[] {
-  const columns = `id, title, body, kind, scope, project_id, agent_id, confidence, review_state, updated_at, metadata_json`;
+  const columns = `id, title, body, kind, scope, project_id, agent_id, confidence, review_state, created_at, updated_at, metadata_json`;
 
   const recentRows = db
     .prepare<[string, number], MemoryRecordRow>(
@@ -879,6 +880,17 @@ export function buildMemoryContext(input: {
   const { db, companyId, agentId, agentRole, projectId, limit = 20, includeFixtureMemories = false, focus = null } = input;
 
   const indexedRows = loadIndexedCandidates(db, companyId, limit, projectId, focus);
+  // Duplicate-cluster ordinals are assigned in scan order, so that order must
+  // be deterministic: pinned snippets stay canonical, then the earliest
+  // indexed copy of a duplicated title wins, with record_id breaking exact
+  // indexed_at ties. Otherwise two copies indexed milliseconds apart swap
+  // canonicality depending on which side of a millisecond boundary they land.
+  indexedRows.sort(
+    (a, b) =>
+      Number(b.pinned) - Number(a.pinned) ||
+      a.indexed_at.localeCompare(b.indexed_at) ||
+      a.record_id.localeCompare(b.record_id),
+  );
 
   const indexedCandidates: Array<{
     row: IndexedMemoryRow;
@@ -1011,6 +1023,10 @@ export function buildMemoryContext(input: {
   }
 
   const rows = loadRegistryCandidates(db, companyId, limit, projectId, focus);
+  // Same determinism contract as the indexed lane: the earliest created copy
+  // of a duplicated title is canonical, with id breaking exact created_at
+  // ties, so canonicality never flips on millisecond timing or edits.
+  rows.sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
 
   const relevant: Array<{
     row: MemoryRecordRow;
