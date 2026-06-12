@@ -34,6 +34,7 @@ import { EXECUTION_FAILURE_CLASS, type ExecutionFailureClass } from "@/lib/orche
 import { recordRuntimeSkillAvailabilityForRun } from "@/lib/orchestration/skill-effectiveness";
 import { linkTemplateGeneratedExecutionRun } from "@/lib/orchestration/template-persistence";
 import { normalizeTaskModelLane, resolveTaskModelRouting } from "@/lib/orchestration/task-model-routing";
+import { buildCleanContextGraderPrompt, resolveCleanContextGraderRun } from "@/lib/orchestration/engine/grader";
 import { nonExecutableRuntimeReason } from "@/lib/orchestration/runtime-readiness";
 import { admitHeartbeatRuntimePreflight } from "@/lib/orchestration/runtime-preflight";
 import { evaluateRuntimeBudgetAdmission, type RuntimeBudgetAdmission } from "@/lib/orchestration/runtime-budget-policy";
@@ -1346,7 +1347,20 @@ export async function executeHeartbeatRun(
         },
       }, db)
     : null;
-  const routeAttempts = executionRoute ? executionRouteAttempts(executionRoute) : [];
+  // H2 — clean-context grader. A review wake on a task with a registered G5
+  // artifact runs as a grader: cheap-lane runner, fresh-context prompt built
+  // from the artifact + acceptance criteria only. Takes precedence over the
+  // resolved route (including symphony) for this run; the task's lane and
+  // engine settings are untouched.
+  const graderRun = resolveCleanContextGraderRun({
+    db,
+    taskKey,
+    agentId: agent.id,
+    contextSnapshot,
+  });
+  const routeAttempts = graderRun
+    ? [graderRun.attempt]
+    : executionRoute ? executionRouteAttempts(executionRoute) : [];
   const primaryRouteAttempt = routeAttempts[0] ?? null;
   const executionEngine = executionRoute?.executionEngine ?? String(contextSnapshot.executionEngine ?? "").trim().toLowerCase();
   const taskModelRouting = resolveTaskModelRouting(
@@ -1355,20 +1369,33 @@ export async function executeHeartbeatRun(
   // Route resolution is authoritative for real tasks: it combines active hive
   // lane selection with explicit task engine overrides, then uses the assigned
   // agent profile as the concrete runner provider/model.
-  const adapterType = executionRoute
+  const adapterType = graderRun
+    ? graderRun.attempt.target.runtimeProvider
+    : executionRoute
     ? executionRoute.executionEngine === "symphony"
       ? "symphony"
       : primaryRouteAttempt?.target.runtimeProvider ?? "manual"
     : executionEngine === "symphony"
       ? "symphony"
       : agent.adapter_type?.trim().toLowerCase() || "manual";
-  const executionRunProvider = executionRoute
+  const executionRunProvider = graderRun
+    ? graderRun.attempt.target.runtimeProvider
+    : executionRoute
     ? executionRoute.executionEngine === "manual"
       ? null
       : executionRoute.executionEngine === "symphony"
         ? "symphony"
         : primaryRouteAttempt?.target.runtimeProvider ?? null
     : executionRunProviderForAdapter(adapterType);
+  if (graderRun) {
+    emitRunEvent(
+      runId,
+      agent.id,
+      "grader_mode",
+      `Clean-context grader run: ${graderRun.attempt.target.model} on ${graderRun.attempt.target.runtimeProvider}; artifact ${graderRun.task.artifact_uri}`,
+      db,
+    );
+  }
 
   const runtimeBlockReason = nonExecutableRuntimeReason(adapterType);
   if (runtimeBlockReason) {
@@ -1695,9 +1722,12 @@ export async function executeHeartbeatRun(
     }
   }
 
-  // Build the execution prompt
+  // Build the execution prompt. Grader runs get the clean-context prompt:
+  // artifact + acceptance criteria only, never the task thread.
   const promptBuildStart = Date.now();
-  const prompt = buildHeartbeatPrompt(agent, contextSnapshot, session, db, executionRunId);
+  const prompt = graderRun
+    ? buildCleanContextGraderPrompt({ agent, task: graderRun.task })
+    : buildHeartbeatPrompt(agent, contextSnapshot, session, db, executionRunId);
   const promptBuildMs = Date.now() - promptBuildStart;
   const promptEstimatedTokens = estimatePromptTokens(prompt);
   try {
@@ -1718,6 +1748,7 @@ export async function executeHeartbeatRun(
         executionEngine: contextExecutionEngine,
         modelLane: executionRoute?.laneId ?? taskModelRouting.lane,
         promptEstimatedTokens,
+        ...(graderRun ? { graderMode: true } : {}),
       },
     });
   } catch (error) {
@@ -1762,6 +1793,7 @@ export async function executeHeartbeatRun(
     promptBuildMs,
     sessionReused: false,
     messageCountBefore: 0,
+    ...(graderRun ? { graderMode: true, graderModel: graderRun.attempt.target.model } : {}),
   };
 
   // Execute via the adapter resolved from agent.adapter_type.
@@ -1781,19 +1813,25 @@ export async function executeHeartbeatRun(
   let usedRouteAttempt: ResolvedExecutionRouteAttempt | null = primaryRouteAttempt;
   let usedAdapterType = adapterType;
   let usedExecutionRunProvider = executionRunProvider;
-  const routeAttemptList: Array<ResolvedExecutionRouteAttempt | null> = executionRoute
-    ? routeAttempts
-    : [null];
+  const routeAttemptList: Array<ResolvedExecutionRouteAttempt | null> = graderRun
+    ? [graderRun.attempt]
+    : executionRoute
+      ? routeAttempts
+      : [null];
   const routeAttemptAudit: Array<Record<string, unknown>> = [];
 
   for (let index = 0; index < routeAttemptList.length; index += 1) {
     const attempt = routeAttemptList[index];
-    const attemptAdapterType = executionRoute
+    const attemptAdapterType = graderRun
+      ? graderRun.attempt.target.runtimeProvider
+      : executionRoute
       ? executionRoute.executionEngine === "symphony"
         ? "symphony"
         : attempt?.target.runtimeProvider ?? "manual"
       : adapterType;
-    const attemptProvider = executionRoute
+    const attemptProvider = graderRun
+      ? graderRun.attempt.target.runtimeProvider
+      : executionRoute
       ? executionRoute.executionEngine === "symphony"
         ? "symphony"
         : attempt?.target.runtimeProvider ?? null
