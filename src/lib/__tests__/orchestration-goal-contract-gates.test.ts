@@ -790,7 +790,13 @@ async function run() {
         },
         tasks: [{ id: "implement", title: "Fix runtime routing", priority: "P1", type: "feature", assignee: agent.id }],
       }),
-      (error: unknown) => error instanceof OrchestrationApiError && error.code === "planning_policy_violation",
+      (error: unknown) =>
+        error instanceof OrchestrationApiError &&
+        error.code === "planning_policy_violation" &&
+        // The rejection must tell the planner HOW to satisfy the gate —
+        // naming the type field and its accepted values (probe paper cut:
+        // Fable-Oracle failed twice to deduce the mechanism).
+        /set one task's "type" field to "qa", "review", or "release"/.test(error.message),
     );
 
     const accepted = createSprintPlanDraft({
@@ -812,6 +818,43 @@ async function run() {
     const planningPolicy = accepted.generationProvenance?.planningPolicy as { qaMode?: string; requireQa?: boolean } | undefined;
     assert.strictEqual(planningPolicy?.qaMode, "required");
     assert.strictEqual(planningPolicy?.requireQa, true);
+  });
+
+  await test("goal create defaults an omitted lead from the company designation", () => {
+    const db = getOrchestrationDb();
+    db.prepare("UPDATE companies SET lead_agent_id = ? WHERE id = ?").run(agent.id, company.id);
+    try {
+      const defaulted = createCompanyGoal({
+        companyIdOrSlug: company.id,
+        projectId: project.id,
+        name: `Lead default goal ${stamp}`,
+        goal: "Confirm an omitted lead resolves to the designated company lead.",
+        goalKind: "company",
+        status: "planned",
+      }).goal;
+      const defaultedRow = db
+        .prepare("SELECT lead_agent_id FROM sprints WHERE id = ?")
+        .get(defaulted.sprint.id) as { lead_agent_id: string | null };
+      assert.strictEqual(defaultedRow.lead_agent_id, agent.id, "omitted lead must resolve the company designation");
+
+      const explicitNull = createCompanyGoal({
+        companyIdOrSlug: company.id,
+        projectId: project.id,
+        name: `Leadless goal ${stamp}`,
+        goal: "Confirm an explicit null lead stays leadless.",
+        goalKind: "company",
+        status: "planned",
+        leadAgentId: null,
+      }).goal;
+      const nullRow = db
+        .prepare("SELECT lead_agent_id FROM sprints WHERE id = ?")
+        .get(explicitNull.sprint.id) as { lead_agent_id: string | null };
+      assert.strictEqual(nullRow.lead_agent_id, null, "explicit null is an operator opt-out and stays leadless");
+    } finally {
+      // Shared fixture company — later tests rely on goals staying leadless
+      // unless they pass a lead explicitly.
+      db.prepare("UPDATE companies SET lead_agent_id = NULL WHERE id = ?").run(company.id);
+    }
   });
 
   await test("plan revision task closes with summary after proposing revised draft", async () => {

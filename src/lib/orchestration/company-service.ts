@@ -30,6 +30,7 @@ import type {
 } from "@/lib/orchestration/types";
 import { createTask } from "@/lib/orchestration/service/task";
 import { buildCompanyAccessCondition } from "@/lib/orchestration/company-access";
+import { getCompanyLeadAgent } from "@/lib/orchestration/company-lead";
 import {
   readDefaultExecutionEngine,
   resolveTaskExecutionEngine,
@@ -4473,6 +4474,14 @@ export function createCompanyGoal(input: {
 
   const now = new Date().toISOString();
   const sprintId = randomUUID();
+  // Probe #1 (2026-06-12): an omitted lead defaults to the company's
+  // designated lead (companies.lead_agent_id, live agents only) — otherwise
+  // an active company goal sits leadless and sprint planning never starts.
+  // An explicit null stays leadless (operator opt-out); an archived
+  // designation does not resolve.
+  const leadAgentId = input.leadAgentId === undefined
+    ? getCompanyLeadAgent(companyRow.id, db)?.id ?? null
+    : input.leadAgentId;
   const goalKind = input.goalKind ?? (input.parentId ? "sprint" : "company");
   const sprintKey = goalKind === "sprint" && input.parentId
     ? sprintKeyForCompany(db, companyRow.id, companyRow.company_code)
@@ -4506,7 +4515,7 @@ export function createCompanyGoal(input: {
     input.status === "done" ? now : null,
     input.parentId ?? null,
     input.owner ?? null,
-    input.leadAgentId ?? null,
+    leadAgentId,
     input.stopCondition ?? "",
     input.progressSummary ?? "",
     input.defaultExecutionEngine ?? null,
@@ -4529,14 +4538,14 @@ export function createCompanyGoal(input: {
     );
   }
 
-  if (goalKind === "company" && input.status === "active" && input.leadAgentId) {
+  if (goalKind === "company" && input.status === "active" && leadAgentId) {
     const goalRow = getCompanyScopedSprintRow(companyRow.id, sprintId);
     const fastPath = goalRow
       ? createTinyGoalSprintPlanFastPath({
           db,
           companyId: companyRow.id,
           goal: goalRow,
-          leadAgentId: input.leadAgentId,
+          leadAgentId,
           actorUserId: "system",
         })
       : null;
@@ -4544,7 +4553,7 @@ export function createCompanyGoal(input: {
       createSprintPlanningTask({
         companyIdOrSlug: companyRow.id,
         companyGoalId: sprintId,
-        leadAgentId: input.leadAgentId,
+        leadAgentId,
         actorUserId: "system",
       });
     } else {

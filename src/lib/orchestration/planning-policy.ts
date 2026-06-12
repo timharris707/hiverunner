@@ -269,7 +269,7 @@ export function validateSprintPlanAgainstPlanningPolicy(
     if (policy.requireQa && tasks.length > 0 && qaTasks.length === 0) {
       violations.push({
         code: "planning_policy:qa_required",
-        message: "This plan touches higher-risk work or explicitly requested review, so it needs a QA/review task.",
+        message: 'This plan touches higher-risk work or explicitly requested review, so it needs a QA/review task: set one task\'s "type" field to "qa", "review", or "release".',
         severity: "error",
         sprintIndex: index,
       });
