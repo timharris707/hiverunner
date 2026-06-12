@@ -53,6 +53,14 @@ import {
 import { isNonProductionCompany } from "@/lib/orchestration/service/shared";
 import { refreshEdgeRouteMapCache } from "@/lib/orchestration/edge-route-map-service";
 import { recordPlanningRetrospectiveMemory } from "@/lib/orchestration/planning-retrospectives";
+import {
+  buildPlanningPolicy,
+  formatPlanningPolicyViolationMessage,
+  validateSprintPlanAgainstPlanningPolicy,
+  type PlanningPolicy,
+  type PlanningPolicyDraftInput,
+  type PlanningPolicyGoalInput,
+} from "@/lib/orchestration/planning-policy";
 import { isExecutableAgentRuntime } from "@/lib/orchestration/runtime-readiness";
 import {
   createTemplateIntakeAnswer,
@@ -1921,6 +1929,226 @@ function compactTemplateId(value: string | null | undefined): string | null {
 function jsonObject(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   return value as Record<string, unknown>;
+}
+
+function planningPolicyGoalFromSprintRow(row: CompanyScopedSprintRow): PlanningPolicyGoalInput {
+  return {
+    id: row.id,
+    name: row.name,
+    goal: row.goal,
+    stopCondition: row.stop_condition,
+    progressSummary: row.progress_summary,
+  };
+}
+
+function isTinyDeterministicPlanningPolicy(policy: PlanningPolicy): boolean {
+  return (
+    policy.schema === "hiverunner.planning_policy.v1" &&
+    policy.size === "tiny" &&
+    policy.risk === "low" &&
+    policy.validationMode === "deterministic" &&
+    policy.qaMode === "skip_by_default" &&
+    policy.requireQa === false &&
+    policy.maxSprints === 1 &&
+    policy.maxTasksPerSprint === 1 &&
+    policy.maxImplementationTasksPerSprint === 1 &&
+    policy.maxQaTasksPerSprint === 0
+  );
+}
+
+function assertSprintPlanPlanningPolicy(input: {
+  goal: CompanyScopedSprintRow;
+  drafts: PlanningPolicyDraftInput[];
+}): PlanningPolicy {
+  const policy = buildPlanningPolicy({
+    goal: planningPolicyGoalFromSprintRow(input.goal),
+    drafts: input.drafts,
+  });
+  const validation = validateSprintPlanAgainstPlanningPolicy(policy, input.drafts);
+  if (!validation.ok) {
+    throw new OrchestrationApiError(
+      400,
+      "planning_policy_violation",
+      formatPlanningPolicyViolationMessage(policy, validation.violations),
+      { planningPolicy: policy, violations: validation.violations },
+    );
+  }
+  return policy;
+}
+
+function selectTinyGoalFastPathAssignee(input: {
+  db: ReturnType<typeof getOrchestrationDb>;
+  companyId: string;
+  projectId: string;
+  leadAgentId?: string | null;
+}): string | null {
+  const rows = input.db
+    .prepare(
+      `SELECT id, project_id, slug, name, role, status, adapter_type
+       FROM agents
+       WHERE company_id = ?
+         AND archived_at IS NULL`
+    )
+    .all(input.companyId) as Array<{
+      id: string;
+      project_id: string | null;
+      slug: string;
+      name: string;
+      role: string | null;
+      status: string | null;
+      adapter_type: string | null;
+    }>;
+  const candidates = rows
+    .filter((agent) => isRunnableDraftAssignee(agent))
+    .map((agent) => {
+      const text = `${agent.name} ${agent.role ?? ""}`.toLowerCase();
+      let score = 0;
+      if (agent.id === input.leadAgentId) score += 40;
+      if (agent.project_id === input.projectId) score += 20;
+      if (agent.status === "idle") score += 10;
+      if (agent.adapter_type === "codex") score += 10;
+      if (/\b(?:engineer|developer|software|builder|implement|coder|coding|full-stack|typescript)\b/.test(text)) score += 30;
+      if (/\b(?:qa|quality|reviewer|planner|planning|orchestrator|research)\b/.test(text)) score -= 10;
+      return { agent, score };
+    })
+    .sort((a, b) => b.score - a.score || a.agent.name.localeCompare(b.agent.name));
+  return candidates[0]?.agent.id ?? null;
+}
+
+function buildTinyGoalFastPathDraft(input: {
+  goal: CompanyScopedSprintRow;
+  assignee: string | null;
+}): PlanningPolicyDraftInput {
+  const executionEngine = input.goal.default_execution_engine ?? "hiverunner";
+  const modelLane = input.goal.default_model_lane ?? "default";
+  const goalName = input.goal.name.trim() || "goal";
+  return {
+    sprint: {
+      name: `Implement ${goalName}`,
+      objective: input.goal.goal || `Complete ${goalName}.`,
+      defaultExecutionEngine: executionEngine,
+      defaultModelLane: modelLane,
+      successCriteria: [
+        input.goal.stop_condition?.trim() ||
+          "The requested self-contained local deliverable is implemented, documented, and validated.",
+      ],
+      validationChecks: [
+        "Focused local validation passes.",
+        "Final report lists files changed, checks run, and available token/cost/runtime metrics.",
+      ],
+      outOfScope: [
+        "Do not change production runtime behavior.",
+        "Do not promote, push, deploy, or use network access.",
+        "Do not add a separate QA/review/release task unless the operator explicitly requests it.",
+      ],
+      templateGenerationProvenance: {
+        source: "planning_policy_fast_path",
+      },
+    },
+    tasks: [{
+      id: "implement",
+      title: `Implement ${goalName}`,
+      description: [
+        input.goal.goal || `Complete ${goalName}.`,
+        input.goal.stop_condition ? `Stop condition: ${input.goal.stop_condition}` : "",
+        "Own the full small deliverable in one pass: implementation, fixtures or sample inputs, focused tests, usage notes, validation, and final metrics/reporting.",
+        "Keep the work local and deterministic; do not modify production runtime behavior, promote, push, deploy, or use network access.",
+      ].filter(Boolean).join("\n\n"),
+      validation: "Run focused local validation and report files changed, checks run, elapsed time, and any token/cost/runtime metrics available from the harness.",
+      priority: "P1",
+      type: "feature",
+      assignee: input.assignee,
+      executionEngine,
+      modelLane,
+    }],
+  };
+}
+
+function createTinyGoalSprintPlanFastPath(input: {
+  db: ReturnType<typeof getOrchestrationDb>;
+  companyId: string;
+  goal: CompanyScopedSprintRow;
+  leadAgentId?: string | null;
+  actorUserId?: string;
+  planningTask?: { id: string; taskKey: string | null } | null;
+  createCompletedPlanningTask?: boolean;
+}): { draft: OrchestrationSprintPlanDraft; planningTaskId: string | null; planningTaskKey: string | null } | null {
+  const policy = buildPlanningPolicy({
+    goal: planningPolicyGoalFromSprintRow(input.goal),
+    drafts: [],
+  });
+  if (!isTinyDeterministicPlanningPolicy(policy)) return null;
+
+  const assignee = selectTinyGoalFastPathAssignee({
+    db: input.db,
+    companyId: input.companyId,
+    projectId: input.goal.project_id,
+    leadAgentId: input.leadAgentId,
+  });
+  const draftInput = buildTinyGoalFastPathDraft({ goal: input.goal, assignee });
+  const planningTaskTitle = `Plan sprint for ${input.goal.name}`;
+  let planningTask = input.planningTask ?? null;
+  if (!planningTask && input.createCompletedPlanningTask) {
+    const task = createTask({
+      companyIdOrSlug: input.companyId,
+      projectId: input.goal.project_id,
+      sprintId: input.goal.id,
+      title: planningTaskTitle,
+      description: [
+        `Deterministically generated a one-task sprint plan for company goal: ${input.goal.name}.`,
+        "The planning policy classified this goal as tiny, low-risk, deterministic, and QA-skipped, so HiveRunner skipped the lead-agent planner run.",
+        "Review the pending sprint-plan draft instead of waiting for a planner wake.",
+      ].join("\n\n"),
+      priority: "P0",
+      type: "research",
+      status: "done",
+      assignee: input.leadAgentId || undefined,
+      labels: ["sprint-planning", "goal-contract", "planning-policy-fast-path"],
+      executionEngine: input.goal.default_execution_engine ?? "hiverunner",
+      modelLane: input.goal.default_model_lane ?? "default",
+      createdBy: input.actorUserId ?? "system",
+    }).task;
+    planningTask = { id: task.id, taskKey: task.key ?? task.id };
+  } else if (planningTask) {
+    input.db.prepare(
+      `UPDATE tasks
+       SET status = 'done',
+           review_notes = ?,
+           updated_at = ?
+       WHERE id = ?
+         AND archived_at IS NULL`
+    ).run(
+      "Planning policy fast path generated the pending sprint-plan draft without a planner run.",
+      new Date().toISOString(),
+      planningTask.id,
+    );
+  }
+
+  const result = createSprintPlanDrafts({
+    companyIdOrSlug: input.companyId,
+    companyGoalId: input.goal.id,
+    planningTaskId: planningTask?.id ?? null,
+    proposedByAgentId: input.leadAgentId ?? null,
+    drafts: [{
+      sequenceNumber: 1,
+      sprint: draftInput.sprint,
+      tasks: draftInput.tasks,
+    }],
+    generationProvenance: {
+      source: "planning_policy_fast_path",
+      planningPolicyFastPath: {
+        schema: "hiverunner.planning_policy_fast_path.v1",
+        reason: "tiny_low_risk_deterministic",
+      },
+    },
+  });
+  const draft = result.drafts[0];
+  if (!draft) throw new OrchestrationApiError(500, "sprint_plan_fast_path_failed", "Fast-path draft created but could not be loaded");
+  return {
+    draft,
+    planningTaskId: planningTask?.id ?? null,
+    planningTaskKey: planningTask?.taskKey ?? null,
+  };
 }
 
 function resolveTemplateDraftSource(input: {
@@ -4286,7 +4514,7 @@ export function createCompanyGoal(input: {
 
   db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(now, projectRow.id);
 
-  const goal = getCompanyGoalBySprintId(companyRow.id, sprintId);
+  let goal = getCompanyGoalBySprintId(companyRow.id, sprintId);
   if (!goal) {
     throw new OrchestrationApiError(
       500,
@@ -4296,12 +4524,26 @@ export function createCompanyGoal(input: {
   }
 
   if (goalKind === "company" && input.status === "active" && input.leadAgentId) {
-    createSprintPlanningTask({
-      companyIdOrSlug: companyRow.id,
-      companyGoalId: sprintId,
-      leadAgentId: input.leadAgentId,
-      actorUserId: "system",
-    });
+    const goalRow = getCompanyScopedSprintRow(companyRow.id, sprintId);
+    const fastPath = goalRow
+      ? createTinyGoalSprintPlanFastPath({
+          db,
+          companyId: companyRow.id,
+          goal: goalRow,
+          leadAgentId: input.leadAgentId,
+          actorUserId: "system",
+        })
+      : null;
+    if (!fastPath) {
+      createSprintPlanningTask({
+        companyIdOrSlug: companyRow.id,
+        companyGoalId: sprintId,
+        leadAgentId: input.leadAgentId,
+        actorUserId: "system",
+      });
+    } else {
+      goal = getCompanyGoalBySprintId(companyRow.id, sprintId) ?? goal;
+    }
   }
 
   return {
@@ -4434,12 +4676,24 @@ export function updateCompanyGoal(input: {
     updatedLeadAgentId &&
     !hasPendingSprintPlanDraft(db, current.id)
   ) {
-    createSprintPlanningTask({
-      companyIdOrSlug: companyRow.id,
-      companyGoalId: current.id,
-      leadAgentId: updatedLeadAgentId,
-      actorUserId: input.actorUserId ?? "system",
-    });
+    const updatedRow = getCompanyScopedSprintRow(companyRow.id, current.id);
+    const fastPath = updatedRow
+      ? createTinyGoalSprintPlanFastPath({
+          db,
+          companyId: companyRow.id,
+          goal: updatedRow,
+          leadAgentId: updatedLeadAgentId,
+          actorUserId: input.actorUserId ?? "system",
+        })
+      : null;
+    if (!fastPath) {
+      createSprintPlanningTask({
+        companyIdOrSlug: companyRow.id,
+        companyGoalId: current.id,
+        leadAgentId: updatedLeadAgentId,
+        actorUserId: input.actorUserId ?? "system",
+      });
+    }
   }
 
   const goal = getCompanyGoalBySprintId(companyRow.id, current.id);
@@ -5435,6 +5689,27 @@ export function createSprintPlanningTask(input: {
     title,
     leadAgentId,
   });
+  const fastPath = createTinyGoalSprintPlanFastPath({
+    db,
+    companyId: companyRow.id,
+    goal,
+    leadAgentId,
+    actorUserId: input.actorUserId ?? "system",
+    planningTask: existing ? { id: existing.id, taskKey: existing.task_key ?? existing.id } : null,
+    createCompletedPlanningTask: !existing,
+  });
+  if (fastPath) {
+    const loaded = getCompanyGoalBySprintId(companyRow.id, goal.id);
+    if (!loaded) throw new OrchestrationApiError(500, "company_goal_load_failed", "Fast-path sprint plan created but goal could not be loaded");
+    if (!fastPath.planningTaskId) {
+      throw new OrchestrationApiError(500, "planning_task_create_failed", "Fast-path planning task could not be loaded");
+    }
+    return {
+      taskId: fastPath.planningTaskId,
+      taskKey: fastPath.planningTaskKey ?? fastPath.planningTaskId,
+      goal: loaded,
+    };
+  }
   if (existing) {
     enqueueGoalLeadPlanningWake({
       db,
@@ -5458,8 +5733,9 @@ export function createSprintPlanningTask(input: {
       `Create a sprint plan for company goal: ${goal.name}.`,
       goal.goal ? `Objective: ${goal.goal}` : "",
       goal.stop_condition ? `Stop condition: ${goal.stop_condition}` : "",
+      `Goal default routing: executionEngine=${goal.default_execution_engine ?? "unset"}, modelLane=${goal.default_model_lane ?? "unset"}. Draft sprint/task routing should omit these fields or match these defaults unless the operator explicitly requested an override.`,
       "Emit a propose_sprint_plan mc-action with the proposed sprint contract and every execution task. Do not create execution tasks directly.",
-      "Planning quality determines code quality. Produce parallel-ready implementation slices, minimal necessary dependency gates, review/QA coverage, visual proof, migration/data safety, rollback/idempotence checks, and operator-verifiable validation. Honor this goal's execution engine and model-lane defaults unless the operator explicitly asks for an override; do not switch lanes solely because work looks small. Use dependencies only for hard prerequisites; otherwise let capable agents work concurrently with clear ownership boundaries.",
+      "Planning quality determines code quality. Produce parallel-ready implementation slices, minimal necessary dependency gates, policy-appropriate review/QA coverage, visual proof, migration/data safety, rollback/idempotence checks, and operator-verifiable validation. Honor this goal's execution engine and model-lane defaults unless the operator explicitly asks for an override; do not switch lanes solely because work looks small. Use dependencies only for hard prerequisites; otherwise let capable agents work concurrently with clear ownership boundaries.",
     ].filter(Boolean).join("\n\n"),
     priority: "P0",
     type: "research",
@@ -5755,7 +6031,7 @@ export function createSprintPlanDrafts(input: {
     intakeAnswerId: input.intakeAnswerId,
   });
   const rootGenerationProvenance = jsonObject(input.generationProvenance);
-  const normalizedDrafts = input.drafts.map((draft, index) => {
+  let normalizedDrafts = input.drafts.map((draft, index) => {
     const sprintDefaultExecutionEngine = operatorSelectedExecutionEngine ?? draft.sprint.defaultExecutionEngine ?? null;
     const sprintDefaultModelLane = operatorSelectedModelLane ?? draft.sprint.defaultModelLane ?? null;
     const sprintTemplateSource = resolveTemplateDraftSource({
@@ -5812,6 +6088,37 @@ export function createSprintPlanDrafts(input: {
     }
     seenSequences.add(draft.sequenceNumber);
   }
+  const planningPolicy = assertSprintPlanPlanningPolicy({
+    goal,
+    drafts: normalizedDrafts.map((draft) => ({
+      sprint: draft.sprint,
+      tasks: draft.tasks,
+    })),
+  });
+  normalizedDrafts = normalizedDrafts.map((draft) => {
+    const sprintGenerationProvenance = {
+      ...jsonObject(draft.sprint.templateGenerationProvenance),
+      planningPolicy,
+    };
+    return {
+      ...draft,
+      sprint: {
+        ...draft.sprint,
+        templateGenerationProvenance: sprintGenerationProvenance,
+      },
+      tasks: draft.tasks.map((task) => ({
+        ...task,
+        templateGenerationProvenance: {
+          ...jsonObject(task.templateGenerationProvenance),
+          planningPolicy,
+        },
+      })),
+      generationProvenance: {
+        ...draft.generationProvenance,
+        planningPolicy,
+      },
+    };
+  });
 
   const tx = db.transaction(() => {
     if (input.supersedePending !== false) {
@@ -5866,6 +6173,7 @@ export function createSprintPlanDrafts(input: {
           taskCount: normalizedDrafts.reduce((sum, draft) => sum + draft.tasks.length, 0),
           sprintCount: normalizedDrafts.length,
           nextSequenceNumber: Math.min(...normalizedDrafts.map((draft) => draft.sequenceNumber)),
+          planningPolicy,
         },
         now,
       });
@@ -6046,6 +6354,13 @@ export function approveSprintPlanDraft(input: {
   const planningTask = row.planning_task_id ? getCompanyTaskId(db, companyRow.id, row.planning_task_id) : undefined;
   const sprintDraft = input.sprint ?? rowSprintDraft;
   const taskDrafts = input.tasks ?? parseDraftTasks(row.tasks_json);
+  const planningPolicy = assertSprintPlanPlanningPolicy({
+    goal: parent,
+    drafts: [{
+      sprint: sprintDraft,
+      tasks: taskDrafts,
+    }],
+  });
   const now = new Date().toISOString();
   const draftTemplateSource = resolveTemplateDraftSource({
     companyId: companyRow.id,
@@ -6059,6 +6374,7 @@ export function approveSprintPlanDraft(input: {
     draftId: row.id,
     proposalGroupId: row.proposal_group_id ?? undefined,
     sequenceNumber: row.sequence_number,
+    planningPolicy,
   };
 
   if (sprintDraft.completionProposal) {
@@ -6308,6 +6624,7 @@ export function approveSprintPlanDraft(input: {
         taskCount: taskIds.length,
         sprintStartWakeCount: sprintStartWakeups.count,
         sprintStartRunCount: sprintStartWakeups.runIds.length,
+        planningPolicy,
       },
       now,
     });

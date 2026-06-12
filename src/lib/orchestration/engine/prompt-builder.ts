@@ -13,6 +13,7 @@ import { mergeExecutionRunMetadata, parseJson } from "@/lib/orchestration/engine
 import type { TaskSession } from "@/lib/orchestration/engine/persistence";
 import { resolveTaskKey } from "@/lib/orchestration/engine/heartbeat-manager";
 import { isCeoRole } from "@/lib/orchestration/engine/role-matcher";
+import type { PlanningPolicy } from "@/lib/orchestration/planning-policy";
 import { resolveOpenClawDir } from "@/lib/workspaces/root";
 import { PUBLIC_HUMAN_LABEL } from "@/lib/public-identity";
 export { isCeoRole, isCompanyOrchestrationLeadRole } from "@/lib/orchestration/engine/role-matcher";
@@ -40,6 +41,30 @@ const ONBOARDING_DIR = path.join(MODULE_DIR, "onboarding-assets");
 const OPENCLAW_HOME = process.env.OPENCLAW_HOME?.trim() || resolveOpenClawDir();
 const LEAD_SUPERVISOR_TICK_REASON = "goal_lead_supervisor_tick";
 const DIRECT_WORK_ONLY_LABEL = "direct-work-only";
+
+type FocusedTaskRow = {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  priority: string;
+  type: string;
+  task_key: string;
+  sprint_id: string | null;
+  labels_json: string | null;
+  assignee_agent_id: string | null;
+  project_id: string;
+  project_name: string;
+  project_slug: string;
+  project_settings_json: string | null;
+  template_generation_provenance_json: string | null;
+};
+
+type CompactPromptPolicy = {
+  enabled: boolean;
+  reason?: string;
+  planningPolicy?: PlanningPolicy;
+};
 
 function approvalPromptLabel(type: string, payload: Record<string, unknown>, id: string): string {
   if (type === "hire_agent") {
@@ -140,6 +165,66 @@ function hasDirectWorkOnlyLabel(labelsJson: string | null | undefined): boolean 
   return false;
 }
 
+function planningPolicyFromTaskProvenance(raw: string | null | undefined): PlanningPolicy | null {
+  const provenance = parseJson(raw);
+  const candidate = provenance.planningPolicy;
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return null;
+  const policy = candidate as Partial<PlanningPolicy>;
+  if (policy.schema !== "hiverunner.planning_policy.v1") return null;
+  return policy as PlanningPolicy;
+}
+
+function compactPromptPolicyForTask(input: {
+  task: FocusedTaskRow | undefined;
+  contextSnapshot: Record<string, unknown>;
+  latestWakeComment: unknown;
+}): CompactPromptPolicy {
+  const { task, contextSnapshot, latestWakeComment } = input;
+  if (!task) return { enabled: false };
+  if (latestWakeComment) return { enabled: false };
+  if (typeof contextSnapshot.commentId === "string" && contextSnapshot.commentId.trim()) return { enabled: false };
+  if (contextSnapshot.wakeReason === LEAD_SUPERVISOR_TICK_REASON) return { enabled: false };
+  if (task.status === "review" || task.status === "blocked") return { enabled: false };
+
+  const policy = planningPolicyFromTaskProvenance(task.template_generation_provenance_json);
+  if (!policy) return { enabled: false };
+  const compactEligible =
+    policy.size === "tiny" &&
+    policy.risk === "low" &&
+    policy.validationMode === "deterministic" &&
+    policy.qaMode === "skip_by_default" &&
+    policy.requireQa === false &&
+    policy.parallelism === "none";
+  if (!compactEligible) return { enabled: false, planningPolicy: policy };
+
+  return {
+    enabled: true,
+    reason: "tiny_deterministic_planning_policy",
+    planningPolicy: policy,
+  };
+}
+
+function appendCompactResponseFormat(sections: string[], taskKey?: string): void {
+  const key = taskKey ?? "TASK-KEY";
+  sections.push("\n---");
+  sections.push("## Compact Response Format");
+  sections.push("This run is using the compact task prompt because the approved planning policy classifies the task as tiny, low-risk, deterministic, and QA-skipped.");
+  sections.push("Do the assigned implementation and validation directly. Do not hire agents, create child tasks, delegate, or move the task to review unless the task text or operator explicitly requires it.");
+  sections.push("Allowed actions for this compact run:");
+  sections.push("- `add_comment` for the concise operator-facing completion summary.");
+  sections.push("- `register_artifact` for concrete files or reports; include `taskKey`, `uri`, `kind`, and `sha256` when available.");
+  sections.push("- `update_task` to move the task to `done` after validation, or `blocked` only for a concrete external blocker with an exit condition.");
+  sections.push("- `report` only when no task status change or comment is appropriate.");
+  sections.push("Every directive must be inside a fenced ```mc-action``` block. Narrative outside blocks does not count.");
+  sections.push("Final-answer example:");
+  sections.push("```mc-action");
+  sections.push(`{"action":"add_comment","taskKey":"${key}","body":"**Summary**\\n\\nCompleted the implementation and validation.\\n\\n**Validation**\\n- Focused parser tests passed."}`);
+  sections.push("```");
+  sections.push("```mc-action");
+  sections.push(`{"action":"update_task","taskKey":"${key}","status":"done"}`);
+  sections.push("```");
+}
+
 /* ── Prompt Building ── */
 
 export function buildHeartbeatPrompt(
@@ -155,6 +240,7 @@ export function buildHeartbeatPrompt(
     ? db.prepare(
         `SELECT t.id, t.title, t.description, t.status, t.priority, t.type, t.task_key, t.sprint_id,
                 t.labels_json,
+                t.template_generation_provenance_json,
                 t.assignee_agent_id,
                 p.id AS project_id, p.name AS project_name, p.slug AS project_slug,
                 p.settings_json AS project_settings_json
@@ -172,6 +258,7 @@ export function buildHeartbeatPrompt(
         task_key: string;
         sprint_id: string | null;
         labels_json: string | null;
+        template_generation_provenance_json: string | null;
         assignee_agent_id: string | null;
         project_id: string;
         project_name: string;
@@ -203,6 +290,42 @@ export function buildHeartbeatPrompt(
   const latestWakeComment = wakeCommentId
     ? focusedTaskComments.find((comment) => comment.id === wakeCommentId)
     : undefined;
+  const compactPrompt = compactPromptPolicyForTask({
+    task: focusedTask,
+    contextSnapshot,
+    latestWakeComment,
+  });
+  if (executionRunId && compactPrompt.enabled) {
+    mergeExecutionRunMetadata(db, executionRunId, {
+      compactPromptPolicy: {
+        schema: "hiverunner.compact_task_prompt.v1",
+        reason: compactPrompt.reason,
+        planningPolicy: compactPrompt.planningPolicy
+          ? {
+              schema: compactPrompt.planningPolicy.schema,
+              size: compactPrompt.planningPolicy.size,
+              risk: compactPrompt.planningPolicy.risk,
+              validationMode: compactPrompt.planningPolicy.validationMode,
+              qaMode: compactPrompt.planningPolicy.qaMode,
+              requireQa: compactPrompt.planningPolicy.requireQa,
+              parallelism: compactPrompt.planningPolicy.parallelism,
+            }
+          : null,
+        skippedSections: [
+          "heartbeat_ritual",
+          "soul",
+          "runtime_skills",
+          "memory_context",
+          "other_assigned_tasks",
+          "nearby_open_tasks",
+          "runtime_roster",
+          "approvals",
+          "recent_actions",
+          "full_action_reference",
+        ],
+      },
+    });
+  }
 
   if (contextSnapshot.wakeReason === "sweep_unassigned_to_ceo" && focusedTask) {
     return buildUnassignedTaskTriagePrompt({
@@ -220,15 +343,15 @@ export function buildHeartbeatPrompt(
   if (assets["AGENTS.md"]) {
     sections.push(assets["AGENTS.md"]);
   }
-  if (assets["HEARTBEAT.md"]) {
+  if (!compactPrompt.enabled && assets["HEARTBEAT.md"]) {
     sections.push(assets["HEARTBEAT.md"]);
   }
-  if (assets["SOUL.md"]) {
+  if (!compactPrompt.enabled && assets["SOUL.md"]) {
     sections.push(assets["SOUL.md"]);
   }
 
-  const agentSoul = readAgentSoulMarkdown(agent);
-  if (agentSoul) {
+  const agentSoul = compactPrompt.enabled ? null : readAgentSoulMarkdown(agent);
+  if (!compactPrompt.enabled && agentSoul) {
     sections.push("\n---\n# Agent Identity (SOUL.md)\n");
     sections.push(agentSoul);
   }
@@ -287,7 +410,7 @@ export function buildHeartbeatPrompt(
   sections.push("- Do not use legacy external control-plane APIs, legacy bridge endpoints, or retired workspace paths for HiveRunner work.");
   sections.push("- OpenClaw may be used only when it is the selected runtime provider for an agent. It is not the coordination system for this company.");
 
-  const runtimeSkills = listRuntimeAgentSkills(agent.company_id, agent.id).skills;
+  const runtimeSkills = compactPrompt.enabled ? [] : listRuntimeAgentSkills(agent.company_id, agent.id).skills;
   if (runtimeSkills.length > 0) {
     // Headroom for agents with rich skill assignments while keeping prompt overhead bounded.
     const runtimeSkillPromptLimit = 16;
@@ -335,30 +458,32 @@ export function buildHeartbeatPrompt(
   }
 
   // Assigned tasks
-  const tasks = db
-    .prepare(
-      `SELECT t.id, t.title, t.description, t.status, t.priority, t.type, t.task_key,
-              p.name AS project_name, p.slug AS project_slug
-       FROM tasks t
-       INNER JOIN projects p ON p.id = t.project_id
-       WHERE t.assignee_agent_id = ? AND t.archived_at IS NULL
-         AND t.status NOT IN ('done', 'cancelled')
-       ORDER BY
-         CASE t.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
-         t.created_at ASC
-       LIMIT 20`
-    )
-    .all(agent.id) as Array<{
-      id: string;
-      title: string;
-      description: string;
-      status: string;
-      priority: string;
-      type: string;
-      task_key: string;
-      project_name: string;
-      project_slug: string;
-    }>;
+  const tasks = compactPrompt.enabled
+    ? []
+    : db
+      .prepare(
+        `SELECT t.id, t.title, t.description, t.status, t.priority, t.type, t.task_key,
+                p.name AS project_name, p.slug AS project_slug
+         FROM tasks t
+         INNER JOIN projects p ON p.id = t.project_id
+         WHERE t.assignee_agent_id = ? AND t.archived_at IS NULL
+           AND t.status NOT IN ('done', 'cancelled')
+         ORDER BY
+           CASE t.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+           t.created_at ASC
+         LIMIT 20`,
+      )
+      .all(agent.id) as Array<{
+        id: string;
+        title: string;
+        description: string;
+        status: string;
+        priority: string;
+        type: string;
+        task_key: string;
+        project_name: string;
+        project_slug: string;
+      }>;
 
   if (focusedTask) {
     sections.push("\n## Current Task Focus\n");
@@ -375,22 +500,24 @@ export function buildHeartbeatPrompt(
     if (goalContext) sections.push(goalContext);
   }
 
-  const memoryContext = buildMemoryContext({
-    db,
-    companyId: agent.company_id,
-    agentId: agent.id,
-    agentRole: agent.role,
-    projectId: focusedTask?.project_id ?? null,
-    includeFixtureMemories: allowsExplicitFixtureMemoryAccess(focusedTask),
-    focus: focusedTask
-      ? {
-          taskKey: focusedTask.task_key,
-          taskTitle: focusedTask.title,
-          taskDescription: focusedTask.description,
-          sprintId: focusedTask.sprint_id,
-        }
-      : null,
-  });
+  const memoryContext = compactPrompt.enabled
+    ? null
+    : buildMemoryContext({
+      db,
+      companyId: agent.company_id,
+      agentId: agent.id,
+      agentRole: agent.role,
+      projectId: focusedTask?.project_id ?? null,
+      includeFixtureMemories: allowsExplicitFixtureMemoryAccess(focusedTask),
+      focus: focusedTask
+        ? {
+            taskKey: focusedTask.task_key,
+            taskTitle: focusedTask.title,
+            taskDescription: focusedTask.description,
+            sprintId: focusedTask.sprint_id,
+          }
+        : null,
+    });
   if (memoryContext) {
     sections.push(memoryContext.section);
     sections.push("Memory utilization receipt: when injected memory affects your work, emit one `memory_receipt` mc-action listing records you used, ignored, or found irrelevant. Use the Record ID or Evidence envelope ID shown above. These are agent claims only; matched-use scoring is stored separately.");
@@ -541,20 +668,22 @@ export function buildHeartbeatPrompt(
   // Show the CEO what already exists so it does not recreate completed work.
 
   // All recent tasks in the company (not just assigned to this agent)
-  const companyTasks = db
-    .prepare(
-      `SELECT t.task_key, t.title, t.status, t.priority, a.name AS assignee_name
-       FROM tasks t
-       INNER JOIN projects p ON p.id = t.project_id
-       LEFT JOIN agents a ON a.id = t.assignee_agent_id
-       WHERE p.company_id = ? AND t.archived_at IS NULL
-         AND t.status NOT IN ('done', 'cancelled')
-       ORDER BY t.created_at DESC
-       LIMIT 30`
-    )
-    .all(agent.company_id) as Array<{
-      task_key: string; title: string; status: string; priority: string; assignee_name: string | null;
-    }>;
+  const companyTasks = compactPrompt.enabled
+    ? []
+    : db
+      .prepare(
+        `SELECT t.task_key, t.title, t.status, t.priority, a.name AS assignee_name
+         FROM tasks t
+         INNER JOIN projects p ON p.id = t.project_id
+         LEFT JOIN agents a ON a.id = t.assignee_agent_id
+         WHERE p.company_id = ? AND t.archived_at IS NULL
+           AND t.status NOT IN ('done', 'cancelled')
+         ORDER BY t.created_at DESC
+         LIMIT 30`,
+      )
+      .all(agent.company_id) as Array<{
+        task_key: string; title: string; status: string; priority: string; assignee_name: string | null;
+      }>;
 
   if (companyTasks.length > 0 && !focusedTask) {
     sections.push("\n## All Open Tasks in Company (DO NOT recreate these)\n");
@@ -571,44 +700,46 @@ export function buildHeartbeatPrompt(
     }
   }
 
-  const runtimeRoster = db
-    .prepare(
-      `SELECT
-         a.name,
-         a.role,
-         a.status,
-         a.adapter_type,
-         ar.runtime_kind,
-         ar.status AS runtime_status,
-         ar.command,
-         ar.workspace_root
-       FROM agents a
-       LEFT JOIN agent_runtimes ar
-         ON ar.id = (
-           SELECT ar2.id
-           FROM agent_runtimes ar2
-           WHERE ar2.agent_id = a.id
-             AND ar2.company_id = a.company_id
-           ORDER BY ar2.updated_at DESC
-           LIMIT 1
-         )
-       WHERE a.company_id = ?
-         AND a.archived_at IS NULL
-       ORDER BY
-         CASE WHEN LOWER(a.role) LIKE '%ceo%' THEN 0 ELSE 1 END,
-         a.name ASC
-       LIMIT 30`,
-    )
-    .all(agent.company_id) as Array<{
-      name: string;
-      role: string;
-      status: string;
-      adapter_type: string | null;
-      runtime_kind: string | null;
-      runtime_status: string | null;
-      command: string | null;
-      workspace_root: string | null;
-    }>;
+  const runtimeRoster = compactPrompt.enabled
+    ? []
+    : db
+      .prepare(
+        `SELECT
+           a.name,
+           a.role,
+           a.status,
+           a.adapter_type,
+           ar.runtime_kind,
+           ar.status AS runtime_status,
+           ar.command,
+           ar.workspace_root
+         FROM agents a
+         LEFT JOIN agent_runtimes ar
+           ON ar.id = (
+             SELECT ar2.id
+             FROM agent_runtimes ar2
+             WHERE ar2.agent_id = a.id
+               AND ar2.company_id = a.company_id
+             ORDER BY ar2.updated_at DESC
+             LIMIT 1
+           )
+         WHERE a.company_id = ?
+           AND a.archived_at IS NULL
+         ORDER BY
+           CASE WHEN LOWER(a.role) LIKE '%ceo%' THEN 0 ELSE 1 END,
+           a.name ASC
+         LIMIT 30`,
+      )
+      .all(agent.company_id) as Array<{
+        name: string;
+        role: string;
+        status: string;
+        adapter_type: string | null;
+        runtime_kind: string | null;
+        runtime_status: string | null;
+        command: string | null;
+        workspace_root: string | null;
+      }>;
 
   if (runtimeRoster.length > 0) {
     sections.push("\n## Agent Runtime Readiness");
@@ -627,17 +758,19 @@ export function buildHeartbeatPrompt(
   }
 
   // Pending approvals
-  const pendingApprovals = db
-    .prepare(
-      `SELECT a.id, a.type, a.status, a.payload_json
-       FROM approvals a
-       WHERE a.company_id = ? AND a.status IN ('pending', 'revision_requested')
-       ORDER BY a.created_at DESC
-       LIMIT 10`
-    )
-    .all(agent.company_id) as Array<{
-      id: string; type: string; status: string; payload_json: string;
-    }>;
+  const pendingApprovals = compactPrompt.enabled
+    ? []
+    : db
+      .prepare(
+        `SELECT a.id, a.type, a.status, a.payload_json
+         FROM approvals a
+         WHERE a.company_id = ? AND a.status IN ('pending', 'revision_requested')
+         ORDER BY a.created_at DESC
+         LIMIT 10`,
+      )
+      .all(agent.company_id) as Array<{
+        id: string; type: string; status: string; payload_json: string;
+      }>;
 
   if (pendingApprovals.length > 0) {
     sections.push("\n## Pending Approvals (DO NOT recreate these)\n");
@@ -649,17 +782,19 @@ export function buildHeartbeatPrompt(
   }
 
   // Recent completed approvals (so the agent knows what was already decided)
-  const decidedApprovals = db
-    .prepare(
-      `SELECT a.id, a.type, a.status, a.payload_json, a.decision_note
-       FROM approvals a
-       WHERE a.company_id = ? AND a.status IN ('approved', 'rejected')
-       ORDER BY a.decided_at DESC
-       LIMIT 5`
-    )
-    .all(agent.company_id) as Array<{
-      id: string; type: string; status: string; payload_json: string; decision_note: string | null;
-    }>;
+  const decidedApprovals = compactPrompt.enabled
+    ? []
+    : db
+      .prepare(
+        `SELECT a.id, a.type, a.status, a.payload_json, a.decision_note
+         FROM approvals a
+         WHERE a.company_id = ? AND a.status IN ('approved', 'rejected')
+         ORDER BY a.decided_at DESC
+         LIMIT 5`,
+      )
+      .all(agent.company_id) as Array<{
+        id: string; type: string; status: string; payload_json: string; decision_note: string | null;
+      }>;
 
   if (decidedApprovals.length > 0) {
     sections.push("\n## Recently Decided Approvals\n");
@@ -671,14 +806,16 @@ export function buildHeartbeatPrompt(
   }
 
   // Recent actions from prior runs (so the agent sees its own history)
-  const recentRuns = db
-    .prepare(
-      `SELECT result_json FROM heartbeat_runs
-       WHERE agent_id = ? AND status = 'succeeded' AND result_json != '{}'
-       ORDER BY finished_at DESC
-       LIMIT 3`
-    )
-    .all(agent.id) as Array<{ result_json: string }>;
+  const recentRuns = compactPrompt.enabled
+    ? []
+    : db
+      .prepare(
+        `SELECT result_json FROM heartbeat_runs
+         WHERE agent_id = ? AND status = 'succeeded' AND result_json != '{}'
+         ORDER BY finished_at DESC
+         LIMIT 3`,
+      )
+      .all(agent.id) as Array<{ result_json: string }>;
 
   const priorActions: string[] = [];
   for (const r of recentRuns) {
@@ -709,6 +846,11 @@ export function buildHeartbeatPrompt(
   sections.push("- Use `update_task` with status `blocked` only for a concrete external blocker, and include `\"comment\"` with the blocker and exit condition.");
   sections.push("- Do not post 'Starting', 'Now I will', stdout/stderr, provider warnings, or JSON traces as comments. Execution history stores those details.");
   sections.push("- If you cannot verify current external information with available tools, say so in a clean task comment instead of inventing sources or stale facts.");
+
+  if (compactPrompt.enabled) {
+    appendCompactResponseFormat(sections, focusedTask?.task_key);
+    return sections.join("\n").trim();
+  }
 
   // Final response-format reminder — placed last so it is the most recent
   // instruction the model reads before generating. The earlier onboarding

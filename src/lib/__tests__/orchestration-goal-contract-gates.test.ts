@@ -31,6 +31,7 @@ async function run() {
   const { getOrchestrationDb } = await import("@/lib/orchestration/db");
   const { buildTaskGoalContextSection } = await import("@/lib/orchestration/goal-context");
   const { recordPlanningRetrospectiveMemory } = await import("@/lib/orchestration/planning-retrospectives");
+  const { getActionResultsTerminalFailure } = await import("@/lib/orchestration/engine/run-continuation");
   const { __testHooks: engineTestHooks, executeMcAction } = await import("@/lib/orchestration/engine/engine");
   const { createProject, createProjectAgent, createTask, moveTask } = await import("@/lib/orchestration/service");
 
@@ -275,6 +276,119 @@ async function run() {
     assert.strictEqual(plannedTaskCount.count, 0);
   });
 
+  await test("tiny deterministic active goal creates sprint draft without planner wake", () => {
+    const db = getOrchestrationDb();
+    const codingAgent = createProjectAgent({
+      projectId: project.id,
+      name: "Codex Builder",
+      emoji: "icon:code",
+      role: "Software engineer",
+      personality: "Builds small deterministic utilities.",
+      skills: ["typescript", "tests", "documentation"],
+      status: "idle",
+      adapterType: "codex",
+    }).agent;
+
+    const tinyGoal = createCompanyGoal({
+      companyIdOrSlug: company.id,
+      projectId: project.id,
+      name: "Benchmark: Fast Path Decision Log Summarizer",
+      goal: [
+        "Benchmark goal: implement a small, self-contained Decision Log Summarizer utility in this repository.",
+        "Create one focused sprint with a few simple tasks. Do not create follow-up sprints unless something is genuinely blocked.",
+        "Add code, fixtures, tests, and a README or usage note under scratch/harness-comparison/decision-log-summarizer.",
+        "Do not modify production runtime behavior. Do not promote, push, or deploy. Do not use network access.",
+      ].join(" "),
+      goalKind: "company",
+      status: "active",
+      leadAgentId: codingAgent.id,
+      defaultExecutionEngine: "hiverunner",
+      defaultModelLane: "default",
+    }).goal;
+
+    const planningTasks = db.prepare(
+      `SELECT id
+       FROM tasks
+       WHERE sprint_id = ?
+         AND title = ?
+         AND archived_at IS NULL`
+    ).all(tinyGoal.sprint.id, "Plan sprint for Benchmark: Fast Path Decision Log Summarizer");
+    assert.strictEqual(planningTasks.length, 0);
+
+    const plannerWake = db.prepare(
+      `SELECT id
+       FROM agent_wakeup_requests
+       WHERE reason = 'goal_lead_planning'
+         AND payload_json LIKE ?
+       LIMIT 1`
+    ).get(`%${tinyGoal.sprint.id}%`);
+    assert.strictEqual(plannerWake, undefined);
+
+    const draft = getPendingSprintPlanDraft({
+      companyIdOrSlug: company.id,
+      companyGoalId: tinyGoal.sprint.id,
+    }).draft;
+    assert.ok(draft);
+    assert.strictEqual(draft.planningTaskId, null);
+    assert.strictEqual(draft.tasks.length, 1);
+    assert.strictEqual(draft.tasks[0].assignee, codingAgent.id);
+    assert.strictEqual(draft.tasks[0].executionEngine, "hiverunner");
+    assert.strictEqual(draft.tasks[0].modelLane, "default");
+    const planningPolicy = draft.generationProvenance?.planningPolicy as { size?: string; qaMode?: string; maxTasksPerSprint?: number } | undefined;
+    assert.strictEqual(planningPolicy?.size, "tiny");
+    assert.strictEqual(planningPolicy?.qaMode, "skip_by_default");
+    assert.strictEqual(planningPolicy?.maxTasksPerSprint, 1);
+    const fastPath = draft.generationProvenance?.planningPolicyFastPath as { schema?: string; reason?: string } | undefined;
+    assert.strictEqual(fastPath?.schema, "hiverunner.planning_policy_fast_path.v1");
+    assert.strictEqual(fastPath?.reason, "tiny_low_risk_deterministic");
+
+    const approved = approveSprintPlanDraft({
+      companyIdOrSlug: company.id,
+      companyGoalId: tinyGoal.sprint.id,
+      draftId: draft.id,
+      actorUserId: "operator-fixture",
+    });
+    assert.strictEqual(approved.taskIds.length, 1);
+    const materializedTask = db.prepare(
+      `SELECT assignee_agent_id, execution_engine, model_lane
+       FROM tasks
+       WHERE id = ?`
+    ).get(approved.taskIds[0]) as { assignee_agent_id: string | null; execution_engine: string | null; model_lane: string | null };
+    assert.strictEqual(materializedTask.assignee_agent_id, codingAgent.id);
+    assert.strictEqual(materializedTask.execution_engine, "hiverunner");
+    assert.strictEqual(materializedTask.model_lane, "default");
+
+    const plannedTiny = createCompanyGoal({
+      companyIdOrSlug: company.id,
+      projectId: project.id,
+      name: "Benchmark: Activated Fast Path Utility",
+      goal: "Small self-contained scratch utility with fixtures, tests, local validation, and README usage note. Do not deploy or use network access.",
+      goalKind: "company",
+      status: "planned",
+      leadAgentId: codingAgent.id,
+      defaultExecutionEngine: "hiverunner",
+      defaultModelLane: "default",
+    }).goal;
+    assert.strictEqual(getPendingSprintPlanDraft({ companyIdOrSlug: company.id, companyGoalId: plannedTiny.sprint.id }).draft, null);
+    updateCompanyGoal({
+      companyIdOrSlug: company.id,
+      sprintId: plannedTiny.sprint.id,
+      status: "active",
+      actorUserId: "operator-fixture",
+    });
+    const activatedDraft = getPendingSprintPlanDraft({ companyIdOrSlug: company.id, companyGoalId: plannedTiny.sprint.id }).draft;
+    assert.ok(activatedDraft);
+    assert.strictEqual(activatedDraft.tasks.length, 1);
+    const activatedWake = db.prepare(
+      `SELECT id
+       FROM agent_wakeup_requests
+       WHERE reason = 'goal_lead_planning'
+         AND payload_json LIKE ?
+       LIMIT 1`
+    ).get(`%${plannedTiny.sprint.id}%`);
+    assert.strictEqual(activatedWake, undefined);
+  });
+
   await test("goal lead revision wake after sprint completion is claimable", () => {
     const db = getOrchestrationDb();
     const revisionGoal = createCompanyGoal({
@@ -436,8 +550,26 @@ async function run() {
     assert.ok(context?.includes("Concurrency-first planning rule"));
     assert.ok(context?.includes("Default every task to `dependsOn: []`"));
     assert.ok(context?.includes("Small/self-contained goal rule"));
+    assert.ok(context?.includes("Goal default routing: executionEngine=symphony"));
+    assert.ok(context?.includes("Planning policy for this goal:"));
     assert.ok(context?.includes("at least half of non-QA/non-release tasks should be able to start immediately"));
     assert.ok(context?.includes("Use dependencies only for hard prerequisites"));
+  });
+
+  await test("planning policy action errors are terminal run failures", () => {
+    const terminal = getActionResultsTerminalFailure({
+      messagesImported: 1,
+      actionsFound: 1,
+      actionsExecuted: 0,
+      actionsSkippedDedup: 0,
+      actionsDeferred: 0,
+      tasksCreated: [],
+      approvalsCreated: [],
+      reportsImported: 0,
+      errors: ["propose_sprint_plan: planning_policy:task_count_exceeded"],
+    });
+
+    assert.strictEqual(terminal, "propose_sprint_plan: planning_policy:task_count_exceeded");
   });
 
   await test("small self-contained benchmark plans reject excessive task fanout", async () => {
@@ -446,17 +578,42 @@ async function run() {
       companyIdOrSlug: company.id,
       projectId: project.id,
       name: "Benchmark: Decision Log Summarizer",
-      goal: "Benchmark goal: implement a small, self-contained Decision Log Summarizer utility in this repository. Create one focused sprint with a few simple tasks. Do not create follow-up sprints unless something is genuinely blocked. Use scratch/harness-comparison/decision-log-summarizer if needed.",
+      goal: [
+        "Benchmark goal: implement a small, self-contained Decision Log Summarizer utility in this repository.",
+        "Create one focused sprint with a few simple tasks. Do not create follow-up sprints unless something is genuinely blocked.",
+        "Add code, fixtures, tests, and a README or usage note. Use scratch/harness-comparison/decision-log-summarizer if needed.",
+        "Do not modify production runtime behavior. Do not promote, push, or deploy. Do not use network access.",
+      ].join(" "),
       goalKind: "company",
-      status: "active",
+      status: "planned",
       leadAgentId: agent.id,
       defaultExecutionEngine: "hiverunner",
     }).goal;
-    const planningTask = createSprintPlanningTask({
-      companyIdOrSlug: company.id,
-      companyGoalId: smallGoal.sprint.id,
-      leadAgentId: agent.id,
+    const planningTaskRecord = createTask({
+      projectId: project.id,
+      sprintId: smallGoal.sprint.id,
+      title: "Plan sprint for Benchmark: Decision Log Summarizer",
+      description: "Fixture planning task for validating Plan Mode policy admission.",
+      priority: "P0",
+      type: "research",
+      status: "to-do",
+      assignee: agent.id,
+      labels: ["sprint-planning", "goal-contract"],
+      executionEngine: "hiverunner",
+      modelLane: "default",
+      createdBy: "test",
+    }).task;
+    const planningTask = {
+      taskId: planningTaskRecord.id,
+      taskKey: planningTaskRecord.key ?? planningTaskRecord.id,
+    };
+    const smallContext = buildTaskGoalContextSection({
+      db,
+      taskId: planningTask.taskId,
+      agentId: agent.id,
     });
+    assert.ok(smallContext?.includes("Goal default routing: executionEngine=hiverunner"));
+    assert.ok(smallContext?.includes("Policy hard rule: propose exactly one implementation task and zero QA/review/release tasks."));
     const runId = randomUUID();
 
     const overSplit = await executeMcAction({
@@ -486,7 +643,7 @@ async function run() {
 
     assert.deepStrictEqual(overSplit, {
       kind: "failed",
-      reason: "small_goal_plan_over_split:tightly_coupled_tasks",
+      reason: "planning_policy:task_count_exceeded",
     });
     assert.strictEqual(getPendingSprintPlanDraft({ companyIdOrSlug: company.id, companyGoalId: smallGoal.sprint.id }).draft, null);
     const rejectionComment = db.prepare(
@@ -498,7 +655,45 @@ async function run() {
        LIMIT 1`,
     ).get(planningTask.taskId) as { body: string } | undefined;
     assert.ok(rejectionComment?.body.includes("Sprint plan draft rejected"));
+    assert.ok(rejectionComment?.body.includes("size=tiny"));
     assert.ok(rejectionComment?.body.includes("one implementation task"));
+
+    const routeOverride = await executeMcAction({
+      action: "propose_sprint_plan",
+      companyGoalId: smallGoal.sprint.id,
+      sprints: [{
+        sequenceNumber: 1,
+        name: "Build decision log summarizer",
+        objective: "Implement and validate the small scratch utility.",
+        defaultExecutionEngine: "symphony",
+        defaultModelLane: "fast",
+        validationChecks: ["Operator can verify exactly one focused sprint with one implementation task and zero QA/review/release tasks."],
+        tasks: [
+          {
+            id: "implement",
+            title: "Implement decision log summarizer utility",
+            description: "Create code, fixtures, tests, README, validation evidence, and final runtime summary for the small utility.",
+            validation: "Run focused parser tests and report files changed plus available runtime metrics.",
+            priority: "P1",
+            type: "feature",
+            assignee: agent.id,
+            executionEngine: "symphony",
+            modelLane: "fast",
+          },
+        ],
+      }],
+    }, {
+      agentId: agent.id,
+      agentName: agent.name,
+      companyId: company.id,
+      taskKey: planningTask.taskKey,
+      runId: randomUUID(),
+    }, db);
+
+    assert.deepStrictEqual(routeOverride, {
+      kind: "failed",
+      reason: "planning_policy:default_execution_engine_changed",
+    });
 
     const compact = await executeMcAction({
       action: "propose_sprint_plan",
@@ -509,8 +704,15 @@ async function run() {
         objective: "Implement and validate the small scratch utility.",
         defaultExecutionEngine: "hiverunner",
         tasks: [
-          { id: "implement", title: "Implement decision log summarizer utility", description: "Create code, fixtures, tests, and README for the small utility.", priority: "P1", type: "feature", assignee: agent.id },
-          { id: "qa", title: "Validate utility and handoff evidence", description: "Run focused validation and summarize files changed, checks, and available runtime metrics.", priority: "P2", type: "qa", assignee: agent.id, dependsOn: ["implement"] },
+          {
+            id: "implement",
+            title: "Implement decision log summarizer utility",
+            description: "Create code, fixtures, tests, README, validation evidence, and final runtime summary for the small utility. Avoid production runtime wiring.",
+            validation: "Run focused parser tests, keep zero QA/review/release tasks, and report files changed plus available token/cost/runtime metrics.",
+            priority: "P1",
+            type: "feature",
+            assignee: agent.id,
+          },
         ],
       }],
     }, {
@@ -522,7 +724,94 @@ async function run() {
     }, db);
 
     assert.strictEqual(compact.kind, "proposed_sprint_plan");
-    assert.ok(getPendingSprintPlanDraft({ companyIdOrSlug: company.id, companyGoalId: smallGoal.sprint.id }).draft);
+    const pendingDraft = getPendingSprintPlanDraft({ companyIdOrSlug: company.id, companyGoalId: smallGoal.sprint.id }).draft;
+    assert.ok(pendingDraft);
+    const planningPolicy = pendingDraft.generationProvenance?.planningPolicy as { qaMode?: string; maxTasksPerSprint?: number } | undefined;
+    assert.strictEqual(planningPolicy?.qaMode, "skip_by_default");
+    assert.strictEqual(planningPolicy?.maxTasksPerSprint, 1);
+    assert.throws(
+      () => approveSprintPlanDraft({
+        companyIdOrSlug: company.id,
+        companyGoalId: smallGoal.sprint.id,
+        draftId: pendingDraft.id,
+        tasks: [
+          ...pendingDraft.tasks,
+          {
+            id: "qa",
+            title: "Validate utility and handoff evidence",
+            description: "Run focused validation and summarize files changed, checks, and available runtime metrics.",
+            priority: "P2",
+            type: "qa",
+            assignee: agent.id,
+            dependsOn: ["implement"],
+          },
+        ],
+        actorUserId: "operator-fixture",
+      }),
+      (error: unknown) => error instanceof OrchestrationApiError && error.code === "planning_policy_violation",
+    );
+    const approved = approveSprintPlanDraft({
+      companyIdOrSlug: company.id,
+      companyGoalId: smallGoal.sprint.id,
+      draftId: pendingDraft.id,
+      actorUserId: "operator-fixture",
+    });
+    assert.strictEqual(approved.taskIds.length, 1);
+  });
+
+  await test("planning policy requires QA for high-risk runtime routing drafts", () => {
+    const runtimeGoal = createCompanyGoal({
+      companyIdOrSlug: company.id,
+      projectId: project.id,
+      name: "Runtime routing hardening",
+      goal: "Fix runtime model routing provider adapter behavior without regressing Codex execution.",
+      goalKind: "company",
+      status: "active",
+      leadAgentId: agent.id,
+      defaultExecutionEngine: "hiverunner",
+    }).goal;
+    const planningTask = createSprintPlanningTask({
+      companyIdOrSlug: company.id,
+      companyGoalId: runtimeGoal.sprint.id,
+      leadAgentId: agent.id,
+    });
+
+    assert.throws(
+      () => createSprintPlanDraft({
+        companyIdOrSlug: company.id,
+        companyGoalId: runtimeGoal.sprint.id,
+        planningTaskId: planningTask.taskId,
+        proposedByAgentId: agent.id,
+        sprint: {
+          name: "Runtime model routing fix",
+          objective: "Change runtime routing behavior for model/provider selection.",
+          validationChecks: ["Focused runtime routing regression tests pass."],
+          outOfScope: [],
+        },
+        tasks: [{ id: "implement", title: "Fix runtime routing", priority: "P1", type: "feature", assignee: agent.id }],
+      }),
+      (error: unknown) => error instanceof OrchestrationApiError && error.code === "planning_policy_violation",
+    );
+
+    const accepted = createSprintPlanDraft({
+      companyIdOrSlug: company.id,
+      companyGoalId: runtimeGoal.sprint.id,
+      planningTaskId: planningTask.taskId,
+      proposedByAgentId: agent.id,
+      sprint: {
+        name: "Runtime model routing fix",
+        objective: "Change runtime routing behavior for model/provider selection.",
+        validationChecks: ["Focused runtime routing regression tests pass.", "QA verifies Codex routing remains unchanged."],
+        outOfScope: [],
+      },
+      tasks: [
+        { id: "implement", title: "Fix runtime routing", priority: "P1", type: "feature", assignee: agent.id },
+        { id: "qa", title: "QA runtime routing behavior", priority: "P1", type: "qa", assignee: agent.id, dependsOn: ["implement"] },
+      ],
+    }).draft;
+    const planningPolicy = accepted.generationProvenance?.planningPolicy as { qaMode?: string; requireQa?: boolean } | undefined;
+    assert.strictEqual(planningPolicy?.qaMode, "required");
+    assert.strictEqual(planningPolicy?.requireQa, true);
   });
 
   await test("plan revision task closes with summary after proposing revised draft", async () => {

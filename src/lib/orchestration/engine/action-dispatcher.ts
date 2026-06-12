@@ -14,6 +14,12 @@ import { reconcileTaskHierarchy, refreshAgentLoad, resolveTaskExecutionEngine, r
 import { sanitizeAgentCommentLinks } from "@/lib/orchestration/comment-link-verification";
 import { submitCompanyReviewDecision } from "@/lib/orchestration/review-decision";
 import { createGoalCompletionProposal, createSprintPlanDrafts, recordGoalContractEvidence } from "@/lib/orchestration/company-service";
+import {
+  buildPlanningPolicy,
+  formatPlanningPolicyViolationMessage,
+  validateSprintPlanAgainstPlanningPolicy,
+  type PlanningPolicyDraftInput,
+} from "@/lib/orchestration/planning-policy";
 import { captureBrowserProof, type CaptureBrowserProofAction } from "@/lib/orchestration/browser-proof";
 import { maybeAutoCompleteSprintForTaskDone } from "@/lib/orchestration/service/task";
 import { ensureCompanyExecutionHives } from "@/lib/orchestration/service/execution-hives";
@@ -287,90 +293,103 @@ export type ExecuteMcActionInput = {
   deferDependentAutoStart?: boolean;
 };
 
-type ProposedSprintPlan = Array<{
-  name: string;
-  objective: string;
-  tasks: Array<{
-    title: string;
-    description?: string;
-    type?: string;
-    dependsOn?: string[];
-  }>;
-}>;
-
-const SMALL_SELF_CONTAINED_GOAL_PATTERN =
-  /\b(?:small|self-contained|one focused sprint|few simple tasks?|prompt-based benchmark|single local artifact)\b|scratch\/harness-comparison/;
-const ONE_SPRINT_REQUIRED_PATTERN =
-  /\bone focused sprint\b|\bdo not create follow-up sprints\b/;
-const TIGHT_UTILITY_TASK_PATTERN =
-  /\b(?:parser|fixtures?|tests?|readme|usage note|docs?|summary|utility|scratch|integrat(?:e|ion)|validation)\b/;
-const QA_REVIEW_RELEASE_TASK_PATTERN = /^(?:qa|review|release)$/i;
-
-function normalizedPlanText(parts: Array<string | null | undefined>): string {
-  return parts
-    .filter((part): part is string => Boolean(part?.trim()))
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
-}
-
-function smallSelfContainedPlanRejectionReason(
+function sprintPlanPolicyRejection(
   db: Database.Database,
   companyGoalId: string,
-  sprints: ProposedSprintPlan,
-): string | null {
+  drafts: PlanningPolicyDraftInput[],
+): { reason: string; body: string } | null {
   const goal = db
     .prepare(
-      `SELECT name, goal, stop_condition
+      `SELECT id, name, goal, stop_condition, progress_summary, default_execution_engine, default_model_lane
        FROM sprints
        WHERE id = ? OR goal_key = ?
        LIMIT 1`,
     )
-    .get(companyGoalId, companyGoalId) as { name: string; goal: string; stop_condition: string } | undefined;
-
-  const goalText = normalizedPlanText([
-    goal?.name,
-    goal?.goal,
-    goal?.stop_condition,
-    ...sprints.flatMap((sprint) => [sprint.name, sprint.objective]),
-  ]);
-  if (!SMALL_SELF_CONTAINED_GOAL_PATTERN.test(goalText)) return null;
-  return smallSelfContainedFanoutRejectionReason(goalText, sprints);
+    .get(companyGoalId, companyGoalId) as {
+      id: string;
+      name: string | null;
+      goal: string | null;
+      stop_condition: string | null;
+      progress_summary: string | null;
+      default_execution_engine: TaskExecutionEngine | null;
+      default_model_lane: TaskModelLane | null;
+    } | undefined;
+  const defaultRoutingRejection = sprintPlanDefaultRoutingRejection(goal, drafts);
+  if (defaultRoutingRejection) return defaultRoutingRejection;
+  const policy = buildPlanningPolicy({
+    goal: {
+      id: goal?.id ?? companyGoalId,
+      name: goal?.name,
+      goal: goal?.goal,
+      stopCondition: goal?.stop_condition,
+      progressSummary: goal?.progress_summary,
+    },
+    drafts,
+  });
+  const validation = validateSprintPlanAgainstPlanningPolicy(policy, drafts);
+  if (validation.ok) return null;
+  return {
+    reason: validation.violations[0]?.code ?? "planning_policy_violation",
+    body: formatPlanningPolicyViolationMessage(policy, validation.violations),
+  };
 }
 
-function smallSelfContainedFanoutRejectionReason(
-  goalText: string,
-  sprints: ProposedSprintPlan,
-): string | null {
-  if (sprints.length > 1 && ONE_SPRINT_REQUIRED_PATTERN.test(goalText)) {
-    return "small_goal_plan_over_split:multiple_sprints";
-  }
-
-  if (sprints.length !== 1) return null;
-  return sprintTaskFanoutRejectionReason(sprints[0]?.tasks ?? []);
+function goalAllowsDefaultRoutingOverride(goal: {
+  goal: string | null;
+  stop_condition: string | null;
+  progress_summary: string | null;
+} | undefined): boolean {
+  const text = [goal?.goal, goal?.stop_condition, goal?.progress_summary]
+    .filter((part): part is string => Boolean(part?.trim()))
+    .join(" ")
+    .toLowerCase();
+  return /\b(?:override|change|switch|use)\b[^.!\n]*(?:execution engine|engine|model lane|lane|symphony|hiverunner|fast|mini|deep)\b/.test(text);
 }
 
-function sprintTaskFanoutRejectionReason(tasks: ProposedSprintPlan[number]["tasks"]): string | null {
-  if (tasks.length <= 3) return null;
+function sprintPlanDefaultRoutingRejection(
+  goal: {
+    default_execution_engine: TaskExecutionEngine | null;
+    default_model_lane: TaskModelLane | null;
+    goal: string | null;
+    stop_condition: string | null;
+    progress_summary: string | null;
+  } | undefined,
+  drafts: PlanningPolicyDraftInput[],
+): { reason: string; body: string } | null {
+  if (!goal || goalAllowsDefaultRoutingOverride(goal)) return null;
+  const defaultEngine = goal.default_execution_engine;
+  const defaultLane = goal.default_model_lane;
 
-  const tightTaskSignals = countTightUtilityTasks(tasks);
-  const nonQaTasks = tasks.filter((task) => !QA_REVIEW_RELEASE_TASK_PATTERN.test(String(task.type ?? ""))).length;
-  const immediatelyRunnable = tasks.filter((task) => !task.dependsOn?.length).length;
-  if (tasks.length >= 5 && tightTaskSignals >= 4) {
-    return "small_goal_plan_over_split:tightly_coupled_tasks";
+  for (const [sprintIndex, draft] of drafts.entries()) {
+    if (defaultEngine && draft.sprint.defaultExecutionEngine && draft.sprint.defaultExecutionEngine !== defaultEngine) {
+      return {
+        reason: "planning_policy:default_execution_engine_changed",
+        body: `Sprint ${sprintIndex + 1} changes defaultExecutionEngine from ${defaultEngine} to ${draft.sprint.defaultExecutionEngine}. Honor the company goal default unless the operator explicitly requests an override.`,
+      };
+    }
+    if (defaultLane && draft.sprint.defaultModelLane && draft.sprint.defaultModelLane !== defaultLane) {
+      return {
+        reason: "planning_policy:default_model_lane_changed",
+        body: `Sprint ${sprintIndex + 1} changes defaultModelLane from ${defaultLane} to ${draft.sprint.defaultModelLane}. Honor the company goal default unless the operator explicitly requests an override.`,
+      };
+    }
+    for (const task of draft.tasks) {
+      if (defaultEngine && task.executionEngine && task.executionEngine !== defaultEngine) {
+        return {
+          reason: "planning_policy:task_execution_engine_changed",
+          body: `Task "${task.title}" changes executionEngine from ${defaultEngine} to ${task.executionEngine}. Honor the company goal default unless the operator explicitly requests an override.`,
+        };
+      }
+      if (defaultLane && task.modelLane && task.modelLane !== defaultLane) {
+        return {
+          reason: "planning_policy:task_model_lane_changed",
+          body: `Task "${task.title}" changes modelLane from ${defaultLane} to ${task.modelLane}. Honor the company goal default unless the operator explicitly requests an override.`,
+        };
+      }
+    }
   }
-  if (nonQaTasks > 3 && immediatelyRunnable >= Math.ceil(tasks.length / 2) && tightTaskSignals >= 3) {
-    return "small_goal_plan_over_split:parallel_fanout";
-  }
+
   return null;
-}
-
-function countTightUtilityTasks(tasks: ProposedSprintPlan[number]["tasks"]): number {
-  return tasks.filter((task) => {
-    const taskText = normalizedPlanText([task.title, task.description]);
-    return TIGHT_UTILITY_TASK_PATTERN.test(taskText);
-  }).length;
 }
 
 function getFocusedTaskKey(
@@ -646,21 +665,51 @@ export async function executeMcAction(
             ? [{ sequenceNumber: 1, ...action.sprint, tasks: action.tasks }]
             : [];
         if (sprints.length === 0) return { kind: "failed", reason: "empty_sprint_plan" };
-        const smallPlanRejection = smallSelfContainedPlanRejectionReason(db, action.companyGoalId, sprints);
-        if (smallPlanRejection) {
+        const drafts = sprints.map((sprint, sprintIndex) => ({
+          sequenceNumber: sprint.sequenceNumber ?? sprintIndex + 1,
+          sprint: {
+            name: sprint.name,
+            objective: sprint.objective,
+            owner: sprint.owner ?? null,
+            startDate: sprint.startDate,
+            endDate: sprint.endDate ?? null,
+            defaultExecutionEngine: sprint.defaultExecutionEngine ?? null,
+            defaultModelLane: sprint.defaultModelLane ?? null,
+            successCriteria: sprint.successCriteria ?? [],
+            validationChecks: sprint.validationChecks ?? [],
+            outOfScope: sprint.outOfScope ?? [],
+            sourceTemplateVersionId: sprint.sourceTemplateVersionId ?? action.sourceTemplateVersionId ?? null,
+            templateIntakeAnswerId: sprint.templateIntakeAnswerId ?? action.intakeAnswerId ?? null,
+            templateGenerationProvenance: sprint.templateGenerationProvenance ?? action.generationProvenance,
+          },
+          tasks: sprint.tasks.map((task, index) => ({
+            id: task.id ?? `s${sprint.sequenceNumber ?? sprintIndex + 1}-task-${index + 1}`,
+            title: task.title,
+            description: task.description,
+            assignee: task.assignee ?? null,
+            priority: task.priority as TaskPriority | undefined,
+            type: task.type as TaskType | undefined,
+            executionEngine: task.executionEngine ?? null,
+            modelLane: task.modelLane ?? null,
+            dependsOn: task.dependsOn ?? [],
+            validation: task.validation,
+            sourceTemplateVersionId: task.sourceTemplateVersionId ?? sprint.sourceTemplateVersionId ?? action.sourceTemplateVersionId ?? null,
+            templateIntakeAnswerId: task.templateIntakeAnswerId ?? sprint.templateIntakeAnswerId ?? action.intakeAnswerId ?? null,
+            templateGenerationProvenance: task.templateGenerationProvenance ?? sprint.templateGenerationProvenance ?? action.generationProvenance,
+          })),
+        }));
+        const planPolicyRejection = sprintPlanPolicyRejection(db, action.companyGoalId, drafts);
+        if (planPolicyRejection) {
           importCommentOnTask(
             input.taskKey,
             input.agentId,
-            [
-              `Sprint plan draft rejected: ${smallPlanRejection}.`,
-              "This goal is explicitly small/self-contained, so propose one implementation task that owns the code, fixtures, tests, and docs plus one QA/validation task when useful. Do not split tightly coupled utility work across parallel agents unless each task produces an independently useful artifact.",
-            ].join("\n\n"),
+            `Sprint plan draft rejected: ${planPolicyRejection.reason}.\n\n${planPolicyRejection.body}`,
             "status_update",
             input.runId,
             db,
             input.source,
           );
-          return { kind: "failed", reason: smallPlanRejection };
+          return { kind: "failed", reason: planPolicyRejection.reason };
         }
         const result = createSprintPlanDrafts({
           companyIdOrSlug: input.companyId,
@@ -670,39 +719,7 @@ export async function executeMcAction(
           sourceTemplateVersionId: action.sourceTemplateVersionId ?? null,
           intakeAnswerId: action.intakeAnswerId ?? null,
           generationProvenance: action.generationProvenance,
-          drafts: sprints.map((sprint, sprintIndex) => ({
-            sequenceNumber: sprint.sequenceNumber ?? sprintIndex + 1,
-            sprint: {
-              name: sprint.name,
-              objective: sprint.objective,
-              owner: sprint.owner ?? null,
-              startDate: sprint.startDate,
-              endDate: sprint.endDate ?? null,
-              defaultExecutionEngine: sprint.defaultExecutionEngine ?? null,
-              defaultModelLane: sprint.defaultModelLane ?? null,
-              successCriteria: sprint.successCriteria ?? [],
-              validationChecks: sprint.validationChecks ?? [],
-              outOfScope: sprint.outOfScope ?? [],
-              sourceTemplateVersionId: sprint.sourceTemplateVersionId ?? action.sourceTemplateVersionId ?? null,
-              templateIntakeAnswerId: sprint.templateIntakeAnswerId ?? action.intakeAnswerId ?? null,
-              templateGenerationProvenance: sprint.templateGenerationProvenance ?? action.generationProvenance,
-            },
-            tasks: sprint.tasks.map((task, index) => ({
-              id: task.id ?? `s${sprint.sequenceNumber ?? sprintIndex + 1}-task-${index + 1}`,
-              title: task.title,
-              description: task.description,
-              assignee: task.assignee ?? null,
-              priority: task.priority as TaskPriority | undefined,
-              type: task.type as TaskType | undefined,
-              executionEngine: task.executionEngine ?? null,
-              modelLane: task.modelLane ?? null,
-              dependsOn: task.dependsOn ?? [],
-              validation: task.validation,
-              sourceTemplateVersionId: task.sourceTemplateVersionId ?? sprint.sourceTemplateVersionId ?? action.sourceTemplateVersionId ?? null,
-              templateIntakeAnswerId: task.templateIntakeAnswerId ?? sprint.templateIntakeAnswerId ?? action.intakeAnswerId ?? null,
-              templateGenerationProvenance: task.templateGenerationProvenance ?? sprint.templateGenerationProvenance ?? action.generationProvenance,
-            })),
-          })),
+          drafts,
         });
         const draftId = result.drafts[0]?.id ?? result.proposalGroupId;
         const closedPlanningTask = closePlanningTaskAfterSprintDraftProposed({

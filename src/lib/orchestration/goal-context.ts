@@ -1,10 +1,41 @@
 import type Database from "better-sqlite3";
 
+import { buildPlanningPolicy, type PlanningPolicy } from "@/lib/orchestration/planning-policy";
 import { buildPlanningRetrospectiveContext } from "@/lib/orchestration/planning-retrospectives";
 
 function clip(value: string, max = 900): string {
   const normalized = value.replace(/\s+/g, " ").trim();
   return normalized.length > max ? `${normalized.slice(0, max - 1)}…` : normalized;
+}
+
+function planningPolicyInstructions(policy: PlanningPolicy): string {
+  const lines = [
+    "Planning policy for this goal:",
+    `- schema: ${policy.schema}`,
+    `- size: ${policy.size}`,
+    `- risk: ${policy.risk}`,
+    `- blastRadius: ${policy.blastRadius}`,
+    `- validationMode: ${policy.validationMode}`,
+    `- qaMode: ${policy.qaMode}`,
+    `- requireQa: ${policy.requireQa}`,
+    `- maxSprints: ${policy.maxSprints ?? "unbounded"}`,
+    `- maxTasksPerSprint: ${policy.maxTasksPerSprint ?? "unbounded"}`,
+    `- maxImplementationTasksPerSprint: ${policy.maxImplementationTasksPerSprint ?? "unbounded"}`,
+    `- maxQaTasksPerSprint: ${policy.maxQaTasksPerSprint ?? "unbounded"}`,
+  ];
+
+  if (
+    policy.schema === "hiverunner.planning_policy.v1" &&
+    policy.size === "tiny" &&
+    policy.risk === "low" &&
+    policy.qaMode === "skip_by_default"
+  ) {
+    lines.push(
+      "Policy hard rule: propose exactly one implementation task and zero QA/review/release tasks. Put code, fixtures, tests, docs, validation, and final reporting in that one task.",
+    );
+  }
+
+  return lines.join("\n");
 }
 
 function sprintPlanActionInstructions(companyGoalId: string | null | undefined): string {
@@ -15,10 +46,10 @@ function sprintPlanActionInstructions(companyGoalId: string | null | undefined):
     "Think through the full arc: dependencies between sprints, validation checkpoints, and what each sprint produces that the next consumes. Each sprint should be independently coherent.",
     "Concurrency-first planning rule: design each sprint so as many agents as possible can start immediately. Default every task to `dependsOn: []`; add a dependency only when the downstream task literally cannot begin without the upstream task's concrete output. Avoid waterfall chains that serialize research -> build -> QA unless that sequence is truly required.",
     "Late-arc sprints will be less certain than early ones; that is expected. Get the overall shape right. You can revise pending drafts when earlier sprints complete and reveal new information.",
-    "Planning quality determines code quality. Before writing JSON, perform a plan-quality pass: confirm the full arc, independent implementation slices, minimal necessary dependency gates, review/QA coverage, visual proof, migration/data safety, rollback path, operator validation, and where each sprint produces evidence the next sprint can consume.",
+    "Planning quality determines code quality. Before writing JSON, perform a plan-quality pass: confirm the full arc, independent implementation slices, minimal necessary dependency gates, policy-appropriate review/QA coverage, visual proof, migration/data safety, rollback path, operator validation, and where each sprint produces evidence the next sprint can consume.",
     "Optimize for the best code the system can ship, not just a long task list. Every task must be independently executable by its assignee, include concrete validation/evidence, have a clear file/component/API ownership boundary, and be small enough that a capable agent can finish it without guessing what 'done' means.",
-    "Small/self-contained goal rule: if the operator explicitly asks for one focused sprint, a few simple tasks, a prompt-based benchmark, a scratch utility, or another single local artifact, optimize for minimal harness overhead. Prefer one implementation task that owns code, fixtures, tests, and docs plus one QA/validation task when useful. Do not split tightly coupled parser/fixture/test/README work into parallel agents unless each slice can produce a useful standalone artifact without coordination. If you do split those slices, tests/docs/QA must depend on the implementation or fixture output they validate.",
-    "Do not propose a sprint that lacks implementation tasks, verification tasks, and operator-visible proof. If a sprint changes UI, include visual verification. If it changes data or migrations, include backup/rollback and idempotence checks. If it changes orchestration behavior, include runtime-parity checks where relevant.",
+    "Small/self-contained goal rule: if the operator explicitly asks for one focused sprint, a few simple tasks, a prompt-based benchmark, a scratch utility, or another single local artifact, optimize for minimal harness overhead. For tiny deterministic local work, prefer one implementation task that owns code, fixtures, tests, docs, validation, and final reporting. Add a separate QA/review task only when the goal is high-risk, the operator explicitly requests it, or validation cannot be captured by the implementation task. Do not split tightly coupled parser/fixture/test/README work into parallel agents unless each slice can produce a useful standalone artifact without coordination. If you do split those slices, tests/docs/QA must depend on the implementation or fixture output they validate.",
+    "Do not propose a sprint that lacks implementation ownership, validation/evidence, and operator-visible proof. If a sprint changes UI, include visual verification. If it changes data or migrations, include backup/rollback and idempotence checks. If it changes orchestration behavior, include runtime-parity checks where relevant.",
     "If a goal resembles a prior reference plan, use that plan as a benchmark for completeness and efficiency, not as a script. Improve it when the goal context justifies a stronger task split, fewer dependencies, clearer ownership boundaries, or better validation.",
     "When you are ready to propose the plan, you MUST call the `propose_sprint_plan` mc-action with the JSON shape below. Do NOT describe your plan in prose comments; comments are not parsed as action emissions and the operator cannot approve a comment-only proposal.",
     "Schema:",
@@ -252,12 +283,16 @@ export function buildTaskGoalContextSection(input: {
          s.status AS sprint_status,
          s.stop_condition AS sprint_stop_condition,
          s.lead_agent_id AS sprint_lead_agent_id,
+         s.default_execution_engine AS sprint_default_execution_engine,
+         s.default_model_lane AS sprint_default_model_lane,
          parent.id AS company_goal_id,
          parent.name AS company_goal_name,
          parent.goal AS company_goal_objective,
          parent.status AS company_goal_status,
          parent.stop_condition AS company_goal_stop_condition,
-         parent.lead_agent_id AS company_goal_lead_agent_id
+         parent.lead_agent_id AS company_goal_lead_agent_id,
+         parent.default_execution_engine AS company_goal_default_execution_engine,
+         parent.default_model_lane AS company_goal_default_model_lane
        FROM tasks t
        LEFT JOIN sprints s ON s.id = t.sprint_id
        LEFT JOIN sprints parent ON parent.id = s.parent_id
@@ -273,12 +308,16 @@ export function buildTaskGoalContextSection(input: {
       sprint_status: string | null;
       sprint_stop_condition: string | null;
       sprint_lead_agent_id: string | null;
+      sprint_default_execution_engine: string | null;
+      sprint_default_model_lane: string | null;
       company_goal_id: string | null;
       company_goal_name: string | null;
       company_goal_objective: string | null;
       company_goal_status: string | null;
       company_goal_stop_condition: string | null;
       company_goal_lead_agent_id: string | null;
+      company_goal_default_execution_engine: string | null;
+      company_goal_default_model_lane: string | null;
       company_id: string | null;
     } | undefined;
 
@@ -316,6 +355,16 @@ export function buildTaskGoalContextSection(input: {
     if (out.length) sections.push(`Out of scope:\n${out.join("\n")}`);
     if (row.sprint_lead_agent_id === input.agentId) {
       sections.push("Lead-agent responsibility: you are the lead for this goal. Plan sprints through operator-reviewable drafts, monitor contract drift, and do not create execution tasks directly until the operator approves a draft.");
+      sections.push(`Goal default routing: executionEngine=${row.sprint_default_execution_engine ?? "unset"}, modelLane=${row.sprint_default_model_lane ?? "unset"}. Draft sprint/task routing should omit these fields or match these defaults unless the operator explicitly requested an override.`);
+      sections.push(planningPolicyInstructions(buildPlanningPolicy({
+        goal: {
+          id: row.sprint_id,
+          name: row.sprint_name,
+          goal: row.sprint_objective,
+          stopCondition: row.sprint_stop_condition,
+        },
+        drafts: [],
+      })));
       const retrospectiveContext = buildPlanningRetrospectiveContext({ db: input.db, companyId: row.company_id });
       if (retrospectiveContext) sections.push(retrospectiveContext);
       const teamSnapshot = buildTeamCapacitySnapshot(input.db, row.company_id);
@@ -341,6 +390,16 @@ export function buildTaskGoalContextSection(input: {
     if (goalOut.length) sections.push(`Company-goal out of scope:\n${goalOut.join("\n")}`);
     if (row.company_goal_lead_agent_id === input.agentId) {
       sections.push("Lead-agent responsibility: you are the lead for this parent goal. Watch for contract drift and use sprint-plan drafts for new work.");
+      sections.push(`Company-goal default routing: executionEngine=${row.company_goal_default_execution_engine ?? "unset"}, modelLane=${row.company_goal_default_model_lane ?? "unset"}. Draft sprint/task routing should omit these fields or match these defaults unless the operator explicitly requested an override.`);
+      sections.push(planningPolicyInstructions(buildPlanningPolicy({
+        goal: {
+          id: row.company_goal_id,
+          name: row.company_goal_name,
+          goal: row.company_goal_objective,
+          stopCondition: row.company_goal_stop_condition,
+        },
+        drafts: [],
+      })));
       const retrospectiveContext = buildPlanningRetrospectiveContext({ db: input.db, companyId: row.company_id });
       if (retrospectiveContext) sections.push(retrospectiveContext);
       const teamSnapshot = buildTeamCapacitySnapshot(input.db, row.company_id);

@@ -78,6 +78,10 @@ export function getActionResultsTerminalFailure(actionResults: ActionResults | n
   if (actionResults.errors.some((error) => error.includes(NO_OP_RESUBMISSION_ERROR))) {
     return NO_OP_RESUBMISSION_ERROR;
   }
+  const planningPolicyError = actionResults.errors.find((error) => error.includes("planning_policy:"));
+  if (planningPolicyError) {
+    return planningPolicyError;
+  }
   if (actionResults.errors.some((error) => error.startsWith(SWEEP_UNASSIGNED_SCOPE_VIOLATION_PREFIX))) {
     return SWEEP_UNASSIGNED_SCOPE_VIOLATION_PREFIX;
   }

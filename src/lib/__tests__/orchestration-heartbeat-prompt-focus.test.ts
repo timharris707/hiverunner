@@ -86,6 +86,24 @@ async function run() {
       for (const pattern of expectations.excludes ?? []) assert.doesNotMatch(prompt, pattern);
     }
 
+    function tinyDeterministicPlanningPolicy(): Record<string, unknown> {
+      return {
+        schema: "hiverunner.planning_policy.v1",
+        size: "tiny",
+        risk: "low",
+        blastRadius: "scratch",
+        validationMode: "deterministic",
+        qaMode: "skip_by_default",
+        requireQa: false,
+        parallelism: "none",
+        maxSprints: 1,
+        maxTasksPerSprint: 1,
+        maxImplementationTasksPerSprint: 1,
+        maxQaTasksPerSprint: 0,
+        reasons: ["test fixture"],
+      };
+    }
+
     await test("task-focused wakes center the current task and trim unrelated task detail", async () => {
       const project = createProject({
         companyId: "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f",
@@ -246,6 +264,239 @@ async function run() {
       assert.match(prompt, /Approved Runtime Skill/);
       assert.match(prompt, /Reusable approved workflow/);
       assert.doesNotMatch(prompt, /Draft Runtime Skill/);
+    });
+
+    await test("tiny deterministic implementation tasks use compact prompt context", async () => {
+      const project = createProject({
+        companyId: "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f",
+        name: `Prompt Compact ${Date.now()}`,
+        description: "Prompt compact fixture",
+        color: "#0f766e",
+        emoji: "C",
+        status: "active",
+      }).project;
+
+      const agent = createProjectAgent({
+        projectId: project.id,
+        name: `Prompt Compact Agent ${Math.random().toString(36).slice(2, 6)}`,
+        emoji: "C",
+        role: "Implementation Engineer",
+        personality: "Keeps tiny tasks focused.",
+        openclawAgentId: `prompt-compact-${Math.random().toString(36).slice(2, 8)}`,
+        status: "idle",
+        skills: [],
+      }).agent;
+
+      const {
+        assignCompanySkillToAgent,
+        createCompanySkill,
+        updateCompanySkill,
+      } = await import("@/lib/orchestration/company-skills");
+      const approved = createCompanySkill(project.companyId!, {
+        name: "Approved But Skipped Skill",
+        description: "This approved skill should be skipped by compact prompt context.",
+        source: "seed",
+        scope: "project",
+      }).skill;
+      updateCompanySkill(project.companyId!, approved.id, {
+        status: "active",
+        reviewState: "approved",
+      });
+      assignCompanySkillToAgent(project.companyId!, {
+        agentId: agent.id,
+        skillId: approved.id,
+        status: "active",
+        source: "seed",
+      });
+
+      const task = createTask({
+        projectId: project.id,
+        title: "Implement tiny decision log summarizer",
+        description: "Create the scratch utility, fixtures, tests, README, validation evidence, and final runtime summary.",
+        priority: "P1",
+        type: "feature",
+        status: "in-progress",
+        assignee: agent.id,
+        labels: [],
+        createdBy: "test-suite",
+        templateGenerationProvenance: {
+          planningPolicy: tinyDeterministicPlanningPolicy(),
+        },
+      }).task;
+
+      const sibling = createTask({
+        projectId: project.id,
+        title: "Unrelated sibling work",
+        description: "Compact prompts should not include this nearby work.",
+        priority: "P2",
+        type: "feature",
+        status: "in-progress",
+        assignee: agent.id,
+        labels: [],
+        createdBy: "test-suite",
+      }).task;
+      assert.ok(sibling.id);
+
+      const db = getOrchestrationDb();
+      const recordId = `compact-memory-${Math.random().toString(36).slice(2, 10)}`;
+      db.prepare(`
+        INSERT INTO memory_source_index
+          (record_id, company_id, source_id, source_path, layer, title, content_excerpt, content_fts, frontmatter_json, tags_json, status, pinned)
+        VALUES (?, ?, 'company-vault', ?, 'project', 'Compact memory note', 'This memory should not be injected for compact task prompts.', 'This memory should not be injected for compact task prompts.', ?, ?, 'active', 1)
+      `).run(
+        recordId,
+        project.companyId!,
+        `/tmp/mc-memory/${recordId}.md`,
+        JSON.stringify({ project_id: project.id, title: "Compact memory note" }),
+        JSON.stringify(["hiverunner/memory", "role:implementation"]),
+      );
+
+      const now = new Date().toISOString();
+      const executionRunId = `exec-compact-prompt-${Math.random().toString(36).slice(2, 10)}`;
+      db.prepare(`
+        INSERT INTO execution_runs
+          (id, task_id, agent_id, provider, status, started_at, created_at, updated_at, metadata_json)
+        VALUES (?, ?, ?, 'codex', 'running', ?, ?, ?, ?)
+      `).run(
+        executionRunId,
+        task.id,
+        agent.id,
+        now,
+        now,
+        now,
+        JSON.stringify({ existingKey: "preserved" }),
+      );
+
+      const session = getOrCreateTaskSession({
+        agentId: agent.id,
+        companyId: project.companyId!,
+        taskKey: task.id,
+      }, db);
+
+      const prompt = buildPromptForAgent({
+        db,
+        agentId: agent.id,
+        wake: { wakeSource: "issue_assigned", wakeReason: "tiny_policy_task" },
+        session,
+        executionRunId,
+      });
+
+      assertPromptMatches(prompt, {
+        includes: [
+          /## Current Task Focus/,
+          /Implement tiny decision log summarizer/,
+          /## Compact Response Format/,
+          /tiny, low-risk, deterministic, and QA-skipped/,
+          /"action":"update_task"/,
+        ],
+        excludes: [
+          /## Active Runtime Skills/,
+          /Approved But Skipped Skill/,
+          /## Injected Company Memory/,
+          /Memory utilization receipt/,
+          /Unrelated sibling work/,
+          /## Agent Runtime Readiness/,
+          /## Pending Approvals/,
+          /## REQUIRED Response Format/,
+          /`create_task`/,
+        ],
+      });
+      assert.ok(prompt.length < 18000, `expected compact prompt under 18000 chars, got ${prompt.length}`);
+
+      const row = db.prepare("SELECT metadata_json FROM execution_runs WHERE id = ?").get(executionRunId) as {
+        metadata_json: string;
+      };
+      const metadata = JSON.parse(row.metadata_json) as {
+        existingKey?: string;
+        compactPromptPolicy?: {
+          schema?: string;
+          reason?: string;
+          planningPolicy?: { qaMode?: string; size?: string };
+          skippedSections?: string[];
+        };
+        injectedMemoryEvidence?: unknown;
+      };
+      assert.strictEqual(metadata.existingKey, "preserved");
+      assert.strictEqual(metadata.compactPromptPolicy?.schema, "hiverunner.compact_task_prompt.v1");
+      assert.strictEqual(metadata.compactPromptPolicy?.reason, "tiny_deterministic_planning_policy");
+      assert.strictEqual(metadata.compactPromptPolicy?.planningPolicy?.size, "tiny");
+      assert.strictEqual(metadata.compactPromptPolicy?.planningPolicy?.qaMode, "skip_by_default");
+      assert.ok(metadata.compactPromptPolicy?.skippedSections?.includes("memory_context"));
+      assert.strictEqual(metadata.injectedMemoryEvidence, undefined);
+    });
+
+    await test("human follow-up wakes keep full prompt context even for tiny tasks", async () => {
+      const project = createProject({
+        companyId: "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f",
+        name: `Prompt Compact Followup ${Date.now()}`,
+        description: "Prompt compact follow-up fixture",
+        color: "#4f46e5",
+        emoji: "F",
+        status: "active",
+      }).project;
+
+      const agent = createProjectAgent({
+        projectId: project.id,
+        name: `Prompt Compact Followup Agent ${Math.random().toString(36).slice(2, 6)}`,
+        emoji: "F",
+        role: "Implementation Engineer",
+        personality: "Answers follow-ups.",
+        openclawAgentId: `prompt-compact-followup-${Math.random().toString(36).slice(2, 8)}`,
+        status: "idle",
+        skills: [],
+      }).agent;
+
+      const task = createTask({
+        projectId: project.id,
+        title: "Implement tiny follow-up utility",
+        description: "Tiny task with an operator follow-up.",
+        priority: "P1",
+        type: "feature",
+        status: "in-progress",
+        assignee: agent.id,
+        labels: [],
+        createdBy: "test-suite",
+        templateGenerationProvenance: {
+          planningPolicy: tinyDeterministicPlanningPolicy(),
+        },
+      }).task;
+      const followupResult = createTaskComment({
+        taskId: task.id,
+        body: "Can you add the validation command to the final summary too?",
+        type: "comment",
+        authorUserId: "tim",
+      });
+      const followup = followupResult.comment;
+
+      const db = getOrchestrationDb();
+      const session = getOrCreateTaskSession({
+        agentId: agent.id,
+        companyId: project.companyId!,
+        taskKey: task.id,
+      }, db);
+
+      const prompt = buildPromptForAgent({
+        db,
+        agentId: agent.id,
+        wake: {
+          wakeSource: "api",
+          wakeReason: "user_comment_on_assigned_task",
+          taskId: task.id,
+          commentId: followup.id,
+        },
+        session,
+      });
+
+      assertPromptMatches(prompt, {
+        includes: [
+          /## Latest Human Follow-up/,
+          /validation command to the final summary/,
+          /## REQUIRED Response Format/,
+        ],
+        excludes: [
+          /## Compact Response Format/,
+        ],
+      });
     });
 
     await test("human comment wakes include the follow-up body and anti-repeat instruction", async () => {
