@@ -22,9 +22,9 @@ async function run() {
     assert.ok(verified.note.trim());
   });
 
-  await test("unservable model degrades to the anthropic balanced tier with a visible note", () => {
+  await test("unservable model degrades to the anthropic deep-reasoning tier (Opus) with a visible note", () => {
     const fallback = leadDefaultFromProbeOutcome("model_unavailable");
-    assert.equal(fallback.model, "anthropic/claude-sonnet-4-6");
+    assert.equal(fallback.model, "anthropic/claude-opus-4-8");
     assert.equal(fallback.source, "fallback_anthropic");
     assert.equal(fallback.reasoningEffort, "xhigh");
     assert.ok(fallback.note.trim());

@@ -20,7 +20,10 @@ import { buildExternalRunnerEnv } from "@/lib/orchestration/execution/adapters/c
 
 export const LEAD_RECOMMENDED_MODEL = "anthropic/claude-fable-5";
 export const LEAD_RECOMMENDED_REASONING_EFFORT = "xhigh";
-const LEAD_ANTHROPIC_FALLBACK_MODEL = "anthropic/claude-sonnet-4-6";
+// Tim, 2026-06-12: a lead that can't get Fable degrades to Opus — the lead
+// oversees everything, so the fallback is the deepest-reasoning tier, not the
+// balanced one.
+const LEAD_ANTHROPIC_FALLBACK_MODEL = "anthropic/claude-opus-4-8";
 const LEAD_PROVIDER_FALLBACK_MODEL = "openai-codex/gpt-5.5";
 
 const SUCCESS_TTL_MS = 10 * 60 * 1000;
@@ -58,7 +61,7 @@ export function leadDefaultFromProbeOutcome(
       model: LEAD_ANTHROPIC_FALLBACK_MODEL,
       reasoningEffort: LEAD_RECOMMENDED_REASONING_EFFORT,
       source: "fallback_anthropic",
-      note: "The recommended frontier model isn't servable on this machine's Claude Code subscription or CLI version. Defaulting the lead to the balanced tier instead.",
+      note: "The recommended frontier model isn't servable on this machine's Claude Code subscription or CLI version. Defaulting the lead to the deep-reasoning tier instead.",
       probedAt,
     };
   }
