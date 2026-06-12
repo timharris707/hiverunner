@@ -85,7 +85,12 @@ function buildRuntimeModelOptions(models: RuntimeModelRecord[]): RuntimeModelOpt
   const seen = new Set<string>();
 
   for (const model of models) {
-    const id = stringValue(model.id) || stringValue(model.value);
+    // Option ids are normalized to the bare technical id (claude-fable-5),
+    // never the catalog's composite form (anthropic/claude-fable-5): agents
+    // store and runners spawn with the bare id, and raw-equality matching
+    // against composite ids made the picker snap to the provider default and
+    // misreport the agent's real model (Oracle/Fable shown as Sonnet).
+    const id = runtimeModelTechnicalId(stringValue(model.id) || stringValue(model.value));
     if (!id || seen.has(id)) continue;
     seen.add(id);
     const provider = stringValue(model.provider);
@@ -110,7 +115,13 @@ function defaultRuntimeModel(models: RuntimeModelOption[]): RuntimeModelOption |
 }
 
 function resolveRuntimeModelId(models: RuntimeModelOption[], currentModel: string): string {
-  if (currentModel && models.some((model) => model.id === currentModel)) return currentModel;
+  const technical = runtimeModelTechnicalId(currentModel);
+  if (technical) {
+    const match = models.find(
+      (model) => model.id === currentModel || runtimeModelTechnicalId(model.id) === technical,
+    );
+    if (match) return match.id;
+  }
   return defaultRuntimeModel(models)?.id ?? "";
 }
 
@@ -198,10 +209,15 @@ export function useRuntimeModelSelection({
   const visibleLoading = active ? loading : false;
   const visibleError = active ? error : null;
   const defaultModel = useMemo(() => defaultRuntimeModel(visibleModels), [visibleModels]);
-  const selectedModel = useMemo(
-    () => visibleModels.find((option) => option.id === model) ?? null,
-    [model, visibleModels],
-  );
+  const selectedModel = useMemo(() => {
+    const technical = runtimeModelTechnicalId(model);
+    if (!technical) return null;
+    return (
+      visibleModels.find(
+        (option) => option.id === model || runtimeModelTechnicalId(option.id) === technical,
+      ) ?? null
+    );
+  }, [model, visibleModels]);
   const effectiveModelId = model || defaultModel?.id || "";
   const runtimeControls = getProviderRuntimeControls(normalizedProvider, effectiveModelId);
   const runtimeSelection = readProviderRuntimeSelection(

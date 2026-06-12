@@ -264,7 +264,13 @@ export function computeSwitchPlan(
 
   const normalizedCurrent = normalizeAdapterType(agent.adapter_type);
   const normalizedTarget = normalizeAdapterType(targetProvider);
-  const requestedModel = options.targetModel?.trim() || null;
+  // Model ids are stored bare (claude-fable-5); catalog surfaces use the
+  // composite form (anthropic/claude-fable-5). Strip the provider segment so
+  // a composite id can never reach agents.model or the runner's --model flag.
+  const requestedModelInput = options.targetModel?.trim() || null;
+  const requestedModel = requestedModelInput?.includes("/")
+    ? requestedModelInput.split("/").slice(1).join("/") || requestedModelInput
+    : requestedModelInput;
   const normalizedCurrentModel = agent.model?.trim() || null;
   const targetModel = requestedModel ?? normalizedCurrentModel;
   const modelWillChange = requestedModel !== null && requestedModel !== normalizedCurrentModel;
