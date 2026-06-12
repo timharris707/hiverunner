@@ -17,33 +17,58 @@
 import { readFile, readdir } from "node:fs/promises";
 
 const KNOWN_OUT_OF_GATE = new Set([
-  // Drifted vs "ungated tasks finalize done" (8916318ec) and review-flow changes:
-  "orchestration-no-op-resubmission.test.ts",
-  "orchestration-create-task-depends-on.test.ts",
-  "orchestration-bundle4-operator-experience.test.ts",
-  // Template/draft planning-policy drift (plans now rejected by planning_policy.v1):
-  "orchestration-goals-page-draft-symphony.test.ts",
+  // Categories below were diagnosed per-file and adversarially verified on
+  // 2026-06-12 (see wiki: 2026-06-12_test-gate-coverage-triage.md).
+  //
+  // REAL BUGS in app code — the test is right, the code is wrong:
+  // - update-task-status-rejection: applyStatusTransition normalizes "to-do"
+  //   to "to_do", which is missing from VALID_STATUSES, so agent requests for
+  //   to-do are rejected (plus 8916318ec review->done drift in two cases).
+  // - trust-rules-rollups: reconcileParentTaskStatus re-INSERTs the
+  //   hierarchy:auto-complete comment, violating the v4 unique index on
+  //   comments(task_id, source, external_ref) on repeat rollups.
+  // - template-draft-plan + create-full-runtime-identity: planning-policy
+  //   gate (2ec97f351, 2026-06-12) rejects the built-in starter templates'
+  //   own canned plans, breaking template launches with a 400.
+  "orchestration-update-task-status-rejection.test.ts",
+  "orchestration-trust-rules-rollups.test.ts",
   "orchestration-template-draft-plan.test.ts",
   "orchestration-create-full-runtime-identity.test.ts",
-  // Status-model drift (to-do / migration v47 rules):
-  "orchestration-update-task-status-rejection.test.ts",
+  //
+  // STALE TESTS — code moved on, test asserts old behavior:
+  // - vs "ungated review requests convert to done" (8916318ec):
+  "orchestration-no-op-resubmission.test.ts",
+  "orchestration-create-task-depends-on.test.ts",
+  // - vs planning-policy gate (2ec97f351): fixture plans trip the new
+  //   heuristics (engine mismatch / tight-utility wording):
+  "orchestration-bundle4-operator-experience.test.ts",
+  "orchestration-goals-page-draft-symphony.test.ts",
+  // - vs on-deck -> to-do rename (8d527236b): fixture seed became canonical,
+  //   so the normalization UPDATE is a no-op:
   "orchestration-status-normalization.test.ts",
-  // Infra/loader staleness or external-runner dependence:
-  "orchestration-project-hard-delete.test.ts",
-  "orchestration-bundle3-regression-wakeup.test.ts",
-  "orchestration-stress-5-concurrent.test.ts",
-  // Individual real assertion failures under investigation:
-  "orchestration-memory-utilization-receipts.test.ts",
-  "orchestration-trust-rules-rollups.test.ts",
+  // - vs NeverIdle -> HiveRunner rebrand: looks up legacy "neveridle-core"
+  //   default-company slug:
   "orchestration-company-workspace-project-scope.test.ts",
-  // Blocked on this machine's corrupt legacy tasks.db (machine state, not code):
-  "build-state-terminal-transitions.test.ts",
-  "factory-status-route.test.ts",
-  "tasks-build-route.test.ts",
-  // Rest-group failures (runner incompat / missing env isolation / real fail):
-  "eslint-config-ignore.test.ts",
-  "onboarding-complete-route.test.ts",
+  // - vs execution-hive bootstrap (c8f41794a): expected fast 409 is gone, a
+  //   real external runner gets dispatched and times out after 120s:
+  "orchestration-bundle3-regression-wakeup.test.ts",
+  // - vs async engine-tick execution pipeline: asserts the old synchronous
+  //   sessionId/executionMode=openclaw contract:
+  "orchestration-stress-5-concurrent.test.ts",
+  // - vs matched-use memory evaluator: expects status "not_evaluated" but
+  //   every import now ends with storeMatchedMemoryUseEvaluation:
+  "orchestration-memory-utilization-receipts.test.ts",
+  // - child spawn uses --import register-ts-paths.mjs, which cannot load the
+  //   ObservabilityTier `export enum` under Node type-stripping; spawn via
+  //   run-ts-test.mjs (or add --experimental-transform-types) to fix:
+  "orchestration-project-hard-delete.test.ts",
+  // - ideas store migrated JSON -> SQLite; test must set
+  //   IDEAS_LEGACY_REVIEWS_PATH for its fixture to be imported:
   "ideas-takeaway-build-route-dedup.test.ts",
+  //
+  // RUNNER INCOMPAT — uses import.meta, which run-ts-test.mjs's CJS
+  // transform cannot execute; needs a tsx/ESM runner or a __dirname rewrite:
+  "eslint-config-ignore.test.ts",
 ]);
 
 const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
