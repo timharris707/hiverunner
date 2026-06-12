@@ -53,6 +53,24 @@ export function safeJsonStringArray(value: string | null | undefined): string[] 
   }
 }
 
+/**
+ * H2.1/H2.2 shared gate: a registered artifact means the clean-context grader
+ * (H2) is the reviewer of record. One source of truth for both the
+ * review-request conversion (H2.1) and the direct-done conversion (H2.2) —
+ * scoped to the artifact clause only, so label/type-gated tasks WITHOUT
+ * artifacts keep their existing direct-done behavior. Explicit opt-out labels
+ * win, and the gate disables together with the grader kill switch so tasks
+ * can't strand in review unclaimed.
+ */
+export function artifactGraderGateApplies(task: {
+  labels_json?: string | null;
+  artifact_uri?: string | null;
+}): boolean {
+  const labels = safeJsonStringArray(task.labels_json);
+  if (labels.some((label) => REVIEW_HANDOFF_DISABLED_LABELS.has(label))) return false;
+  return cleanContextGraderEnabled() && Boolean(task.artifact_uri?.trim());
+}
+
 export function taskRequiresAutonomousReviewHandoff(task: {
   title?: string | null;
   type?: string | null;
@@ -63,12 +81,9 @@ export function taskRequiresAutonomousReviewHandoff(task: {
   if (labels.some((label) => REVIEW_HANDOFF_DISABLED_LABELS.has(label))) return false;
   if (labels.some((label) => REVIEW_HANDOFF_LABELS.has(label))) return true;
 
-  // H2.1: a registered artifact gates review by default — the clean-context
-  // grader (H2) is the reviewer. Without this, ungated submissions and
-  // post-FAIL resubmissions auto-convert review → done without a grader pass.
-  // Explicit opt-out labels above still win, and the gate disables together
-  // with the grader kill switch so tasks can't strand in review unclaimed.
-  if (cleanContextGraderEnabled() && task.artifact_uri?.trim()) return true;
+  // H2.1: ungated submissions and post-FAIL resubmissions must not
+  // auto-convert review → done without a grader pass.
+  if (artifactGraderGateApplies(task)) return true;
 
   const type = String(task.type ?? "").trim().toLowerCase();
   return type === "review" || type === "qa";

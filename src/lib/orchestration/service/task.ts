@@ -1326,6 +1326,29 @@ export function maybeAutoCompleteSprintForTaskDone(
   maybeAutoCompleteSprintAfterTaskDone(db, input);
 }
 
+// The DB stores only the legacy task-type vocabulary — toDbType downcasts
+// qa/review/release to research/maintenance (TASK_TYPE_API_TO_DB in
+// shared/mappers.ts) — so the review-gate intent of those types must ride on
+// labels to survive the row write. Names stay in sync with
+// REVIEW_HANDOFF_LABELS / REVIEW_HANDOFF_DISABLED_LABELS in
+// engine/review-handler.ts.
+const REVIEW_INTENT_TYPE_LABELS: Record<string, string> = {
+  qa: "qa-required",
+  review: "review-required",
+  release: "review-required",
+};
+const REVIEW_HANDOFF_OPT_OUT_LABELS = new Set(["direct-work-only", "no-review", "review-not-required"]);
+
+function withReviewIntentLabel(type: TaskTypeInput, labels: string[]): string[] {
+  const intentLabel = REVIEW_INTENT_TYPE_LABELS[type];
+  if (!intentLabel) return labels;
+  const lowered = labels.map((label) => label.trim().toLowerCase());
+  if (lowered.includes(intentLabel) || lowered.some((label) => REVIEW_HANDOFF_OPT_OUT_LABELS.has(label))) {
+    return labels;
+  }
+  return [...labels, intentLabel];
+}
+
 export function createTask(input: {
   companyIdOrSlug?: string;
   projectId?: string;
@@ -1470,7 +1493,7 @@ export function createTask(input: {
       assignee?.id ?? null,
       assignee ? now : null,
       input.createdBy,
-      JSON.stringify(input.labels),
+      JSON.stringify(withReviewIntentLabel(input.type, input.labels)),
       JSON.stringify(eligibleAssigneeIds),
       status === "blocked" ? input.blockedReason ?? "Blocked" : null,
       executionEngine,

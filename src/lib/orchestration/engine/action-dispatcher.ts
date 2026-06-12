@@ -54,6 +54,7 @@ import {
 } from "@/lib/orchestration/engine/status-transitions";
 import {
   applyReviewDecision,
+  artifactGraderGateApplies,
   autoRouteReviewHandoff,
   safeJsonStringArray,
   taskRequiresAutonomousReviewHandoff,
@@ -3847,6 +3848,26 @@ export function executeUpdateTask(
       return result;
     }
 
+    // H2.2 — artifact-carrying work cannot close itself directly. An
+    // agent-driven done request from any non-review status downgrades to a
+    // review request, and the H2.1 machinery (handoff → review wake →
+    // clean-context grader) gates the actual close — the mirror image of the
+    // 8916318ec ungated review→done conversion. Scoped to the artifact gate
+    // only (label/type-gated tasks without artifacts keep direct done); the
+    // grader's own review→done verdict is exempt via the status check;
+    // already-done tasks are exempt so a duplicate done request keeps its
+    // already_at_status rejection instead of reopening into review (done →
+    // review is a legal transition the conversion must not trigger);
+    // planning-lifecycle tasks close through their own draft contract;
+    // operator board moves never pass through this path.
+    const directDoneHeldForReview =
+      requestedStatus === "done" &&
+      task.status !== "review" &&
+      task.status !== "done" &&
+      Boolean(task.company_id) &&
+      !isPlanningDraftLifecycleTask(task.labels_json) &&
+      artifactGraderGateApplies(task);
+
     const transition = applyStatusTransition(
       {
         id: task.id,
@@ -3857,7 +3878,7 @@ export function executeUpdateTask(
         assignee_agent_id: task.assignee_agent_id,
         company_id: task.company_id,
       },
-      action.status,
+      directDoneHeldForReview ? "review" : action.status,
       {
         agentId: input.agentId,
         companyId: input.companyId,
@@ -3881,6 +3902,16 @@ export function executeUpdateTask(
       let normalized = transition.normalizedStatus as string;
       appliedTaskStatus = normalized;
       const implicitInProgressOwner = transition.implicitInProgressOwner ?? null;
+
+      if (directDoneHeldForReview && normalized === "review") {
+        emitRunEvent(
+          input.runId,
+          input.agentId,
+          "action_executed",
+          `Converted ${action.taskKey} done request to review: registered artifact ⇒ independent review before completion.`,
+          db,
+        );
+      }
 
       if (normalized === "blocked") {
         db.prepare("UPDATE tasks SET blocked_reason = ?, updated_at = ? WHERE id = ?")

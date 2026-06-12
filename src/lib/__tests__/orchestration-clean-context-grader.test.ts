@@ -444,6 +444,282 @@ async function run() {
       assert.equal(row.status, "done", "explicit operator opt-out keeps the direct-to-done path");
     });
 
+    // ── H2.2 — artifact-carrying work cannot close itself via direct done ──
+
+    // A second real agent so review handoff has an eligible reviewer and the
+    // verdict/FAIL cases can act under a valid agent FK (graderAgentId above
+    // is predicate-only and never inserted).
+    const reviewerAgentId = randomUUID();
+    {
+      const now = new Date().toISOString();
+      db.prepare(
+        `INSERT INTO agents
+          (id, company_id, project_id, name, slug, runtime_slug, emoji, role, personality,
+           status, adapter_type, skills_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        reviewerAgentId,
+        project.companyId,
+        project.id,
+        `reviewer-${reviewerAgentId.slice(0, 6)}`,
+        `reviewer-${reviewerAgentId.slice(0, 6)}`,
+        `reviewer-${reviewerAgentId.slice(0, 6)}`,
+        "🧪",
+        "QA Reviewer",
+        "Deterministic",
+        "idle",
+        "codex",
+        JSON.stringify(["qa"]),
+        now,
+        now,
+      );
+    }
+
+    await test("H2.2: direct in_progress→done with a registered artifact converts to review and routes handoff", () => {
+      const task = createBasicFixtureTask(createTask, {
+        projectId: project.id,
+        title: "H2.2 direct done holds",
+        description: "## Acceptance Criteria\n- renders",
+        status: "in-progress",
+        assignee: makerAgentId,
+        createdBy: "h2-test",
+      });
+      executeRegisterArtifact(
+        { action: "register_artifact", taskKey: task.key as string, uri: "output/h22.html", kind: "html", sha256: "12".repeat(32) },
+        { agentId: makerAgentId, companyId: project.companyId, runId: randomUUID() },
+        db,
+      );
+      const result = executeUpdateTask(
+        { action: "update_task", taskKey: task.key as string, status: "done", comment: "Finished and registered." },
+        { agentId: makerAgentId, companyId: project.companyId, runId: randomUUID() },
+        db,
+      );
+      assert.equal(result.statusApplied, true, result.statusRejectedReason);
+      const row = db.prepare("SELECT status, completed_at FROM tasks WHERE id = ?").get(task.id) as {
+        status: string;
+        completed_at: string | null;
+      };
+      assert.equal(row.status, "review", "artifact-carrying direct done must route to review for the grader");
+      assert.equal(row.completed_at, null, "no terminal completion while the grader gate holds");
+      const wake = db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM agent_wakeup_requests
+           WHERE reason = 'engine_default_review_handoff'
+             AND json_extract(payload_json, '$.taskId') = ?`,
+        )
+        .get(task.id) as { n: number };
+      assert.ok(wake.n >= 1, "review handoff wake must be queued for the grader to claim");
+    });
+
+    await test("H2.2: direct done without an artifact closes as before", () => {
+      const task = createBasicFixtureTask(createTask, {
+        projectId: project.id,
+        title: "H2.2 no artifact closes",
+        description: "x",
+        status: "in-progress",
+        assignee: makerAgentId,
+        createdBy: "h2-test",
+      });
+      const result = executeUpdateTask(
+        { action: "update_task", taskKey: task.key as string, status: "done", comment: "Done, nothing to grade." },
+        { agentId: makerAgentId, companyId: project.companyId, runId: randomUUID() },
+        db,
+      );
+      assert.equal(result.statusApplied, true, result.statusRejectedReason);
+      const row = db.prepare("SELECT status FROM tasks WHERE id = ?").get(task.id) as { status: string };
+      assert.equal(row.status, "done", "artifact-free tasks keep the direct done path");
+    });
+
+    await test("H2.2: opt-out label and kill switch keep the direct done path", () => {
+      const optOut = createBasicFixtureTask(createTask, {
+        projectId: project.id,
+        title: "H2.2 opt-out closes",
+        description: "x",
+        status: "in-progress",
+        assignee: makerAgentId,
+        createdBy: "h2-test",
+      });
+      db.prepare(`UPDATE tasks SET labels_json = '["review-not-required"]' WHERE id = ?`).run(optOut.id);
+      executeRegisterArtifact(
+        { action: "register_artifact", taskKey: optOut.key as string, uri: "output/h22-optout.html", kind: "html", sha256: "34".repeat(32) },
+        { agentId: makerAgentId, companyId: project.companyId, runId: randomUUID() },
+        db,
+      );
+      const optOutResult = executeUpdateTask(
+        { action: "update_task", taskKey: optOut.key as string, status: "done", comment: "Done." },
+        { agentId: makerAgentId, companyId: project.companyId, runId: randomUUID() },
+        db,
+      );
+      assert.equal(optOutResult.statusApplied, true, optOutResult.statusRejectedReason);
+      assert.equal(
+        (db.prepare("SELECT status FROM tasks WHERE id = ?").get(optOut.id) as { status: string }).status,
+        "done",
+        "explicit opt-out label keeps direct done",
+      );
+
+      const killSwitch = createBasicFixtureTask(createTask, {
+        projectId: project.id,
+        title: "H2.2 kill switch closes",
+        description: "x",
+        status: "in-progress",
+        assignee: makerAgentId,
+        createdBy: "h2-test",
+      });
+      executeRegisterArtifact(
+        { action: "register_artifact", taskKey: killSwitch.key as string, uri: "output/h22-off.html", kind: "html", sha256: "56".repeat(32) },
+        { agentId: makerAgentId, companyId: project.companyId, runId: randomUUID() },
+        db,
+      );
+      process.env.HIVERUNNER_CLEAN_CONTEXT_GRADER = "0";
+      try {
+        const killResult = executeUpdateTask(
+          { action: "update_task", taskKey: killSwitch.key as string, status: "done", comment: "Done." },
+          { agentId: makerAgentId, companyId: project.companyId, runId: randomUUID() },
+          db,
+        );
+        assert.equal(killResult.statusApplied, true, killResult.statusRejectedReason);
+      } finally {
+        delete process.env.HIVERUNNER_CLEAN_CONTEXT_GRADER;
+      }
+      assert.equal(
+        (db.prepare("SELECT status FROM tasks WHERE id = ?").get(killSwitch.id) as { status: string }).status,
+        "done",
+        "kill switch disables the direct-done gate together with the grader",
+      );
+    });
+
+    await test("H2.2: review→done (the grader's verdict path) is exempt — REGRESSION-CRITICAL", () => {
+      const task = createBasicFixtureTask(createTask, {
+        projectId: project.id,
+        title: "H2.2 verdict close exempt",
+        description: "x",
+        status: "in-progress",
+        assignee: makerAgentId,
+        createdBy: "h2-test",
+      });
+      executeRegisterArtifact(
+        { action: "register_artifact", taskKey: task.key as string, uri: "output/h22-verdict.html", kind: "html", sha256: "78".repeat(32) },
+        { agentId: makerAgentId, companyId: project.companyId, runId: randomUUID() },
+        db,
+      );
+      db.prepare("UPDATE tasks SET status = 'review' WHERE id = ?").run(task.id);
+      const result = executeUpdateTask(
+        { action: "update_task", taskKey: task.key as string, status: "done", comment: "## Clean-Context Review — PASS\n\nCriteria: 1/1 satisfied" },
+        { agentId: reviewerAgentId, companyId: project.companyId, runId: randomUUID() },
+        db,
+      );
+      assert.equal(result.statusApplied, true, result.statusRejectedReason);
+      const row = db.prepare("SELECT status FROM tasks WHERE id = ?").get(task.id) as { status: string };
+      assert.equal(row.status, "done", "a verdict closing review→done must not be re-held");
+    });
+
+    await test("H2.2: duplicate done on an already-done task stays rejected (no reopen into review)", () => {
+      const task = createBasicFixtureTask(createTask, {
+        projectId: project.id,
+        title: "H2.2 duplicate done no reopen",
+        description: "x",
+        status: "in-progress",
+        assignee: makerAgentId,
+        createdBy: "h2-test",
+      });
+      executeRegisterArtifact(
+        { action: "register_artifact", taskKey: task.key as string, uri: "output/h22-dup.html", kind: "html", sha256: "bc".repeat(32) },
+        { agentId: makerAgentId, companyId: project.companyId, runId: randomUUID() },
+        db,
+      );
+      db.prepare("UPDATE tasks SET status = 'done' WHERE id = ?").run(task.id);
+      // A retried/replayed done action must keep its already_at_status
+      // rejection — done→review is a legal transition the conversion must
+      // not trigger, or stale retries would reopen closed work.
+      const result = executeUpdateTask(
+        { action: "update_task", taskKey: task.key as string, status: "done", comment: "Done (retry)." },
+        { agentId: makerAgentId, companyId: project.companyId, runId: randomUUID() },
+        db,
+      );
+      assert.equal(result.statusApplied, false, "duplicate done must not apply");
+      assert.equal(result.statusRejectedReason, "already_at_status");
+      assert.equal(
+        (db.prepare("SELECT status FROM tasks WHERE id = ?").get(task.id) as { status: string }).status,
+        "done",
+        "the task stays closed",
+      );
+    });
+
+    await test("H2.2: direct done after a FAIL with an unchanged sha is rejected as no-op; a new sha re-enters review", () => {
+      const task = createBasicFixtureTask(createTask, {
+        projectId: project.id,
+        title: "H2.2 post-FAIL resubmit",
+        description: "x",
+        status: "in-progress",
+        assignee: makerAgentId,
+        createdBy: "h2-test",
+      });
+      const staleSha = "9a".repeat(32);
+      executeRegisterArtifact(
+        { action: "register_artifact", taskKey: task.key as string, uri: "output/h22-fail.html", kind: "html", sha256: staleSha },
+        { agentId: makerAgentId, companyId: project.companyId, runId: randomUUID() },
+        db,
+      );
+      // Simulate the grader FAIL arc: task sits in review, the grader sends it
+      // back to in_progress — applyStatusTransition stamps the rejected sha.
+      db.prepare("UPDATE tasks SET status = 'review' WHERE id = ?").run(task.id);
+      const failVerdict = executeUpdateTask(
+        { action: "update_task", taskKey: task.key as string, status: "in_progress", comment: "## Clean-Context Review — FAIL\n\nGaps:\n1. missing total" },
+        { agentId: reviewerAgentId, companyId: project.companyId, runId: randomUUID() },
+        db,
+      );
+      assert.equal(failVerdict.statusApplied, true, failVerdict.statusRejectedReason);
+
+      const noOp = executeUpdateTask(
+        { action: "update_task", taskKey: task.key as string, status: "done", comment: "Done (unchanged)." },
+        { agentId: makerAgentId, companyId: project.companyId, runId: randomUUID() },
+        db,
+      );
+      assert.equal(noOp.statusApplied, false, "unchanged artifact must not re-enter review");
+      assert.equal(noOp.statusRejectedReason, "no_op_resubmission");
+
+      executeRegisterArtifact(
+        { action: "register_artifact", taskKey: task.key as string, uri: "output/h22-fail.html", kind: "html", sha256: "9b".repeat(32) },
+        { agentId: makerAgentId, companyId: project.companyId, runId: randomUUID() },
+        db,
+      );
+      const reworked = executeUpdateTask(
+        { action: "update_task", taskKey: task.key as string, status: "done", comment: "Reworked with the missing total." },
+        { agentId: makerAgentId, companyId: project.companyId, runId: randomUUID() },
+        db,
+      );
+      assert.equal(reworked.statusApplied, true, reworked.statusRejectedReason);
+      assert.equal(
+        (db.prepare("SELECT status FROM tasks WHERE id = ?").get(task.id) as { status: string }).status,
+        "review",
+        "a changed artifact re-enters review for a fresh grader pass",
+      );
+    });
+
+    await test("H2.2: qa-typed createTask carries the review-intent label past the type downcast", () => {
+      const created = createTask({
+        projectId: project.id,
+        title: "H2.2 qa type materializes label",
+        description: "x",
+        priority: "P2",
+        type: "qa",
+        status: "to-do",
+        labels: [],
+        createdBy: "h2-test",
+      }).task;
+      const row = db.prepare("SELECT type, labels_json FROM tasks WHERE id = ?").get(created.id) as {
+        type: string;
+        labels_json: string;
+      };
+      assert.equal(row.type, "research", "DB type still downcasts (legacy vocabulary)");
+      assert.ok(JSON.parse(row.labels_json).includes("qa-required"), "review intent survives as a handoff label");
+      assert.equal(
+        taskRequiresAutonomousReviewHandoff({ title: created.title, type: row.type, labels_json: row.labels_json, artifact_uri: null }),
+        true,
+        "the materialized row now requires review handoff despite the downcast",
+      );
+    });
+
     console.log(`\n${passed} passed, ${failed} failed\n`);
     process.exit(failed > 0 ? 1 : 0);
   } catch (error) {
