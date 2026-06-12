@@ -1421,8 +1421,8 @@ async function run() {
       if (provider === "anthropic") {
         const providerArgs = readFileSync(argsLog, "utf8").trim().split(/\r?\n/).at(-1) ?? "";
         assert.ok(
-          providerArgs.includes("--output-format stream-json --include-partial-messages --permission-mode plan"),
-          `Claude Overseer CLI should request partial stream-json messages: ${providerArgs}`,
+          providerArgs.includes("--output-format stream-json --verbose --include-partial-messages --permission-mode plan"),
+          `Claude Overseer CLI should request partial stream-json messages with --verbose (required with --print + stream-json): ${providerArgs}`,
         );
       }
       const exported = buildRawOverseerTranscriptExport({

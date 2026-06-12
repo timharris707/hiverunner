@@ -329,7 +329,10 @@ async function run() {
     const updatedTask = db
       .prepare("SELECT status FROM tasks WHERE id = ? LIMIT 1")
       .get(task.id) as { status: string } | undefined;
-    assert.strictEqual(updatedTask?.status, "review");
+    // The fixture requests "review", but this task carries no review gate
+    // (type/labels don't require an autonomous review handoff), so the engine
+    // converts the ungated review request straight to done.
+    assert.strictEqual(updatedTask?.status, "done");
 
     const runtimeState = db
       .prepare(

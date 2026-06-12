@@ -271,7 +271,9 @@ async function run() {
 
       const updatedTask = getTask(task.id).task;
       assert.strictEqual(updatedTask.executionMode, "openclaw");
-      assert.strictEqual(updatedTask.status, "review");
+      // No review gate (type/labels don't require an autonomous review
+      // handoff), so the engine finalizes completed work straight to done.
+      assert.strictEqual(updatedTask.status, "done");
 
       const bridgeTask = getTaskBridgeRecord(task.id);
       assert.strictEqual(bridgeTask.executionSessionId, undefined);

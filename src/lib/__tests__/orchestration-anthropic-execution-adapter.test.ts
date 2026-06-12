@@ -26,6 +26,17 @@ function writeFakeClaudeCli(binDir: string): string {
   writeFileSync(
     file,
     `#!/bin/sh
+# Runtime preflight probes the CLI for version and subscription auth before
+# execution. Answer both like a logged-in subscription CLI so the probe stays
+# hermetic, and exit before touching the capture files.
+if [ "$1" = "--version" ]; then
+  printf '%s\\n' '2.0.0 (Claude Code fixture)'
+  exit 0
+fi
+if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+  printf '%s\\n' '{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstparty","subscriptionType":"max"}'
+  exit 0
+fi
 printf '%s\\n' "$PWD" > "$FAKE_CLAUDE_CWD_FILE"
 printf '%s\\n' "$*" > "$FAKE_CLAUDE_ARGS_FILE"
 /bin/cat > "$FAKE_CLAUDE_STDIN_FILE"
@@ -75,6 +86,7 @@ async function run() {
   const { ensureCompanyExecutionHives } = await import("@/lib/orchestration/service/execution-hives");
   const { anthropicExecutionAdapter } = await import("@/lib/orchestration/execution/adapters");
   const {
+    __liveRuntimeEventsTestHooks,
     __resetLiveRuntimeEventsForTests,
     subscribeLiveRuntimeEvents,
   } = await import("@/lib/orchestration/live-runtime-events");
@@ -318,8 +330,16 @@ async function run() {
     assert.deepStrictEqual(metadata.toolCallNames, ["Read"]);
     assert.strictEqual(metadata.observedThinking, true);
     assert.strictEqual(metadata.observedStructuredTools, true);
-    assert.strictEqual(metadata.transcriptEventCount, 6);
+    // The transcript table also carries durable Run Trace rows (command_start,
+    // stdout_chunk, ...) persisted asynchronously while the CLI streams, so the
+    // stored count is a floor and the normalized post-run sequence is asserted
+    // on its own event kinds.
+    assert.ok(
+      Number(metadata.transcriptEventCount) >= 6,
+      `transcriptEventCount should cover the 6 normalized events: ${metadata.transcriptEventCount}`,
+    );
 
+    await __liveRuntimeEventsTestHooks.flushDurableRuntimeTraceEventsForTests();
     const transcriptEvents = db
       .prepare(
         `SELECT event_kind, role, title, body
@@ -328,14 +348,26 @@ async function run() {
          ORDER BY sequence ASC`,
       )
       .all(executionRun!.id) as Array<{ event_kind: string; role: string | null; title: string | null; body: string }>;
-    assert.strictEqual(transcriptEvents.length, 6);
-    assert.strictEqual(transcriptEvents[0]?.event_kind, "run_start");
-    assert.strictEqual(transcriptEvents[1]?.event_kind, "thinking_summary");
-    assert.strictEqual(transcriptEvents[2]?.event_kind, "tool_call_start");
-    assert.strictEqual(transcriptEvents[2]?.title, "Read");
-    assert.strictEqual(transcriptEvents[4]?.event_kind, "assistant_text_final");
-    assert.ok(transcriptEvents[4]?.body.includes("Final Claude fixture summary."));
-    assert.strictEqual(transcriptEvents[5]?.event_kind, "run_end");
+    const liveTraceKinds = new Set([
+      "command_start",
+      "command_exit",
+      "stdout_chunk",
+      "stderr_chunk",
+      "process_spawned",
+      "process_exit",
+      "runtime_progress",
+    ]);
+    assert.ok(
+      transcriptEvents.some((event) => event.event_kind === "command_start"),
+      "durable Run Trace should persist command_start into the transcript table",
+    );
+    const normalizedEvents = transcriptEvents.filter((event) => !liveTraceKinds.has(event.event_kind));
+    assert.deepStrictEqual(
+      normalizedEvents.map((event) => event.event_kind),
+      ["run_start", "thinking_summary", "tool_call_start", "tool_result", "assistant_text_final", "run_end"],
+    );
+    assert.strictEqual(normalizedEvents[2]?.title, "Read");
+    assert.ok(normalizedEvents[4]?.body.includes("Final Claude fixture summary."));
 
     const runtimeEvents = liveEvents.filter((event) => event.runId === executionRun!.id);
     assert.ok(runtimeEvents.some((event) => event.kind === "command_start" && event.provider === "anthropic"), "Claude should emit command_start live events");

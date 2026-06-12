@@ -154,12 +154,15 @@ const BUNDLED_RUNNER_SCRIPT_BY_PROVIDER = {
 
 const BUNDLED_RUNNER_SCRIPT_NAMES: ReadonlySet<string> = new Set(Object.values(BUNDLED_RUNNER_SCRIPT_BY_PROVIDER));
 const SUPPORTED_RUNNER_PROVIDERS: ReadonlySet<string> = new Set(Object.keys(BUNDLED_RUNNER_SCRIPT_BY_PROVIDER));
-const RUNNER_MODEL_PROVIDER_BY_PROVIDER: Record<BundledRunnerProvider, string> = {
+// Providers whose executable models are enumerated in the runtime catalog.
+// Hermes and OpenClaw manage their own model routing — the catalog only
+// carries a runtime-managed profile row for them — so explicit model slugs
+// (e.g. "anthropic/claude-sonnet-4-6" routed through HERMES ACP) must pass
+// through without a catalog identity check.
+const RUNNER_MODEL_PROVIDER_BY_PROVIDER: Partial<Record<BundledRunnerProvider, string>> = {
   codex: "openai",
   anthropic: "anthropic",
   gemini: "google",
-  hermes: "hermes",
-  openclaw: "openclaw",
 };
 const SUBSCRIPTION_CLI_ENV_DENYLIST = [
   "ANTHROPIC_API_KEY",
@@ -437,13 +440,27 @@ function normalizedRunnerModelForProvider(
   if (provider === "anthropic") {
     const anthropicModel = model.replace(/^anthropic\//i, "").trim();
     const normalized = anthropicModel.toLowerCase();
+    // Keep this alias set in sync with normalizeClaudeModel in
+    // execution/adapters/anthropic.ts: preflight must admit any model the
+    // adapter would normalize to a current catalog model before launch.
     if (
       !normalized ||
       normalized === "auto" ||
       normalized === "default" ||
       normalized === "claude" ||
+      normalized === "claude-default" ||
       normalized === "sonnet" ||
-      normalized === "claude-sonnet"
+      normalized === "claude-sonnet" ||
+      normalized === "sonnet-3.7" ||
+      normalized === "sonnet-3-7" ||
+      normalized === "claude-3.7-sonnet" ||
+      normalized === "claude-3-7-sonnet" ||
+      normalized === "claude-sonnet-3.7" ||
+      normalized === "claude-sonnet-3-7" ||
+      normalized === "sonnet-4.5" ||
+      normalized === "sonnet-4-5" ||
+      normalized === "claude-sonnet-4.5" ||
+      normalized === "claude-sonnet-4-5"
     ) {
       return "claude-sonnet-4-6";
     }
@@ -745,7 +762,7 @@ function detectLaneReadinessFailure(input: RuntimePreflightAdmissionInput): Runt
 
 function modelProviderForRunner(input: RuntimePreflightAdmissionInput): string | null {
   const provider = bundledRunnerProvider(input.runnerProvider);
-  return provider ? RUNNER_MODEL_PROVIDER_BY_PROVIDER[provider] : null;
+  return provider ? RUNNER_MODEL_PROVIDER_BY_PROVIDER[provider] ?? null : null;
 }
 
 function tableExists(db: Database.Database, tableName: string): boolean {
