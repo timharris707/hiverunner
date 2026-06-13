@@ -32,7 +32,7 @@ async function run() {
   const { buildTaskGoalContextSection } = await import("@/lib/orchestration/goal-context");
   const { recordPlanningRetrospectiveMemory } = await import("@/lib/orchestration/planning-retrospectives");
   const { getActionResultsTerminalFailure } = await import("@/lib/orchestration/engine/run-continuation");
-  const { __testHooks: engineTestHooks, executeMcAction } = await import("@/lib/orchestration/engine/engine");
+  const { __testHooks: engineTestHooks, executeMcAction, parseActionBlocksFromText } = await import("@/lib/orchestration/engine/engine");
   const { createProject, createProjectAgent, createTask, moveTask } = await import("@/lib/orchestration/service");
 
   const stamp = Date.now();
@@ -1040,6 +1040,102 @@ async function run() {
     });
     assert.ok(context?.includes("Sprint validation checks"));
     assert.ok(context?.includes("Company goal: Draft-backed company goal"));
+  });
+
+  await test("propose_sprint_plan coerces priority/type synonyms instead of dropping the plan", () => {
+    const text = [
+      "```mc-action",
+      JSON.stringify({
+        action: "propose_sprint_plan",
+        companyGoalId: "goal-fixture",
+        sprints: [
+          {
+            sequenceNumber: 1,
+            name: "Build it",
+            objective: "Ship the prototype.",
+            tasks: [
+              { id: "t1", title: "High word priority", priority: "high", type: "Feature" },
+              { id: "t2", title: "Bogus priority drops field", priority: "screaming", type: "feature" },
+              { id: "t3", title: "Bogus type drops field", priority: "P2", type: "made-up" },
+            ],
+          },
+        ],
+      }),
+      "```",
+    ].join("\n");
+
+    const { actions, parseErrors } = parseActionBlocksFromText(text);
+    assert.strictEqual(parseErrors.length, 0, `plan must not be dropped: ${parseErrors.join("; ")}`);
+    assert.strictEqual(actions.length, 1, "exactly one propose_sprint_plan action survives");
+    const tasks = (actions[0] as unknown as {
+      sprints: Array<{ tasks: Array<Record<string, unknown>> }>;
+    }).sprints[0].tasks;
+    assert.strictEqual(tasks[0].priority, "P1", "'high' coerces to P1");
+    assert.strictEqual(tasks[0].type, "feature", "'Feature' coerces to canonical 'feature'");
+    assert.strictEqual(tasks[1].priority, undefined, "unrecognized priority is dropped, not the plan");
+    assert.strictEqual(tasks[1].type, "feature", "valid type is preserved alongside a dropped sibling field");
+    assert.strictEqual(tasks[2].priority, "P2", "valid P2 preserved");
+    assert.strictEqual(tasks[2].type, undefined, "unrecognized type is dropped, not the plan");
+  });
+
+  await test("planning task cannot reach review (and convert to done) without a sprint-plan draft", async () => {
+    const db = getOrchestrationDb();
+    const gateGoal = createCompanyGoal({
+      companyIdOrSlug: company.id,
+      projectId: project.id,
+      name: "Planning gate company goal",
+      goal: "Exercise the review-path planning gate.",
+      goalKind: "company",
+      status: "active",
+    }).goal;
+    const planningTask = createSprintPlanningTask({
+      companyIdOrSlug: company.id,
+      companyGoalId: gateGoal.sprint.id,
+      leadAgentId: agent.id,
+    });
+    const planningTaskRow = db
+      .prepare("SELECT task_key FROM tasks WHERE id = ?")
+      .get(planningTask.taskId) as { task_key: string };
+
+    // Mirror the live flow: the engine auto-claims the planning task to
+    // in_progress on run start, then the lead's run emits update_task -> review.
+    db.prepare("UPDATE tasks SET status = 'in_progress' WHERE id = ?").run(planningTask.taskId);
+
+    const attempt = await executeMcAction({
+      action: "update_task",
+      taskKey: planningTaskRow.task_key,
+      status: "review",
+      comment: "Plan is ready (but no draft was emitted).",
+    }, {
+      agentId: agent.id,
+      agentName: agent.name,
+      companyId: company.id,
+      taskKey: planningTaskRow.task_key,
+      runId: randomUUID(),
+    }, db);
+    // executeMcAction surfaces a rejected status transition as kind:"failed"
+    // with the reason embedded — the planning gate must be what rejected it.
+    assert.strictEqual(attempt.kind, "failed");
+    assert.strictEqual(
+      (attempt as { reason: string }).reason,
+      "status_transition_rejected:planning_draft_required",
+      "review without a draft must be rejected by the planning gate, not silently converted to done",
+    );
+
+    const afterStatus = db
+      .prepare("SELECT status FROM tasks WHERE id = ?")
+      .get(planningTask.taskId) as { status: string };
+    assert.strictEqual(afterStatus.status, "in_progress", "task holds in_progress — not hollow-done, not stranded in review");
+
+    const guardComment = db
+      .prepare(
+        `SELECT body FROM comments WHERE task_id = ? AND source = 'engine' ORDER BY created_at DESC LIMIT 1`,
+      )
+      .get(planningTask.taskId) as { body: string } | undefined;
+    assert.ok(
+      guardComment?.body.includes("sprint plan draft"),
+      "operator-visible guard comment explains the stuck-lead state",
+    );
   });
 
   finish();

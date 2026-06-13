@@ -41,8 +41,9 @@
  *     recent "Ready for review" comment in the current review cycle.
  *
  *  9. Reject `planning_draft_required` when a sprint-planning task is being
- *     closed without a sprint-plan draft on file. Also records a one-shot
- *     comment + task_event so the operator sees the stuck-lead state.
+ *     closed — or submitted for review, which the no-gate path converts
+ *     straight to done — without a sprint-plan draft on file. Also records a
+ *     one-shot comment + task_event so the operator sees the stuck-lead state.
  *
  * 10. Reject `done_requires_comment` when a done transition has no inline
  *     comment in the same action and no visible comment from the same run.
@@ -304,7 +305,7 @@ function recordPlanningDraftRequiredRejection(input: {
     .prepare("SELECT id FROM comments WHERE task_id = ? AND external_ref = ? LIMIT 1")
     .get(input.task.id, externalRef) as { id: string } | undefined;
   if (!existing) {
-    const body = "Lead agent closed planning task without emitting propose_sprint_plan - task remains open. Emit the sprint plan using a fenced mc-action block or tool call so the operator can review and approve it.";
+    const body = "Planning task cannot move to review or done without a sprint plan draft on file - task remains open. Emit the sprint plan with propose_sprint_plan (fenced mc-action block or tool call) so the operator can review and approve it. If a previous propose_sprint_plan was dropped by validation, fix the flagged fields (task priority accepts P0-P3) and re-emit the full plan.";
     input.db.prepare(
       `INSERT INTO comments (id, task_id, author_agent_id, author_user_id, body, type, source, external_ref, created_at, updated_at)
        VALUES (?, ?, NULL, NULL, ?, 'status_update', 'engine', ?, ?, ?)`
@@ -399,7 +400,7 @@ export function applyStatusTransition(
   }
 
   if (
-    normalized === "done" &&
+    (normalized === "done" || normalized === "review") &&
     taskLabelsInclude(task.labels_json, "sprint-planning") &&
     !planningTaskHasSprintDraft(db, task.id)
   ) {

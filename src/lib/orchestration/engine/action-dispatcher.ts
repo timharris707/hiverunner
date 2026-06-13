@@ -81,6 +81,30 @@ const CANONICAL_TASK_TYPES = new Set<string>([
   "release",
 ]);
 
+// propose_sprint_plan task priorities: canonical P0–P3 plus the common words
+// models reach for. Values are coerced case-insensitively; an unrecognized
+// value drops the optional field (draft default applies), never the plan.
+const PLAN_TASK_PRIORITY_SYNONYMS: Record<string, "P0" | "P1" | "P2" | "P3"> = {
+  p0: "P0",
+  critical: "P0",
+  blocker: "P0",
+  urgent: "P0",
+  highest: "P0",
+  p1: "P1",
+  high: "P1",
+  important: "P1",
+  p2: "P2",
+  medium: "P2",
+  normal: "P2",
+  moderate: "P2",
+  default: "P2",
+  p3: "P3",
+  low: "P3",
+  minor: "P3",
+  lowest: "P3",
+  trivial: "P3",
+};
+
 export type SessionGetMessage = {
   role?: string;
   content?: string | Array<{ type?: string; text?: string; name?: string; arguments?: Record<string, unknown> }>;
@@ -1778,11 +1802,24 @@ function validateActionFields(parsed: Record<string, unknown>): string | null {
         if (!task || typeof task !== "object") return "propose_sprint_plan: every task must be an object";
         const taskRecord = task as Record<string, unknown>;
         if (!taskRecord.title || typeof taskRecord.title !== "string") return "propose_sprint_plan: every task requires a title";
-        if (taskRecord.priority !== undefined && !["P0", "P1", "P2", "P3"].includes(String(taskRecord.priority))) {
-          return "propose_sprint_plan: task priority must be P0, P1, P2, or P3";
+        if (taskRecord.priority !== undefined) {
+          const canonicalPriority =
+            PLAN_TASK_PRIORITY_SYNONYMS[String(taskRecord.priority).trim().toLowerCase()];
+          if (canonicalPriority) {
+            taskRecord.priority = canonicalPriority;
+          } else {
+            // Optional field — an unrecognized value drops the field, never
+            // the whole plan.
+            delete taskRecord.priority;
+          }
         }
-        if (taskRecord.type !== undefined && !CANONICAL_TASK_TYPES.has(String(taskRecord.type))) {
-          return "propose_sprint_plan: task type is invalid";
+        if (taskRecord.type !== undefined) {
+          const canonicalType = String(taskRecord.type).trim().toLowerCase();
+          if (CANONICAL_TASK_TYPES.has(canonicalType)) {
+            taskRecord.type = canonicalType;
+          } else {
+            delete taskRecord.type;
+          }
         }
         return null;
       };
