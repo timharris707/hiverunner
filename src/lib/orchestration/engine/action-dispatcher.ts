@@ -1096,9 +1096,10 @@ function closeLearningReviewTaskAfterDecision(
     `UPDATE tasks
        SET status = 'done',
            blocked_reason = NULL,
+           completed_at = COALESCE(completed_at, ?),
            updated_at = ?
      WHERE id = ?`,
-  ).run(now, task.id);
+  ).run(now, now, task.id);
   db.prepare(
     `INSERT INTO task_events (id, project_id, task_id, agent_id, event_type, from_status, to_status, metadata_json, created_at)
      VALUES (?, ?, ?, ?, 'task.status_changed', ?, 'done', ?, ?)`,
@@ -3701,9 +3702,10 @@ function closePlanningTaskAfterSprintDraftProposed(input: {
     `UPDATE tasks
        SET status = 'done',
            blocked_reason = NULL,
+           completed_at = COALESCE(completed_at, ?),
            updated_at = ?
      WHERE id = ?`,
-  ).run(now, task.id);
+  ).run(now, now, task.id);
   input.db.prepare(
     `INSERT INTO task_events (id, project_id, task_id, agent_id, event_type, from_status, to_status, metadata_json, created_at)
      VALUES (?, ?, ?, ?, 'task.status_changed', ?, 'done', ?, ?)`,

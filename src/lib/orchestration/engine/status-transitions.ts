@@ -59,8 +59,10 @@
  *        `in_progress_requires_assignee`.
  *
  * 13. On success: write tasks.status (clearing blocked_reason unless going to
- *     blocked) and emit a `task.status_changed` task_event with metadata that
- *     stamps the rejected_artifact_sha256 when applicable to G2.
+ *     blocked), stamp completed_at on done / clear it on any other target
+ *     (matching moveTask, so grader-closed tasks stop reporting NULL
+ *     completion), and emit a `task.status_changed` task_event with metadata
+ *     that stamps the rejected_artifact_sha256 when applicable to G2.
  *
  * The caller still owns the post-transition cascade (reassignment, hierarchy
  * reconcile, sprint auto-complete, dependent autostart, sibling QA rearm,
@@ -509,9 +511,10 @@ export function applyStatusTransition(
     `UPDATE tasks
        SET status = ?,
            blocked_reason = CASE WHEN ? = 'blocked' THEN blocked_reason ELSE NULL END,
+           completed_at = CASE WHEN ? = 'done' THEN ? ELSE NULL END,
            updated_at = ?
      WHERE id = ?`,
-  ).run(normalized, normalized, ctx.now, task.id);
+  ).run(normalized, normalized, normalized, ctx.now, ctx.now, task.id);
   db.prepare(
     `INSERT INTO task_events (id, project_id, task_id, agent_id, event_type, from_status, to_status, metadata_json, created_at)
      VALUES (?, ?, ?, ?, 'task.status_changed', ?, ?, ?, ?)`,

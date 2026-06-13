@@ -609,8 +609,12 @@ async function run() {
         db,
       );
       assert.equal(result.statusApplied, true, result.statusRejectedReason);
-      const row = db.prepare("SELECT status FROM tasks WHERE id = ?").get(task.id) as { status: string };
+      const row = db.prepare("SELECT status, completed_at FROM tasks WHERE id = ?").get(task.id) as {
+        status: string;
+        completed_at: string | null;
+      };
       assert.equal(row.status, "done", "a verdict closing review→done must not be re-held");
+      assert.ok(row.completed_at, "an engine done-transition must stamp completed_at (grader closes were leaving it NULL)");
     });
 
     await test("H2.2: duplicate done on an already-done task stays rejected (no reopen into review)", () => {
