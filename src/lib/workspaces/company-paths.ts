@@ -80,6 +80,36 @@ export function resolveCompanyWorkspaceRoot(
   return resolveCanonicalCompanyWorkspaceRoot(input.companyId, input.workspaceSlug, input.env);
 }
 
+export type RuntimeCompanyWorkspaceFields = {
+  companyId: string;
+  workspaceSlug?: string | null;
+  workspaceRoot?: string | null;
+  workspaceSource?: string | null;
+};
+
+// The workspace an agent's runtime actually runs in. The execution adapters
+// (codex, symphony, gemini, hermes, anthropic) all resolve it with this exact
+// shape inline: openclaw-sourced companies pin to the canonical env-derived
+// root even when a workspace_root is stored; everything else honors the stored
+// companies.workspace_root before the env recompute. Per-agent memory paths
+// must resolve through this — not resolveCanonicalCompanyWorkspaceRoot — or
+// MEMORY.md lands in a tree the runtime cwd never sees.
+export function resolveRuntimeCompanyWorkspaceRoot(
+  input: RuntimeCompanyWorkspaceFields,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  if (input.workspaceSource === "openclaw") {
+    return resolveCanonicalCompanyWorkspaceRoot(input.companyId, input.workspaceSlug, env);
+  }
+  return resolveCompanyWorkspaceRoot({
+    companyId: input.companyId,
+    workspaceSlug: input.workspaceSlug,
+    workspaceRoot: input.workspaceRoot,
+    workspaceSource: input.workspaceSource,
+    env,
+  });
+}
+
 // Fallback initializer — NOT the primary seed path. createCompany calls this
 // eagerly before inserting the companies row (fix 1219863f), so under normal
 // flow the dirs already exist by the time later consumers (agent hire,

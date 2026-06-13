@@ -17,7 +17,9 @@
 
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 import { createIsolatedOrchestrationWorkspace, resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 
@@ -202,6 +204,71 @@ async function run() {
       assert.match(after, /## Operator preferences/);
       assert.match(after, /Prefers blunt summaries/);
       assert.match(after, /Voice sections and run lessons share MEMORY\.md/);
+    });
+
+    await test("memory path honors a stored workspace_root that differs from the env recompute (H3 split-brain fix)", () => {
+      const storedRoot = mkdtempSync(path.join(os.tmpdir(), "mc-lessons-stored-root-"));
+      try {
+        const splitCo = createCompany({
+          name: `Split Brain Co ${Date.now()}`,
+          description: "stored-root fixture",
+          status: "active",
+        }).company;
+        const splitProject = createProject({
+          companyId: splitCo.id,
+          name: "Split Project",
+          description: "stored-root fixture project",
+          color: "#f59e0b",
+          emoji: "icon:compass",
+          status: "active",
+        }).project;
+        const splitAgent = createProjectAgent({
+          projectId: splitProject.id,
+          companyId: splitCo.id,
+          name: "Pathy",
+          emoji: "icon:map",
+          role: "Backend Engineer",
+          personality: "Literal",
+          status: "idle",
+          skills: [],
+        }).agent;
+
+        // Simulate the env-cutover split: the row keeps the provisioning-time
+        // root while the process env would recompute somewhere else.
+        db.prepare("UPDATE companies SET workspace_root = ?, workspace_source = 'provisioned' WHERE id = ?")
+          .run(storedRoot, splitCo.id);
+
+        const filePath = resolveAgentMemoryFilePath(db, splitCo.id, splitAgent.id);
+        assert.ok(filePath, "memory file path must resolve");
+        assert.equal(
+          filePath,
+          path.join(storedRoot, "memory", "agents", splitAgent.id, "MEMORY.md"),
+          "stored workspace_root must win over the env recompute",
+        );
+
+        const write = appendAgentRunLesson(db, {
+          companyId: splitCo.id,
+          agentId: splitAgent.id,
+          lesson: "Lessons follow the runtime workspace, not the process env",
+          source: "agent",
+          runId: "55555555-eeee",
+        });
+        assert.equal(write.saved, true);
+        assert.ok(existsSync(filePath as string), "lesson file must land under the stored root");
+        const lessons = readAgentRunLessons(db, splitCo.id, splitAgent.id);
+        assert.match(lessons[0], /follow the runtime workspace/);
+
+        // openclaw-sourced companies keep the canonical env pin (adapter parity).
+        db.prepare("UPDATE companies SET workspace_source = 'openclaw' WHERE id = ?").run(splitCo.id);
+        const openclawPath = resolveAgentMemoryFilePath(db, splitCo.id, splitAgent.id);
+        assert.ok(openclawPath, "openclaw path must still resolve");
+        assert.ok(
+          !(openclawPath as string).startsWith(storedRoot),
+          "openclaw companies must pin to the canonical env root, matching the execution adapters",
+        );
+      } finally {
+        rmSync(storedRoot, { recursive: true, force: true });
+      }
     });
 
     await test("eligibility: designated lead + builder roles in, others out", () => {

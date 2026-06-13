@@ -4,7 +4,7 @@ import path from "path";
 import { resolveCompanyIdBySlug } from "@/lib/orchestration/company-service";
 import {
   ensureCompanyWorkspaceScaffold,
-  resolveCanonicalCompanyWorkspaceRoot,
+  resolveRuntimeCompanyWorkspaceRoot,
 } from "@/lib/workspaces/company-paths";
 
 /**
@@ -47,10 +47,12 @@ async function resolveAgentMemoryDir(scope: AgentMemoryScope): Promise<string | 
   const company = resolveCompanyIdBySlug(scope.companySlug);
   if (!company) return null;
 
-  const workspaceRoot = resolveCanonicalCompanyWorkspaceRoot(
-    company.id,
-    company.workspace_slug ?? company.slug,
-  );
+  const workspaceRoot = resolveRuntimeCompanyWorkspaceRoot({
+    companyId: company.id,
+    workspaceSlug: company.workspace_slug ?? company.slug,
+    workspaceRoot: company.workspace_root,
+    workspaceSource: company.workspace_source,
+  });
   const { memoryDir } = ensureCompanyWorkspaceScaffold(workspaceRoot);
   const agentDir = path.join(memoryDir, "agents", scope.agentId);
   await fs.mkdir(agentDir, { recursive: true });

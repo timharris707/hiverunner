@@ -10,6 +10,7 @@ import {
   resolveCompanyWorkspaceRoot,
   resolveLegacyOpenClawAgentWorkspacePath,
   resolvePlannedCanonicalCompanyWorkspaceRoot,
+  resolveRuntimeCompanyWorkspaceRoot,
 } from "@/lib/workspaces/company-paths";
 import { resolveWorkspaceBase } from "@/lib/files/workspace-resolver";
 import {
@@ -144,6 +145,64 @@ function run() {
         env,
       }),
       "/tmp/test-openclaw/workspace",
+    );
+  });
+
+  test("runtime root honors stored workspace_root for provisioned companies", () => {
+    const env = testEnv({
+      HOME: "/Users/test",
+      MC_WORKSPACE_ROOT: "/tmp/hiverunner-stable-workspaces",
+    });
+    assert.strictEqual(
+      resolveRuntimeCompanyWorkspaceRoot(
+        {
+          companyId: "company-123",
+          workspaceSlug: "acme",
+          workspaceRoot: "/tmp/legacy-workspaces/acme",
+          workspaceSource: "provisioned",
+        },
+        env,
+      ),
+      "/tmp/legacy-workspaces/acme",
+    );
+  });
+
+  test("runtime root falls back to env recompute when no root is stored", () => {
+    const env = testEnv({
+      HOME: "/Users/test",
+      MC_WORKSPACE_ROOT: "/tmp/hiverunner-stable-workspaces",
+    });
+    assert.strictEqual(
+      resolveRuntimeCompanyWorkspaceRoot(
+        {
+          companyId: "company-123",
+          workspaceSlug: "acme",
+          workspaceRoot: null,
+          workspaceSource: "provisioned",
+        },
+        env,
+      ),
+      "/tmp/hiverunner-stable-workspaces/companies/acme",
+    );
+  });
+
+  test("runtime root pins openclaw companies to the canonical env root, matching the adapters", () => {
+    const env = testEnv({
+      HOME: "/Users/test",
+      OPENCLAW_DIR: "/tmp/test-openclaw",
+      MC_WORKSPACE_ROOT: "/tmp/hiverunner-stable-workspaces",
+    });
+    assert.strictEqual(
+      resolveRuntimeCompanyWorkspaceRoot(
+        {
+          companyId: "default-company",
+          workspaceSlug: "default-co",
+          workspaceRoot: "/tmp/legacy-workspaces/default-co",
+          workspaceSource: "openclaw",
+        },
+        env,
+      ),
+      "/tmp/hiverunner-stable-workspaces/companies/default-co",
     );
   });
 

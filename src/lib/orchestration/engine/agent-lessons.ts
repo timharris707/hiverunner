@@ -8,7 +8,7 @@ import { isCompanyOrchestrationLeadRole } from "@/lib/orchestration/engine/role-
 import { mergeExecutionRunMetadata, parseJson } from "@/lib/orchestration/engine/persistence";
 import {
   ensureCompanyWorkspaceScaffold,
-  resolveCanonicalCompanyWorkspaceRoot,
+  resolveRuntimeCompanyWorkspaceRoot,
 } from "@/lib/workspaces/company-paths";
 
 /**
@@ -25,8 +25,9 @@ import {
  *
  * Sync on purpose: prompt assembly and run finalization are synchronous
  * paths. The voice module (voice-agent-memory.ts) stays async; both resolve
- * the memory file through resolveCanonicalCompanyWorkspaceRoot so they always
- * agree on the path.
+ * the memory file through resolveRuntimeCompanyWorkspaceRoot — the same
+ * stored-root-honoring resolution the execution adapters use — so the file
+ * lives where the agent's runtime cwd can see it and both lanes agree.
  */
 
 const MEMORY_FILENAME = "MEMORY.md";
@@ -63,14 +64,26 @@ export function resolveAgentMemoryFilePath(
 ): string | null {
   if (!companyId || !agentId) return null;
   const company = db
-    .prepare("SELECT id, slug, workspace_slug FROM companies WHERE id = ? LIMIT 1")
-    .get(companyId) as { id: string; slug: string; workspace_slug: string | null } | undefined;
+    .prepare(
+      "SELECT id, slug, workspace_slug, workspace_root, workspace_source FROM companies WHERE id = ? LIMIT 1",
+    )
+    .get(companyId) as
+    | {
+        id: string;
+        slug: string;
+        workspace_slug: string | null;
+        workspace_root: string | null;
+        workspace_source: string | null;
+      }
+    | undefined;
   if (!company) return null;
 
-  const workspaceRoot = resolveCanonicalCompanyWorkspaceRoot(
-    company.id,
-    company.workspace_slug ?? company.slug,
-  );
+  const workspaceRoot = resolveRuntimeCompanyWorkspaceRoot({
+    companyId: company.id,
+    workspaceSlug: company.workspace_slug ?? company.slug,
+    workspaceRoot: company.workspace_root,
+    workspaceSource: company.workspace_source,
+  });
   const { memoryDir } = ensureCompanyWorkspaceScaffold(workspaceRoot);
   const agentDir = path.join(memoryDir, "agents", agentId);
   fs.mkdirSync(agentDir, { recursive: true });
