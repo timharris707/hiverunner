@@ -32,7 +32,8 @@ async function run() {
   const { buildTaskGoalContextSection } = await import("@/lib/orchestration/goal-context");
   const { recordPlanningRetrospectiveMemory } = await import("@/lib/orchestration/planning-retrospectives");
   const { getActionResultsTerminalFailure } = await import("@/lib/orchestration/engine/run-continuation");
-  const { __testHooks: engineTestHooks, executeMcAction, parseActionBlocksFromText } = await import("@/lib/orchestration/engine/engine");
+  const { __testHooks: engineTestHooks, buildHeartbeatPrompt, executeMcAction, getOrCreateTaskSession, parseActionBlocksFromText } = await import("@/lib/orchestration/engine/engine");
+  const { getLatestSprintPlanRejection } = await import("@/lib/orchestration/engine/status-transitions");
   const { createProject, createProjectAgent, createTask, moveTask } = await import("@/lib/orchestration/service");
 
   const stamp = Date.now();
@@ -1135,6 +1136,156 @@ async function run() {
     assert.ok(
       guardComment?.body.includes("sprint plan draft"),
       "operator-visible guard comment explains the stuck-lead state",
+    );
+  });
+
+  // Shared fixture for the plan-policy feedback tests: a high-risk goal whose
+  // sprint-planning task has had one over-count propose_sprint_plan rejected
+  // (3 QA/review/release tasks vs the policy max of 2), with no draft on file.
+  const seedRejectedPlanningTask = async (label: string, claimInProgress: boolean) => {
+    const db = getOrchestrationDb();
+    const goal = createCompanyGoal({
+      companyIdOrSlug: company.id,
+      projectId: project.id,
+      name: `Plan-feedback ${label} goal`,
+      goal: "High-risk work touching production runtime and provider behavior. Require a separate QA/review task before completion.",
+      goalKind: "company",
+      status: "active",
+      leadAgentId: agent.id,
+    }).goal;
+    const planningTask = createTask({
+      projectId: project.id,
+      sprintId: goal.sprint.id,
+      title: `Plan sprint (${label})`,
+      description: "Fixture planning task for plan-policy feedback.",
+      priority: "P0",
+      type: "research",
+      status: "to-do",
+      assignee: agent.id,
+      labels: ["sprint-planning", "goal-contract"],
+      createdBy: "test",
+    }).task;
+    if (claimInProgress) {
+      db.prepare("UPDATE tasks SET status = 'in_progress' WHERE id = ?").run(planningTask.id);
+    }
+    const taskKey = planningTask.key ?? planningTask.id;
+    const overCount = await executeMcAction({
+      action: "propose_sprint_plan",
+      companyGoalId: goal.sprint.id,
+      sprints: [{
+        sequenceNumber: 1,
+        name: "Prototype sprint",
+        objective: "Build the prototype in one focused sprint.",
+        tasks: [
+          { id: "impl", title: "Implement the prototype", description: "Build the deliverable.", priority: "P1", type: "feature", assignee: agent.id },
+          { id: "qa1", title: "QA the prototype", description: "Verify behavior.", priority: "P2", type: "qa", assignee: agent.id, dependsOn: ["impl"] },
+          { id: "qa2", title: "Review the prototype", description: "Independent review.", priority: "P2", type: "review", assignee: agent.id, dependsOn: ["impl"] },
+          { id: "qa3", title: "Release readiness check", description: "Release gate.", priority: "P2", type: "release", assignee: agent.id, dependsOn: ["impl"] },
+        ],
+      }],
+    }, { agentId: agent.id, agentName: agent.name, companyId: company.id, taskKey, runId: randomUUID() }, db);
+    return { db, goal, planningTask, taskKey, overCount };
+  };
+
+  await test("getLatestSprintPlanRejection recovers the latest plan-policy rejection reason and detail", async () => {
+    const { db, planningTask, overCount } = await seedRejectedPlanningTask("helper", false);
+    assert.strictEqual(overCount.kind, "failed");
+    assert.strictEqual((overCount as { reason: string }).reason, "planning_policy:qa_count_exceeded");
+
+    const recovered = getLatestSprintPlanRejection(db, planningTask.id);
+    assert.ok(recovered, "a rejection is recovered after a rejected plan");
+    assert.strictEqual(recovered?.reason, "planning_policy:qa_count_exceeded");
+    assert.ok(recovered?.detail.includes("QA/review/release"), "detail carries the human-readable violation");
+
+    const freshGoal = createCompanyGoal({
+      companyIdOrSlug: company.id,
+      projectId: project.id,
+      name: "Plan-feedback fresh goal",
+      goal: "Low-risk self-contained scratch utility.",
+      goalKind: "company",
+      status: "active",
+      leadAgentId: agent.id,
+    }).goal;
+    const freshTask = createTask({
+      projectId: project.id,
+      sprintId: freshGoal.sprint.id,
+      title: "Plan sprint (fresh)",
+      description: "Fixture planning task with no rejection.",
+      priority: "P0",
+      type: "research",
+      status: "to-do",
+      assignee: agent.id,
+      labels: ["sprint-planning", "goal-contract"],
+      createdBy: "test",
+    }).task;
+    assert.strictEqual(getLatestSprintPlanRejection(db, freshTask.id), null, "no rejection comment yields null");
+  });
+
+  await test("buildHeartbeatPrompt surfaces a prior plan-policy rejection to the planning retry", async () => {
+    const { db, goal, planningTask } = await seedRejectedPlanningTask("prompt", true);
+    const agentRowSql = `
+      SELECT id, name, role, personality, company_id, openclaw_agent_id, adapter_type,
+             adapter_config_json, runtime_config_json, capabilities,
+             NULL AS runtime_workspace_root
+      FROM agents WHERE id = ? LIMIT 1
+    `;
+    const agentRow = db.prepare(agentRowSql).get(agent.id) as never;
+    const session = getOrCreateTaskSession({ agentId: agent.id, companyId: company.id, taskKey: planningTask.id }, db);
+
+    const retryPrompt = buildHeartbeatPrompt(agentRow, {}, session, db);
+    assert.match(retryPrompt, /Previous Sprint Plan Rejected/, "retry prompt surfaces the rejection prominently");
+    assert.ok(retryPrompt.includes("planning_policy:qa_count_exceeded"), "retry prompt names the policy reason");
+    assert.ok(retryPrompt.includes("QA/review/release"), "retry prompt carries the concrete violation detail");
+    assert.ok(retryPrompt.includes("Do not re-propose the same shape"), "retry prompt gives an imperative to revise");
+
+    // A sibling planning task on the same goal with no rejection of its own gets no banner.
+    const cleanTask = createTask({
+      projectId: project.id,
+      sprintId: goal.sprint.id,
+      title: "Plan sprint (prompt-clean)",
+      description: "Sibling planning task with no rejection.",
+      priority: "P0",
+      type: "research",
+      status: "to-do",
+      assignee: agent.id,
+      labels: ["sprint-planning", "goal-contract"],
+      createdBy: "test",
+    }).task;
+    const cleanSession = getOrCreateTaskSession({ agentId: agent.id, companyId: company.id, taskKey: cleanTask.id }, db);
+    const cleanPrompt = buildHeartbeatPrompt(agentRow, {}, cleanSession, db);
+    assert.ok(!cleanPrompt.includes("Previous Sprint Plan Rejected"), "no banner without a rejection on this task");
+  });
+
+  await test("planning_draft_required guard comment names the actual last violation", async () => {
+    const { db, planningTask, taskKey } = await seedRejectedPlanningTask("guard", true);
+
+    const attempt = await executeMcAction({
+      action: "update_task",
+      taskKey,
+      status: "review",
+      comment: "Plan is ready.",
+    }, { agentId: agent.id, agentName: agent.name, companyId: company.id, taskKey, runId: randomUUID() }, db);
+    assert.strictEqual(attempt.kind, "failed");
+    assert.strictEqual(
+      (attempt as { reason: string }).reason,
+      "status_transition_rejected:planning_draft_required",
+    );
+
+    const guardComment = db
+      .prepare(
+        `SELECT body FROM comments
+         WHERE task_id = ? AND source = 'engine' AND body LIKE 'Planning task cannot move%'
+         ORDER BY created_at DESC LIMIT 1`,
+      )
+      .get(planningTask.id) as { body: string } | undefined;
+    assert.ok(guardComment, "guard comment exists");
+    assert.ok(
+      guardComment?.body.includes("planning_policy:qa_count_exceeded"),
+      "guard names the actual rejection reason, not just the priority example",
+    );
+    assert.ok(
+      guardComment?.body.includes("Revise the plan"),
+      "guard tells the agent to revise the flagged constraint",
     );
   });
 

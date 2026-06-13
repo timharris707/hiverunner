@@ -50,6 +50,7 @@ import {
   learningReviewTargetHasDecision,
   normalizeTaskStatusToken,
   planningTaskHasSprintDraft,
+  SPRINT_PLAN_REJECTED_COMMENT_PREFIX,
   taskLabelsInclude,
 } from "@/lib/orchestration/engine/status-transitions";
 import {
@@ -806,7 +807,7 @@ export async function executeMcAction(
           importCommentOnTask(
             input.taskKey,
             input.agentId,
-            `Sprint plan draft rejected: ${planPolicyRejection.reason}.\n\n${planPolicyRejection.body}`,
+            `${SPRINT_PLAN_REJECTED_COMMENT_PREFIX}${planPolicyRejection.reason}.\n\n${planPolicyRejection.body}`,
             "status_update",
             input.runId,
             db,

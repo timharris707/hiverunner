@@ -181,6 +181,46 @@ export function planningTaskHasSprintDraft(db: Database.Database, taskId: string
   return Boolean(row);
 }
 
+// Stable prefix for the operator-visible comment the dispatcher posts when a
+// propose_sprint_plan is rejected by planning policy (action-dispatcher.ts).
+// Shared so the poster and the readers below cannot drift apart.
+export const SPRINT_PLAN_REJECTED_COMMENT_PREFIX = "Sprint plan draft rejected: ";
+
+/**
+ * The most recent unresolved planning-policy rejection for a planning task,
+ * recovered from the dispatcher's rejection comment. The stored body is
+ * `${PREFIX}${reason}.\n\n${policyExplanation}`; we split it back into the
+ * machine reason code and the human-readable policy explanation so callers can
+ * surface either. Returns null when no plan has ever been rejected on the task.
+ *
+ * This is the durable feedback channel a planning RETRY needs: a rejection only
+ * otherwise lives buried/truncated in the prompt's Recent Task Discussion, so
+ * agents loop on the same over-count without adapting (probe INS-G012).
+ */
+export function getLatestSprintPlanRejection(
+  db: Database.Database,
+  taskId: string,
+): { reason: string; detail: string; createdAt: string } | null {
+  const row = db
+    .prepare(
+      `SELECT body, created_at FROM comments
+       WHERE task_id = ?
+         AND type = 'status_update'
+         AND body LIKE ? || '%'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+    )
+    .get(taskId, SPRINT_PLAN_REJECTED_COMMENT_PREFIX) as
+      | { body: string; created_at: string }
+      | undefined;
+  if (!row) return null;
+  const afterPrefix = row.body.slice(SPRINT_PLAN_REJECTED_COMMENT_PREFIX.length);
+  const sepIndex = afterPrefix.indexOf(".\n\n");
+  const reason = (sepIndex >= 0 ? afterPrefix.slice(0, sepIndex) : afterPrefix.split("\n", 1)[0]).trim();
+  const detail = (sepIndex >= 0 ? afterPrefix.slice(sepIndex + 3) : "").trim();
+  return { reason, detail, createdAt: row.created_at };
+}
+
 export function learningReviewTargetHasDecision(db: Database.Database, taskId: string): boolean {
   const memory = db
     .prepare(
@@ -305,7 +345,13 @@ function recordPlanningDraftRequiredRejection(input: {
     .prepare("SELECT id FROM comments WHERE task_id = ? AND external_ref = ? LIMIT 1")
     .get(input.task.id, externalRef) as { id: string } | undefined;
   if (!existing) {
-    const body = "Planning task cannot move to review or done without a sprint plan draft on file - task remains open. Emit the sprint plan with propose_sprint_plan (fenced mc-action block or tool call) so the operator can review and approve it. If a previous propose_sprint_plan was dropped by validation, fix the flagged fields (task priority accepts P0-P3) and re-emit the full plan.";
+    // Name the actual last violation when one is on file, so the agent fixes
+    // the flagged constraint instead of guessing from the generic example.
+    const rejection = getLatestSprintPlanRejection(input.db, input.task.id);
+    const recovery = rejection
+      ? ` Your most recent propose_sprint_plan was rejected (${rejection.reason}). ${rejection.detail.split("\n")[0]} Revise the plan to satisfy that rule, then re-emit the full corrected plan.`
+      : " If a previous propose_sprint_plan was dropped by validation, fix the flagged fields (task priority accepts P0-P3) and re-emit the full plan.";
+    const body = `Planning task cannot move to review or done without a sprint plan draft on file - task remains open. Emit the sprint plan with propose_sprint_plan (fenced mc-action block or tool call) so the operator can review and approve it.${recovery}`;
     input.db.prepare(
       `INSERT INTO comments (id, task_id, author_agent_id, author_user_id, body, type, source, external_ref, created_at, updated_at)
        VALUES (?, ?, NULL, NULL, ?, 'status_update', 'engine', ?, ?, ?)`

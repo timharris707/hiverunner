@@ -13,6 +13,11 @@ import { mergeExecutionRunMetadata, parseJson } from "@/lib/orchestration/engine
 import type { TaskSession } from "@/lib/orchestration/engine/persistence";
 import { resolveTaskKey } from "@/lib/orchestration/engine/heartbeat-manager";
 import {
+  getLatestSprintPlanRejection,
+  isPlanningDraftLifecycleTask,
+  planningTaskHasSprintDraft,
+} from "@/lib/orchestration/engine/status-transitions";
+import {
   buildAgentLessonsPromptSection,
   isLessonsBookendEligible,
 } from "@/lib/orchestration/engine/agent-lessons";
@@ -537,6 +542,26 @@ export function buildHeartbeatPrompt(
     sections.push("  Instruction: Stay centered on this task. Do not drift into other projects unless this task explicitly requires it.");
     const goalContext = buildTaskGoalContextSection({ db, taskId: focusedTask.id, agentId: agent.id });
     if (goalContext) sections.push(goalContext);
+  }
+
+  // Plan-policy feedback bookend: when a sprint-planning task's previous
+  // propose_sprint_plan was rejected and no draft is on file yet, surface that
+  // rejection prominently so this run revises the flagged constraint instead of
+  // re-proposing the same shape. Without it the rejection only lives buried and
+  // truncated in Recent Task Discussion, and agents loop on the same over-count
+  // (probe INS-G012: a lead hit "at most 2 QA tasks" repeatedly without adapting).
+  if (
+    focusedTask &&
+    isPlanningDraftLifecycleTask(focusedTask.labels_json) &&
+    !planningTaskHasSprintDraft(db, focusedTask.id)
+  ) {
+    const planRejection = getLatestSprintPlanRejection(db, focusedTask.id);
+    if (planRejection) {
+      sections.push("\n## ⚠️ Previous Sprint Plan Rejected — Revise Before Re-Proposing\n");
+      sections.push(`Your most recent propose_sprint_plan for this goal was REJECTED (${planRejection.reason}). It was not accepted — no draft is on file.`);
+      if (planRejection.detail) sections.push(planRejection.detail);
+      sections.push("Instruction: This is a hard policy gate, not a suggestion. Change the specific thing it flagged — for a QA/review/release count, reduce those tasks to the allowed maximum; for a sprint or task count, consolidate — then re-emit the FULL corrected plan in one propose_sprint_plan mc-action. Do not re-propose the same shape, and do not claim the plan was accepted until propose_sprint_plan succeeds without a rejection.");
+    }
   }
 
   const memoryContext = compactPrompt.enabled
