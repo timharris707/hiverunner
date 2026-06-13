@@ -17,7 +17,8 @@
 
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 
 import { createIsolatedOrchestrationWorkspace, resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 
@@ -202,6 +203,40 @@ async function run() {
       assert.match(after, /## Operator preferences/);
       assert.match(after, /Prefers blunt summaries/);
       assert.match(after, /Voice sections and run lessons share MEMORY\.md/);
+    });
+
+    await test("stored companies.workspace_root wins over the env-derived canonical root (H3 split-brain)", () => {
+      const storedRoot = mkdtempSync(`${tmpdir()}/h3-stored-root-`);
+      const priorRow = db
+        .prepare("SELECT workspace_root FROM companies WHERE id = ?")
+        .get(company.id) as { workspace_root: string | null };
+      db.prepare("UPDATE companies SET workspace_root = ? WHERE id = ?").run(storedRoot, company.id);
+      try {
+        const filePath = resolveAgentMemoryFilePath(db, company.id, builder.id);
+        assert.ok(
+          filePath?.startsWith(storedRoot),
+          `memory path must live under the stored workspace_root, not the env tree (got ${filePath})`,
+        );
+        const appended = appendAgentRunLesson(db, {
+          companyId: company.id,
+          agentId: builder.id,
+          lesson: "Stored-root lessons land in the runner tree",
+          source: "agent",
+          runId: "55555555-eeee",
+        });
+        assert.equal(appended.saved, true);
+        const lessons = readAgentRunLessons(db, company.id, builder.id);
+        assert.match(
+          lessons[0],
+          /Stored-root lessons land in the runner tree/,
+          "lessons read must resolve the same stored-root file the write used",
+        );
+      } finally {
+        db.prepare("UPDATE companies SET workspace_root = ? WHERE id = ?").run(
+          priorRow.workspace_root,
+          company.id,
+        );
+      }
     });
 
     await test("eligibility: designated lead + builder roles in, others out", () => {

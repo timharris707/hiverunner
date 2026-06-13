@@ -65,6 +65,37 @@ export function resolvePlannedCanonicalCompanyWorkspaceRoot(
   return resolveCanonicalCompanyWorkspaceRoot(companyId, workspaceSlug, env);
 }
 
+/**
+ * Root for HiveRunner-owned memory files (agent MEMORY.md with run lessons,
+ * voice memory, voice transcripts). Honors the company's stored
+ * workspace_root so memory lives in the same tree runners and artifacts use
+ * (H3 split-brain fix) — EXCEPT openclaw-sourced workspaces: HiveRunner
+ * never writes its own memory into a user-owned OpenClaw tree (pinned by
+ * voice-transcript-storage.test.ts), so those keep the env-derived canonical
+ * root. All memory-file resolvers must go through this one function so the
+ * lessons engine and both voice lanes always agree on the path.
+ */
+export function resolveCompanyMemoryWorkspaceRoot(
+  company: {
+    id: string;
+    slug: string;
+    workspace_slug?: string | null;
+    workspace_root?: string | null;
+    workspace_source?: string | null;
+  },
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const stored = company.workspace_root?.trim();
+  if (stored && company.workspace_source !== "openclaw") {
+    return path.resolve(stored);
+  }
+  return resolveCanonicalCompanyWorkspaceRoot(
+    company.id,
+    company.workspace_slug ?? company.slug,
+    env,
+  );
+}
+
 export function resolveCompanyWorkspaceRoot(
   input: ResolveCompanyWorkspaceRootInput,
 ): string {

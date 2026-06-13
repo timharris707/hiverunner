@@ -4,7 +4,7 @@ import path from "path";
 import { resolveCompanyIdBySlug } from "@/lib/orchestration/company-service";
 import {
   ensureCompanyWorkspaceScaffold,
-  resolveCanonicalCompanyWorkspaceRoot,
+  resolveCompanyMemoryWorkspaceRoot,
 } from "@/lib/workspaces/company-paths";
 
 /**
@@ -47,10 +47,10 @@ async function resolveAgentMemoryDir(scope: AgentMemoryScope): Promise<string | 
   const company = resolveCompanyIdBySlug(scope.companySlug);
   if (!company) return null;
 
-  const workspaceRoot = resolveCanonicalCompanyWorkspaceRoot(
-    company.id,
-    company.workspace_slug ?? company.slug,
-  );
+  // Stored workspace_root wins for HiveRunner-owned workspaces so this file
+  // lives in the same tree runners, artifacts, and the lessons bookends use
+  // (H3 split-brain fix); openclaw trees stay contained to the canonical root.
+  const workspaceRoot = resolveCompanyMemoryWorkspaceRoot(company);
   const { memoryDir } = ensureCompanyWorkspaceScaffold(workspaceRoot);
   const agentDir = path.join(memoryDir, "agents", scope.agentId);
   await fs.mkdir(agentDir, { recursive: true });

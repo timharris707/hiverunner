@@ -8,7 +8,7 @@ import { isCompanyOrchestrationLeadRole } from "@/lib/orchestration/engine/role-
 import { mergeExecutionRunMetadata, parseJson } from "@/lib/orchestration/engine/persistence";
 import {
   ensureCompanyWorkspaceScaffold,
-  resolveCanonicalCompanyWorkspaceRoot,
+  resolveCompanyMemoryWorkspaceRoot,
 } from "@/lib/workspaces/company-paths";
 
 /**
@@ -25,8 +25,11 @@ import {
  *
  * Sync on purpose: prompt assembly and run finalization are synchronous
  * paths. The voice module (voice-agent-memory.ts) stays async; both resolve
- * the memory file through resolveCanonicalCompanyWorkspaceRoot so they always
- * agree on the path.
+ * the memory file through resolveCompanyMemoryWorkspaceRoot so they always
+ * agree on the path — and on the same tree runners and artifacts use for
+ * HiveRunner-owned workspaces, because that resolver honors the company's
+ * stored workspace_root (H3 split-brain fix; openclaw trees stay contained
+ * to the canonical root).
  */
 
 const MEMORY_FILENAME = "MEMORY.md";
@@ -63,14 +66,21 @@ export function resolveAgentMemoryFilePath(
 ): string | null {
   if (!companyId || !agentId) return null;
   const company = db
-    .prepare("SELECT id, slug, workspace_slug FROM companies WHERE id = ? LIMIT 1")
-    .get(companyId) as { id: string; slug: string; workspace_slug: string | null } | undefined;
+    .prepare(
+      "SELECT id, slug, workspace_slug, workspace_root, workspace_source FROM companies WHERE id = ? LIMIT 1",
+    )
+    .get(companyId) as
+      | {
+          id: string;
+          slug: string;
+          workspace_slug: string | null;
+          workspace_root: string | null;
+          workspace_source: string | null;
+        }
+      | undefined;
   if (!company) return null;
 
-  const workspaceRoot = resolveCanonicalCompanyWorkspaceRoot(
-    company.id,
-    company.workspace_slug ?? company.slug,
-  );
+  const workspaceRoot = resolveCompanyMemoryWorkspaceRoot(company);
   const { memoryDir } = ensureCompanyWorkspaceScaffold(workspaceRoot);
   const agentDir = path.join(memoryDir, "agents", agentId);
   fs.mkdirSync(agentDir, { recursive: true });

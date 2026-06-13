@@ -6,7 +6,7 @@ import { OPENCLAW_WORKSPACE, WORKSPACE_MEMORY } from "@/lib/paths";
 import { resolveCompanyIdBySlug } from "@/lib/orchestration/company-service";
 import {
   ensureCompanyWorkspaceScaffold,
-  resolveCanonicalCompanyWorkspaceRoot,
+  resolveCompanyMemoryWorkspaceRoot,
 } from "@/lib/workspaces/company-paths";
 import { resolveHiveRunnerWorkspaceRoot } from "@/lib/workspaces/root";
 
@@ -237,11 +237,11 @@ async function resolveBoundHiveRunnerVoiceLocation(
     return null;
   }
 
-  const workspaceRoot = resolveCanonicalCompanyWorkspaceRoot(
-    company.id,
-    company.workspace_slug ?? company.slug,
-    env,
-  );
+  // Stored workspace_root wins for HiveRunner-owned workspaces so voice
+  // memory lives in the same tree runners, artifacts, and the lessons
+  // bookends use (H3 split-brain fix); openclaw trees stay contained to the
+  // canonical root.
+  const workspaceRoot = resolveCompanyMemoryWorkspaceRoot(company, env);
   const { memoryDir } = ensureCompanyWorkspaceScaffold(workspaceRoot);
   const voiceDir = path.join(memoryDir, "voice");
 
