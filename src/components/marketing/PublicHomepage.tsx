@@ -632,6 +632,30 @@ npm run dev`}
           </div>
         </div>
       </section>
+
+      <footer className="border-t border-[var(--border)]">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-8 text-sm text-[var(--text-muted)]">
+          <span>© 2026 HiveRunner · Built by Tim Harris</span>
+          <span className="flex gap-5">
+            <Link
+              href="https://x.com/timharris707"
+              target="_blank"
+              rel="noreferrer"
+              className="transition-colors hover:text-[var(--text-primary)]"
+            >
+              @timharris707
+            </Link>
+            <Link
+              href={githubUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="transition-colors hover:text-[var(--text-primary)]"
+            >
+              GitHub
+            </Link>
+          </span>
+        </div>
+      </footer>
     </main>
   );
 }
