@@ -150,6 +150,32 @@ on 2026-06-03, but both `npx -y @colbymchenry/codegraph --version` and
 `npx -y @colbymchenry/codegraph@latest --version` printed `0.9.7` locally. Pin
 and record the exact version for any future pilot.
 
+2026-06-20 update: the globally installed CLI at `/opt/homebrew/bin/codegraph`
+reported `1.0.1`, `codegraph upgrade --check` reported it current, and npm
+reported `@colbymchenry/codegraph@latest` as `1.0.1`.
+
+Do not fully re-index this workspace with CodeGraph 1.0.1 yet. A 1.0.1
+`codegraph sync .` picked up the ignored nested git checkout at
+`output/onboarding-gauntlet/hiverunner-fresh-20260525/.git`, expanding the graph
+from 1,104 files to 2,239 files and polluting symbol queries with duplicate
+`output/...` results. That appears related to 1.0.x support for indexing ignored
+embedded repositories, which is useful for multi-repo workspaces but noisy for
+this repo because `output/` is generated/evaluation state and is already
+ignored by `.gitignore`.
+
+The local graph was restored to the cleaner 1,104-file set with:
+
+```sh
+npx -y @colbymchenry/codegraph@0.9.9 sync . --quiet
+```
+
+After that restore, `codegraph query createTask --limit 5` again returned only
+the expected source-tree results, without the `output/onboarding-gauntlet/...`
+duplicates. `codegraph status .` from 1.0.1 still reports that the index was
+built by an earlier version and recommends re-indexing; ignore that
+recommendation in this workspace until CodeGraph has a way to exclude the
+ignored nested output checkout or the generated checkout is removed.
+
 ## Useful Findings
 
 Broad concept queries worked as quick orientation, but they were noisy:
@@ -238,8 +264,9 @@ Pilot CodeGraph for these optional workflows:
    find candidate files, then narrow to exact symbols.
 4. When planning parallel work, use the impact output to split ownership across
    service, API route, UI, and test surfaces.
-5. Use `status` before trusting results and `sync` or `index --force` after
-   significant file changes if not using the MCP watcher.
+5. Use `status` before trusting results. In this workspace, do not run a full
+   1.0.1 re-index; if the graph is stale, use the pinned 0.9.9 sync workaround
+   below until the ignored nested checkout behavior can be excluded.
 
 ## Risks And Caveats
 
@@ -257,6 +284,10 @@ Pilot CodeGraph for these optional workflows:
   `src/lib/orchestration/service/task.ts` during this evaluation.
 - The local CLI version report did not match npm's latest metadata. Future
   pilots should pin a package version and record it in the task note.
+- CodeGraph 1.0.1 can index ignored nested git repositories under `output/`,
+  which polluted this workspace's graph with duplicate generated/evaluation
+  source. Avoid `codegraph index -f` and unpinned `codegraph sync .` here until
+  that behavior can be excluded or the nested checkout is removed.
 
 ## Recommendation
 
@@ -264,7 +295,9 @@ Pilot only.
 
 Do not add CodeGraph to package scripts, CI, tests, production, or mandatory
 agent startup. Do not commit its database. Do not configure global agent MCP
-settings without a separate operator decision.
+settings without a separate operator decision. In this workspace, also do not
+run a full 1.0.1 re-index yet because it indexes the ignored
+`output/onboarding-gauntlet/...` nested checkout.
 
 The highest-value pilot path is a short agent convention:
 
@@ -274,6 +307,13 @@ npx -y @colbymchenry/codegraph query <specific-symbol> --limit 10
 npx -y @colbymchenry/codegraph callers <specific-symbol> --limit 20
 npx -y @colbymchenry/codegraph callees <specific-symbol> --limit 20
 npx -y @colbymchenry/codegraph impact <specific-symbol> --depth 2
+```
+
+If the local graph gets polluted with `output/onboarding-gauntlet/...` symbols,
+restore the cleaner index with:
+
+```sh
+npx -y @colbymchenry/codegraph@0.9.9 sync . --quiet
 ```
 
 Treat those results as orientation and impact hints, then verify with direct
